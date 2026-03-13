@@ -4,6 +4,7 @@ import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import my.hive_back.common.dto.ResultDTO;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
+import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.InventoryStatics;
 import my.hive_back.module.inventory.model.vo.InventoryOverViewVO;
 import my.hive_back.module.inventory.service.InventoryService;
@@ -35,6 +36,12 @@ public class InventoryController {
     public ResultDTO<Void> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
 
         inventoryService.inCloth(inventoryInRequest);
+        return ResultDTO.success(null);
+    }
 
+    @PostMapping("cloth/out")
+    public ResultDTO<Void> outCloth(@Valid @RequestBody InventoryOutRequest inventoryOutRequest) {
+        inventoryService.outCloth(inventoryOutRequest);
+        return ResultDTO.success(null);
     }
 }

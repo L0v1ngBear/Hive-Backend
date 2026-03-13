@@ -29,12 +29,14 @@ public class InventoryRecord extends BaseEntity {
      */
     private Float operateMeters;
 
+    private Float totalMeters;
+
     private Float remainingMeters;
 
     /**
      * 操作人ID（关联用户表）
      */
-    private String operatorId;
+    private Long operatorId;
 
     /**
      * 操作人名称（冗余）

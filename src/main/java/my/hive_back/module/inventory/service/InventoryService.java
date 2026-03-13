@@ -1,29 +1,34 @@
 package my.hive_back.module.inventory.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import lombok.Synchronized;
 import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.interceptor.TenantInterceptor;
 import my.hive_back.common.utils.BarCodeUtil;
+import my.hive_back.common.utils.RedisUtil;
 import my.hive_back.module.inventory.InventoryInTypeEnum;
 import my.hive_back.module.inventory.InventoryOperateTypeEnum;
 import my.hive_back.module.inventory.mapper.ClothMapper;
 import my.hive_back.module.inventory.mapper.InventoryRecordMapper;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
+import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
 import my.hive_back.module.inventory.model.entity.InventoryStatics;
 import my.hive_back.module.inventory.mapper.InventoryStaticsMapper;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.concurrent.TimeUnit;
 
 
 @Service
@@ -40,6 +45,13 @@ public class InventoryService {
 
     @Resource
     private ClothMapper clothMapper;
+
+    private static final String INVENTORY_STATICS_IN_KEY_PREFIX = "inventory:in:statics";
+    private static final String INVENTORY_STATICS_OUT_KEY_PREFIX = "inventory:out:statics";
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
+    @Autowired
+    private RedisUtil redisUtil;
 
     public InventoryStatics selectInventoryStatics() {
 
@@ -92,11 +104,14 @@ public class InventoryService {
         request.setBarcode(barCode);
     }
 
+
+    //TODO 自动入库
     private void InventoryAutoIn(@Valid InventoryInRequest inventoryInRequest) {
+
     }
 
 
-
+    //TODO 扫码入库
     private void InventoryScanIn(String barcode) {
 
     }
@@ -115,5 +130,71 @@ public class InventoryService {
 
         //TODO 打印条形码
         barCodeUtil.createBarCodeImage(cloth.getBarcode(), 200, 100);
+
+        // 记录入库操作
+        InventoryRecord record = new InventoryRecord();
+        record.setTenantCode(TenantPermissionContext.getTenantCode());
+        record.setClothId(cloth.getId());
+        record.setOperatorId(TenantPermissionContext.getUserId());
+        record.setOperateType(InventoryOperateTypeEnum.IN.getCode());
+        record.setOperateMeters(inventoryInRequest.getMeters());
+        record.setTotalMeters(inventoryInRequest.getMeters());
+        record.setRemainingMeters(inventoryInRequest.getMeters());
+        inventoryRecordMapper.insert(record);
+
+
+        //TODO 需要持久化进数据库，选择rabbitmq,异步匀速持久化
+
+        // 更新库存统计,先存入redis
+        String inKey = INVENTORY_STATICS_IN_KEY_PREFIX + ":" + TenantPermissionContext.getTenantCode() + ":" + LocalDate.now();
+
+        String meters = inventoryInRequest.getMeters().toString();
+        long secondsToNextDay = redisUtil.getSecondsToNextDay();
+
+
+        stringRedisTemplate.opsForSet().add(inKey, meters);
+        stringRedisTemplate.expire(inKey, secondsToNextDay, TimeUnit.SECONDS);
+
+    }
+
+    //TODO 扫码出库
+    public void outCloth(@Valid InventoryOutRequest inventoryOutRequest) {
+
+        Float meters = inventoryOutRequest.getMeters();
+
+        String barCode = inventoryOutRequest.getBarCode();
+
+        if (meters == null) {
+            LambdaUpdateWrapper<Cloth> updateWrapper = new LambdaUpdateWrapper<>();
+            updateWrapper.set(Cloth::getRemainingMeters, 0);
+            updateWrapper.set(Cloth::getOutTime, LocalDateTime.now());
+            updateWrapper.set(Cloth::getStatus, InventoryOperateTypeEnum.OUT.getCode());
+            updateWrapper.set(Cloth::getOutOperatorId, TenantPermissionContext.getUserId());
+            updateWrapper.eq(Cloth::getBarcode, barCode);
+            clothMapper.update(updateWrapper);
+        } else {
+            LambdaUpdateWrapper<Cloth> updateWrapper = new LambdaUpdateWrapper<>();
+            updateWrapper.set(Cloth::getRemainingMeters, meters);
+            updateWrapper.set(Cloth::getOutTime, LocalDateTime.now());
+            updateWrapper.set(Cloth::getStatus, InventoryOperateTypeEnum.PART_OUT.getCode());
+            updateWrapper.set(Cloth::getOutOperatorId, TenantPermissionContext.getUserId());
+            updateWrapper.eq(Cloth::getBarcode, barCode);
+            clothMapper.update(updateWrapper);
+
+            //TODO 重新打印条形码
+
+        }
+
+        // 记录出库操作
+        InventoryRecord record = new InventoryRecord();
+        record.setTenantCode(TenantPermissionContext.getTenantCode());
+        record.setClothId(cloth.getId());
+        record.setOperatorId(TenantPermissionContext.getUserId());
+        record.setOperateType(InventoryOperateTypeEnum.OUT.getCode());
+        record.setOperateMeters(meters);
+        record.setTotalMeters(cloth.getTotalMeters());
+        record.setRemainingMeters(cloth.getRemainingMeters());
+        inventoryRecordMapper.insert(record);
+
     }
 }
