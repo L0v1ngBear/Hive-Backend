@@ -26,6 +26,7 @@
         <security.version>5.7.8</security.version>
         <com.google.zxing.version>3.5.2</com.google.zxing.version>
         <jSerialComm.version>2.9.2</jSerialComm.version>
+        <fastjson.version>2.0.33</fastjson.version>
     </properties>
 
     <!-- 核心：dependencyManagement 统一管理版本，不实际引入依赖 -->
@@ -103,6 +104,12 @@
                 <artifactId>mybatis-plus-boot-starter</artifactId>
                 <version>${mybatis-plus.version}</version>
             </dependency>
+
+            <dependency>
+                <groupId>com.alibaba.fastjson2</groupId>
+                <artifactId>fastjson2</artifactId>
+                <version>${fastjson.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -168,6 +175,11 @@
         <dependency>
             <groupId>com.fazecast</groupId>
             <artifactId>jSerialComm</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.alibaba.fastjson2</groupId>
+            <artifactId>fastjson2</artifactId>
         </dependency>
     </dependencies>
 

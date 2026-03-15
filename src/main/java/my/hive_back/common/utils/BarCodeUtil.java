@@ -5,6 +5,7 @@ import com.google.zxing.EncodeHintType;
 import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.oned.Code128Writer;
+import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -155,11 +156,24 @@ public class BarCodeUtil {
         return String.format("%02d", checkNum);
     }
 
-    // ========== 新增：销毁方法（Spring容器关闭时关闭线程池） ==========
-    @Override
-    protected void finalize() throws Throwable {
+    @PreDestroy // Spring容器销毁时执行（比如应用停止、重启）
+    public void destroyPrintExecutor() {
+        System.out.println("开始关闭条码打印线程池...");
+        // 1. 停止接收新任务
         printExecutor.shutdown();
-        printExecutor.awaitTermination(5, TimeUnit.SECONDS);
-        super.finalize();
+        try {
+            // 2. 等待5秒，让正在执行的打印任务完成
+            if (!printExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                System.out.println("打印线程池未在5秒内关闭，强制终止剩余任务");
+                // 3. 强制终止未完成的任务（避免卡死）
+                List<Runnable> unfinishedTasks = printExecutor.shutdownNow();
+                System.out.println("未完成的打印任务数：" + unfinishedTasks.size());
+            }
+        } catch (InterruptedException e) {
+            // 4. 捕获中断异常，再次强制关闭
+            printExecutor.shutdownNow();
+            Thread.currentThread().interrupt(); // 恢复中断状态
+        }
+        System.out.println("条码打印线程池已关闭");
     }
 }

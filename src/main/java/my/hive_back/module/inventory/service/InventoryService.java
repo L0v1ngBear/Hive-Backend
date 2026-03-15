@@ -185,16 +185,16 @@ public class InventoryService {
 
         }
 
-        // 记录出库操作
-        InventoryRecord record = new InventoryRecord();
-        record.setTenantCode(TenantPermissionContext.getTenantCode());
-        record.setClothId(cloth.getId());
-        record.setOperatorId(TenantPermissionContext.getUserId());
-        record.setOperateType(InventoryOperateTypeEnum.OUT.getCode());
-        record.setOperateMeters(meters);
-        record.setTotalMeters(cloth.getTotalMeters());
-        record.setRemainingMeters(cloth.getRemainingMeters());
-        inventoryRecordMapper.insert(record);
+//        // 记录出库操作
+//        InventoryRecord record = new InventoryRecord();
+//        record.setTenantCode(TenantPermissionContext.getTenantCode());
+//        record.setClothId(cloth.getId());
+//        record.setOperatorId(TenantPermissionContext.getUserId());
+//        record.setOperateType(InventoryOperateTypeEnum.OUT.getCode());
+//        record.setOperateMeters(meters);
+//        record.setTotalMeters(cloth.getTotalMeters());
+//        record.setRemainingMeters(cloth.getRemainingMeters());
+//        inventoryRecordMapper.insert(record);
 
     }
 }

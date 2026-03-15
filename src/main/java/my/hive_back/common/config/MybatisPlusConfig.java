@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
+import my.hive_back.common.context.TenantPermissionContext;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.NullValue;
@@ -23,7 +24,7 @@ public class MybatisPlusConfig {
         interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(new TenantLineHandler() {
             @Override
             public Expression getTenantId() {
-                String tenantCode = TenantContextHolder.getTenantCode();
+                String tenantCode = TenantPermissionContext.getTenantCode();
                 if (tenantCode == null) {
                     return new NullValue();
                 }
