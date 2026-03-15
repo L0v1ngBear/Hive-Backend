@@ -7,12 +7,12 @@ import my.hive_back.module.BaseEntity;
 
 @EqualsAndHashCode(callSuper = true)
 @Data
-@TableName("cloth_model_width")
-public class ClothModelWidth extends BaseEntity {
+@TableName("cloth_model_spec")
+public class ClothModelSpec extends BaseEntity {
 
     private String modelCode;
 
-    private String width;
+    private String spec;
 
     private Integer sort;
 }

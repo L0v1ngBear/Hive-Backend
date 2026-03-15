@@ -23,9 +23,9 @@ public class Cloth extends BaseEntity {
     private String modelCode;
 
     /**
-     * 门幅（如1.8m）
+     * 规格
      */
-    private String width;
+    private String spec;
 
     /**
      * 总米数（高精度）

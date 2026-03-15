@@ -17,7 +17,7 @@ public class InventoryInRequest {
     private Float meters;
 
     @NotBlank
-    private String width;
+    private String spec;
 
     // 入库类型
     @NotBlank

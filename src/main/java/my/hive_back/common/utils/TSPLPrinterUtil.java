@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import lombok.Getter;
 import lombok.Setter;
+import org.springframework.stereotype.Component;
 
 import javax.print.*;
 import javax.print.attribute.HashPrintRequestAttributeSet;
@@ -17,6 +18,7 @@ import java.nio.charset.StandardCharsets;
  */
 @Getter
 @Setter
+@Component
 public class TSPLPrinterUtil {
     // 默认打印机名称（可通过构造函数覆盖）
     private String printerName;

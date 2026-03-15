@@ -6,11 +6,14 @@ import my.hive_back.common.dto.ResultDTO;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
 import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.InventoryStatics;
+import my.hive_back.module.inventory.model.vo.BarCodeSearchVO;
 import my.hive_back.module.inventory.model.vo.InventoryOverViewVO;
 import my.hive_back.module.inventory.service.InventoryService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import javax.xml.transform.Result;
 
 @RestController
 @RequestMapping("/inventory")
@@ -20,7 +23,7 @@ public class InventoryController {
     @Resource
     private InventoryService inventoryService;
 
-    @GetMapping("/list")
+    @GetMapping("/overView")
     public ResultDTO<InventoryOverViewVO> listInventory() {
         InventoryStatics inventoryStatics = inventoryService.selectInventoryStatics();
         if (inventoryStatics == null) {
@@ -43,5 +46,15 @@ public class InventoryController {
     public ResultDTO<Void> outCloth(@Valid @RequestBody InventoryOutRequest inventoryOutRequest) {
         inventoryService.outCloth(inventoryOutRequest);
         return ResultDTO.success(null);
+    }
+
+//    @GetMapping("/list")
+//    public ResultDTO<InventoryRecordListVO> listInventoryRecord() {
+
+    //TODO
+    @GetMapping("/barCode/search")
+    public ResultDTO<BarCodeSearchVO> searchBarCode(@RequestParam String barCode) {
+        BarCodeSearchVO resultDTO = new BarCodeSearchVO();
+        return ResultDTO.success(resultDTO);
     }
 }

@@ -31,7 +31,7 @@ public class InventoryRecord extends BaseEntity {
 
     private Float totalMeters;
 
-    private Float remainingMeters;
+//    private Float remainingMeters;
 
     /**
      * 操作人ID（关联用户表）

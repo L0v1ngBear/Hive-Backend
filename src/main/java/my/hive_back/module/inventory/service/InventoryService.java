@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import lombok.Synchronized;
+import my.hive_back.common.annotation.RequirePermission;
 import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.interceptor.TenantInterceptor;
 import my.hive_back.common.utils.BarCodeUtil;
@@ -75,6 +76,7 @@ public class InventoryService {
      */
     @Synchronized
     @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = "inventory:in", message = "无权操作库存入库")
     public void inCloth(@Valid InventoryInRequest inventoryInRequest) {
 
         InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.valueOf(inventoryInRequest.getInType());
@@ -134,19 +136,17 @@ public class InventoryService {
         // 记录入库操作
         InventoryRecord record = new InventoryRecord();
         record.setTenantCode(TenantPermissionContext.getTenantCode());
-        record.setClothId(cloth.getId());
         record.setOperatorId(TenantPermissionContext.getUserId());
         record.setOperateType(InventoryOperateTypeEnum.IN.getCode());
         record.setOperateMeters(inventoryInRequest.getMeters());
         record.setTotalMeters(inventoryInRequest.getMeters());
-        record.setRemainingMeters(inventoryInRequest.getMeters());
         inventoryRecordMapper.insert(record);
 
 
         //TODO 需要持久化进数据库，选择rabbitmq,异步匀速持久化
 
         // 更新库存统计,先存入redis
-        String inKey = INVENTORY_STATICS_IN_KEY_PREFIX + ":" + TenantPermissionContext.getTenantCode() + ":" + LocalDate.now();
+        String inKey = INVENTORY_STATICS_IN_KEY_PREFIX + ":" + TenantPermissionContext.getTenantCode();
 
         String meters = inventoryInRequest.getMeters().toString();
         long secondsToNextDay = redisUtil.getSecondsToNextDay();
@@ -157,44 +157,47 @@ public class InventoryService {
 
     }
 
-    //TODO 扫码出库
+    @RequirePermission(value = "inventory:out", message = "无权操作库存出库")
     public void outCloth(@Valid InventoryOutRequest inventoryOutRequest) {
 
         Float meters = inventoryOutRequest.getMeters();
 
         String barCode = inventoryOutRequest.getBarCode();
 
+        Long clothId = inventoryOutRequest.getClothId();
+
+        LambdaUpdateWrapper<Cloth> updateWrapper = new LambdaUpdateWrapper<>();
         if (meters == null) {
-            LambdaUpdateWrapper<Cloth> updateWrapper = new LambdaUpdateWrapper<>();
             updateWrapper.set(Cloth::getRemainingMeters, 0);
             updateWrapper.set(Cloth::getOutTime, LocalDateTime.now());
             updateWrapper.set(Cloth::getStatus, InventoryOperateTypeEnum.OUT.getCode());
-            updateWrapper.set(Cloth::getOutOperatorId, TenantPermissionContext.getUserId());
-            updateWrapper.eq(Cloth::getBarcode, barCode);
-            clothMapper.update(updateWrapper);
         } else {
-            LambdaUpdateWrapper<Cloth> updateWrapper = new LambdaUpdateWrapper<>();
             updateWrapper.set(Cloth::getRemainingMeters, meters);
             updateWrapper.set(Cloth::getOutTime, LocalDateTime.now());
             updateWrapper.set(Cloth::getStatus, InventoryOperateTypeEnum.PART_OUT.getCode());
-            updateWrapper.set(Cloth::getOutOperatorId, TenantPermissionContext.getUserId());
-            updateWrapper.eq(Cloth::getBarcode, barCode);
-            clothMapper.update(updateWrapper);
 
             //TODO 重新打印条形码
 
         }
+        updateWrapper.set(Cloth::getOutOperatorId, TenantPermissionContext.getUserId());
+        updateWrapper.eq(Cloth::getBarcode, barCode);
+        clothMapper.update(updateWrapper);
 
-//        // 记录出库操作
-//        InventoryRecord record = new InventoryRecord();
-//        record.setTenantCode(TenantPermissionContext.getTenantCode());
-//        record.setClothId(cloth.getId());
-//        record.setOperatorId(TenantPermissionContext.getUserId());
-//        record.setOperateType(InventoryOperateTypeEnum.OUT.getCode());
-//        record.setOperateMeters(meters);
-//        record.setTotalMeters(cloth.getTotalMeters());
-//        record.setRemainingMeters(cloth.getRemainingMeters());
-//        inventoryRecordMapper.insert(record);
+        // 记录出库操作
+        InventoryRecord record = new InventoryRecord();
+        record.setTenantCode(TenantPermissionContext.getTenantCode());
+        record.setClothId(clothId);
+        record.setOperatorId(TenantPermissionContext.getUserId());
+        record.setOperateType(InventoryOperateTypeEnum.OUT.getCode());
+        record.setOperateMeters(meters);
+        inventoryRecordMapper.insert(record);
 
+        String outKey = INVENTORY_STATICS_OUT_KEY_PREFIX + ":" + TenantPermissionContext.getTenantCode();
+
+        String opMeters = inventoryOutRequest.getMeters().toString();
+
+        long secondsToNextDay = redisUtil.getSecondsToNextDay();
+        stringRedisTemplate.opsForSet().add(outKey, opMeters);
+        stringRedisTemplate.expire(outKey, secondsToNextDay, TimeUnit.SECONDS);
     }
 }
