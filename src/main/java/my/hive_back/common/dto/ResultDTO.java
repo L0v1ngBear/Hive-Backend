@@ -29,4 +29,8 @@ public class ResultDTO<T> {
         result.setData(null);
         return result;
     }
+
+    public static <T> ResultDTO<T> fail(String msg) {
+        return fail(500, msg);
+    }
 }

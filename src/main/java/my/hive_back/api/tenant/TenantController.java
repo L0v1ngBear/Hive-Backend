@@ -5,11 +5,16 @@ import jakarta.annotation.Resource;
 import my.hive_back.common.dto.PageResultVO;
 import my.hive_back.common.dto.ResultDTO;
 import my.hive_back.module.tenant.model.dto.TenantInfoPageRequest;
+import my.hive_back.module.tenant.model.dto.TenantLocationAddRequest;
 import my.hive_back.module.tenant.model.entity.Tenant;
+import my.hive_back.module.tenant.model.entity.TenantLocation;
+import my.hive_back.module.tenant.model.vo.TenantLocationVO;
 import my.hive_back.module.tenant.model.vo.TenantVO;
 import my.hive_back.module.tenant.service.TenantService;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import jakarta.validation.Valid;
@@ -43,4 +48,24 @@ public class TenantController {
 
         return ResultDTO.success(tenantVoPage);
     }
+
+    @PostMapping("/location/add")
+    public ResultDTO<TenantLocationVO> addTenantLocation(@Valid @RequestBody TenantLocationAddRequest tenantLocationAddRequest) {
+        TenantLocation tenantLocation = tenantService.addTenantLocation(tenantLocationAddRequest);
+
+        TenantLocationVO tenantLocationAddVO = new TenantLocationVO();
+        BeanUtils.copyProperties(tenantLocation, tenantLocationAddVO);
+        return ResultDTO.success(tenantLocationAddVO);
+
+    }
+
+    @GetMapping("/location/get")
+    public ResultDTO<TenantLocationVO> getTenantLocation() {
+        TenantLocation tenantLocation = tenantService.getTenantLocation();
+        TenantLocationVO tenantLocationVO = new TenantLocationVO();
+        BeanUtils.copyProperties(tenantLocation, tenantLocationVO);
+        return ResultDTO.success(tenantLocationVO);
+    }
+
+
 }

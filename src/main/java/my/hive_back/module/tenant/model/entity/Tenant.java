@@ -29,7 +29,7 @@ public class Tenant {
 
     /**
      * 租户名称
-     * 租户的业务名称（如"XX科技有限公司"），用于前端展示
+     * 租户的业务名称
      */
     private String tenantName;
 
