@@ -33,7 +33,7 @@ public class Cloth extends BaseEntity {
     private Float meters;
 
     /**
-     * 状态（0-在库，1-已出库，2-部分出库）
+     * 状态（0-在库，1-已出库，2-部分出库）绑定ClothStatusEnum
      */
     private Integer status;
 
@@ -63,6 +63,13 @@ public class Cloth extends BaseEntity {
      */
     private Long outOperatorId;
 
-
+    /**
+     * 入库类型
+     */
     private String inType;
+
+    /**
+     * 是否为次品 绑定ClothBadEnum
+     */
+    private Integer isBad;
 }

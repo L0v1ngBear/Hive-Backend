@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import my.hive_back.common.dto.ResultDTO;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
 import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
+import my.hive_back.module.inventory.model.entity.Cloth;
 import my.hive_back.module.inventory.model.entity.InventoryStatics;
 import my.hive_back.module.inventory.model.vo.BarCodeSearchVO;
 import my.hive_back.module.inventory.model.vo.InventoryOverViewVO;
@@ -51,10 +52,11 @@ public class InventoryController {
 //    @GetMapping("/list")
 //    public ResultDTO<InventoryRecordListVO> listInventoryRecord() {
 
-    //TODO
     @GetMapping("/barCode/search")
     public ResultDTO<BarCodeSearchVO> searchBarCode(@RequestParam String barCode) {
-        BarCodeSearchVO resultDTO = new BarCodeSearchVO();
-        return ResultDTO.success(resultDTO);
+        Cloth cloth = inventoryService.selectClothByBarCode(barCode);
+        BarCodeSearchVO vo = new BarCodeSearchVO();
+        BeanUtils.copyProperties(cloth, vo);
+        return ResultDTO.success(vo);
     }
 }

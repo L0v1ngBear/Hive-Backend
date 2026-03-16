@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import lombok.Synchronized;
 import my.hive_back.common.annotation.RequirePermission;
 import my.hive_back.common.context.TenantPermissionContext;
+import my.hive_back.common.exception.BusinessException;
 import my.hive_back.common.interceptor.TenantInterceptor;
 import my.hive_back.common.utils.BarCodeUtil;
 import my.hive_back.common.utils.RedisUtil;
@@ -49,9 +50,10 @@ public class InventoryService {
 
     private static final String INVENTORY_STATICS_IN_KEY_PREFIX = "inventory:in:statics";
     private static final String INVENTORY_STATICS_OUT_KEY_PREFIX = "inventory:out:statics";
-    @Autowired
+
+    @Resource
     private StringRedisTemplate stringRedisTemplate;
-    @Autowired
+    @Resource
     private RedisUtil redisUtil;
 
     public InventoryStatics selectInventoryStatics() {
@@ -158,21 +160,38 @@ public class InventoryService {
     }
 
     @RequirePermission(value = "inventory:out", message = "无权操作库存出库")
+    @Transactional(rollbackFor = Exception.class)
     public void outCloth(@Valid InventoryOutRequest inventoryOutRequest) {
+
+        // 校验 cloth
+        LambdaQueryWrapper<Cloth> wrapper = new LambdaQueryWrapper<>();
+
+        wrapper.eq(Cloth::getBarcode, inventoryOutRequest.getBarCode());
+
+        Cloth cloth = clothMapper.selectOne(wrapper);
+
+        if (cloth == null) {
+            throw new IllegalArgumentException("该布不存在");
+        }
 
         Float meters = inventoryOutRequest.getMeters();
 
         String barCode = inventoryOutRequest.getBarCode();
 
-        Long clothId = inventoryOutRequest.getClothId();
+        Long clothId = cloth.getId();
 
         LambdaUpdateWrapper<Cloth> updateWrapper = new LambdaUpdateWrapper<>();
-        if (meters == null) {
+
+        if (meters == null || meters <= 0) {
             updateWrapper.set(Cloth::getRemainingMeters, 0);
             updateWrapper.set(Cloth::getOutTime, LocalDateTime.now());
             updateWrapper.set(Cloth::getStatus, InventoryOperateTypeEnum.OUT.getCode());
         } else {
-            updateWrapper.set(Cloth::getRemainingMeters, meters);
+            float remainMeters = cloth.getRemainingMeters() - meters;
+            if (remainMeters < 0) {
+                throw new BusinessException("该布仅剩" + cloth.getRemainingMeters() + "米，无法出库" + meters + "米");
+            }
+            updateWrapper.set(Cloth::getRemainingMeters, remainMeters);
             updateWrapper.set(Cloth::getOutTime, LocalDateTime.now());
             updateWrapper.set(Cloth::getStatus, InventoryOperateTypeEnum.PART_OUT.getCode());
 
@@ -194,10 +213,19 @@ public class InventoryService {
 
         String outKey = INVENTORY_STATICS_OUT_KEY_PREFIX + ":" + TenantPermissionContext.getTenantCode();
 
-        String opMeters = inventoryOutRequest.getMeters().toString();
+        String opMeters = inventoryOutRequest.getMeters() != null ? inventoryOutRequest.getMeters().toString() : "0";
 
         long secondsToNextDay = redisUtil.getSecondsToNextDay();
         stringRedisTemplate.opsForSet().add(outKey, opMeters);
         stringRedisTemplate.expire(outKey, secondsToNextDay, TimeUnit.SECONDS);
+    }
+
+    @RequirePermission(value = "inventory:search", message = "无权库存查询")
+    public Cloth selectClothByBarCode(String barCode) {
+        LambdaQueryWrapper<Cloth> wrapper = new LambdaQueryWrapper<>();
+
+        wrapper.eq(Cloth::getBarcode, barCode);
+
+        return clothMapper.selectOne(wrapper);
     }
 }
