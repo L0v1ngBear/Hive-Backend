@@ -4,12 +4,11 @@ import jakarta.annotation.Resource;
 import my.hive_back.common.dto.ResultDTO;
 import my.hive_back.module.attendance.model.dto.AttendancePunchRequest;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
-import my.hive_back.module.attendance.model.vo.AttendancePunchVO;
+import my.hive_back.module.attendance.model.vo.AttendanceRecordVO;
 import my.hive_back.module.attendance.service.AttendanceService;
+import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController("/attendance")
 @Validated
@@ -19,7 +18,16 @@ public class AttendanceController {
     private AttendanceService attendanceService;
 
     @PostMapping("/punch")
-    public ResultDTO<AttendancePunchVO> punch(@RequestBody AttendancePunchRequest attendancePunchRequest) {
-        AttendanceRecord attendanceRecord = attendanceService.punch(attendancePunchRequest);
+    public ResultDTO<String> punch(@RequestBody AttendancePunchRequest attendancePunchRequest) {
+        attendanceService.punch(attendancePunchRequest);
+        return ResultDTO.success("打卡成功");
+    }
+
+    @GetMapping("/select/record/{userId}")
+    public ResultDTO<AttendanceRecordVO> selectRecord(@PathVariable Long userId) {
+        AttendanceRecord attendanceRecord = attendanceService.selectRecord(userId);
+        AttendanceRecordVO attendanceRecordVO = new AttendanceRecordVO();
+        BeanUtils.copyProperties(attendanceRecord, attendanceRecordVO);
+        return ResultDTO.success(attendanceRecordVO);
     }
 }

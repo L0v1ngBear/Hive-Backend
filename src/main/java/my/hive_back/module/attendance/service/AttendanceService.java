@@ -160,4 +160,12 @@ public class AttendanceService {
         s = s * earthRadius;
         return BigDecimal.valueOf(s).setScale(2, RoundingMode.HALF_UP);
     }
+
+    public AttendanceRecord selectRecord(Long userId) {
+        return attendanceRecordMapper.selectOne(
+                new LambdaQueryWrapper<AttendanceRecord>()
+                        .eq(AttendanceRecord::getUserId, userId)
+                        .orderByDesc(AttendanceRecord::getId)
+        );
+    }
 }
