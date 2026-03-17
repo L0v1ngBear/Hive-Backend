@@ -11,6 +11,7 @@ import my.hive_back.common.exception.BusinessException;
 import my.hive_back.common.interceptor.TenantInterceptor;
 import my.hive_back.common.utils.BarCodeUtil;
 import my.hive_back.common.utils.RedisUtil;
+import my.hive_back.common.utils.TimeUtil;
 import my.hive_back.module.inventory.InventoryInTypeEnum;
 import my.hive_back.module.inventory.InventoryOperateTypeEnum;
 import my.hive_back.module.inventory.mapper.ClothMapper;
@@ -125,7 +126,7 @@ public class InventoryService {
         Cloth cloth = new Cloth();
         BeanUtils.copyProperties(inventoryInRequest, cloth);
         cloth.setInOperatorId(TenantPermissionContext.getUserId());
-        cloth.setInTime(LocalDateTime.now());
+        cloth.setInTime(TimeUtil.now());
         cloth.setTotalMeters(inventoryInRequest.getMeters());
         cloth.setRemainingMeters(inventoryInRequest.getMeters());
         cloth.setStatus(InventoryOperateTypeEnum.IN.getCode());
@@ -184,7 +185,7 @@ public class InventoryService {
 
         if (meters == null || meters <= 0) {
             updateWrapper.set(Cloth::getRemainingMeters, 0);
-            updateWrapper.set(Cloth::getOutTime, LocalDateTime.now());
+            updateWrapper.set(Cloth::getOutTime, TimeUtil.now());
             updateWrapper.set(Cloth::getStatus, InventoryOperateTypeEnum.OUT.getCode());
         } else {
             float remainMeters = cloth.getRemainingMeters() - meters;
@@ -192,7 +193,7 @@ public class InventoryService {
                 throw new BusinessException("该布仅剩" + cloth.getRemainingMeters() + "米，无法出库" + meters + "米");
             }
             updateWrapper.set(Cloth::getRemainingMeters, remainMeters);
-            updateWrapper.set(Cloth::getOutTime, LocalDateTime.now());
+            updateWrapper.set(Cloth::getOutTime, TimeUtil.now());
             updateWrapper.set(Cloth::getStatus, InventoryOperateTypeEnum.PART_OUT.getCode());
 
             //TODO 重新打印条形码

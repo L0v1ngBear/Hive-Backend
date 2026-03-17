@@ -1,6 +1,5 @@
 server:
   servlet:
-    port: 8080
     context-path: /api
 mybatis-plus:
   type-aliases-package: my.Hive_Back.module.*.model.entity
@@ -12,3 +11,6 @@ mybatis-plus:
       logic-delete-field: isDeleted # 全局逻辑删除字段名
       logic-delete-value: 1 # 逻辑删除值
       logic-not-delete-value: 0 # 逻辑未删除值
+spring:
+  profiles:
+    active: dev

@@ -11,11 +11,7 @@ public enum PunchTypeEnum {
     /**
      * 下班打卡
      */
-    OFF_PUNCH(2),
-    /**
-     * 加班打卡
-     */
-    OVERTIME_PUNCH(3);
+    OFF_PUNCH(2);
 
     private int value;
 

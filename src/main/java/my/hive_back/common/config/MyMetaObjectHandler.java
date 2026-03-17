@@ -1,6 +1,7 @@
 package my.hive_back.common.config;
 
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
+import my.hive_back.common.utils.TimeUtil;
 import org.apache.ibatis.reflection.MetaObject;
 import org.springframework.stereotype.Component;
 
@@ -15,9 +16,9 @@ public class MyMetaObjectHandler implements MetaObjectHandler {
     @Override
     public void insertFill(MetaObject metaObject) {
         // 填充 create_time（仅为空时填充）
-        strictInsertFill(metaObject, "createTime", LocalDateTime.class, LocalDateTime.now());
+        strictInsertFill(metaObject, "createTime", LocalDateTime.class, TimeUtil.now());
         // 填充 update_time（新增时和创建时间一致）
-        strictInsertFill(metaObject, "updateTime", LocalDateTime.class, LocalDateTime.now());
+        strictInsertFill(metaObject, "updateTime", LocalDateTime.class, TimeUtil.now());
     }
 
     /**
@@ -26,6 +27,6 @@ public class MyMetaObjectHandler implements MetaObjectHandler {
     @Override
     public void updateFill(MetaObject metaObject) {
         // 填充 update_time（每次更新都覆盖为当前时间）
-        strictUpdateFill(metaObject, "updateTime", LocalDateTime.class, LocalDateTime.now());
+        strictUpdateFill(metaObject, "updateTime", LocalDateTime.class, TimeUtil.now());
     }
 }

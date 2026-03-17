@@ -7,7 +7,7 @@ import my.hive_back.common.dto.ResultDTO;
 import my.hive_back.module.tenant.model.dto.TenantInfoPageRequest;
 import my.hive_back.module.tenant.model.dto.TenantLocationAddRequest;
 import my.hive_back.module.tenant.model.entity.Tenant;
-import my.hive_back.module.tenant.model.entity.TenantLocation;
+import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import my.hive_back.module.tenant.model.vo.TenantLocationVO;
 import my.hive_back.module.tenant.model.vo.TenantVO;
 import my.hive_back.module.tenant.service.TenantService;
@@ -49,9 +49,9 @@ public class TenantController {
         return ResultDTO.success(tenantVoPage);
     }
 
-    @PostMapping("/location/add")
+    @PostMapping("/tenant/attendanceInfo/add")
     public ResultDTO<TenantLocationVO> addTenantLocation(@Valid @RequestBody TenantLocationAddRequest tenantLocationAddRequest) {
-        TenantLocation tenantLocation = tenantService.addTenantLocation(tenantLocationAddRequest);
+        TenantAttendanceRule tenantLocation = tenantService.addTenantLocation(tenantLocationAddRequest);
 
         TenantLocationVO tenantLocationAddVO = new TenantLocationVO();
         BeanUtils.copyProperties(tenantLocation, tenantLocationAddVO);
@@ -59,13 +59,12 @@ public class TenantController {
 
     }
 
-    @GetMapping("/location/get")
+    @GetMapping("/tenant/attendanceInfo/get")
     public ResultDTO<TenantLocationVO> getTenantLocation() {
-        TenantLocation tenantLocation = tenantService.getTenantLocation();
+        TenantAttendanceRule tenantLocation = tenantService.getTenantLocation();
         TenantLocationVO tenantLocationVO = new TenantLocationVO();
         BeanUtils.copyProperties(tenantLocation, tenantLocationVO);
         return ResultDTO.success(tenantLocationVO);
     }
-
 
 }

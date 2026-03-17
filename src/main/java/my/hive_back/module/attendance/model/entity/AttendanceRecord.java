@@ -5,8 +5,8 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 @TableName("attendance_record")
 @Data
@@ -15,66 +15,98 @@ public class AttendanceRecord {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    /**
+     * 考勤主键：日期_用户ID (例如: 20231025_1001)
+     * 保证同一天同一个用户只有一条主记录
+     */
     private String punchId;
 
     private Long userId;
 
     private String tenantCode;
 
+    // ==========================================
+    //                 上班打卡数据
+    // ==========================================
+
     /**
-     * 打卡类型
-     * 1-上班打卡，2-下班打卡（可扩展：3-加班打卡，4-外勤打卡等）
+     * 上班打卡时间
      */
-    private Integer punchType;
+    private LocalTime signInTime;
 
     /**
-     * 员工打卡纬度
-     * 高精度存储，避免浮点误差
+     * 上班打卡状态 (绑定 PunchStatusEnum: 正常、迟到等)
      */
-    private BigDecimal userLat;
+    private Integer signInStatus;
 
     /**
-     * 员工打卡经度
+     * 上班打卡纬度
      */
-    private BigDecimal userLng;
-
+    private Double signInLat;
 
     /**
-     * 与公司打卡点的距离（米）
-     * 核心字段：用于判断是否在有效范围内
+     * 上班打卡经度
      */
-    private BigDecimal distance;
+    private Double signInLng;
 
     /**
-     * 打卡有效半径（米）
-     * 存储打卡时的半径，避免后续公司半径修改影响历史记录
+     * 上班打卡时距离公司的距离（米）
      */
-    private Integer radius;
+    private Double signInDistance;
 
     /**
-     * 打卡结果
-     * SUCCESS-成功，FAIL-失败（枚举值，便于统计和筛选）
+     * 上班打卡位置描述（逆地理编码地址）
      */
-    private String punchResult;
+    private String signInAddress;
+
+
+    // ==========================================
+    //                 下班打卡数据
+    // ==========================================
 
     /**
-     * 打卡时间（核心字段）
+     * 下班打卡时间（支持多次打卡覆盖更新）
      */
-    private LocalDateTime punchTime;
+    private LocalTime signOutTime;
 
     /**
-     * 打卡位置描述（辅助信息）
-     * 可选：可通过逆地理编码API将经纬度转换为地址
+     * 下班打卡状态 (绑定 PunchStatusEnum: 正常、早退、加班、缺卡等)
      */
-    private String address;
+    private Integer signOutStatus;
 
     /**
-     * 记录创建时间
+     * 下班打卡纬度
+     */
+    private Double signOutLat;
+
+    /**
+     * 下班打卡经度
+     */
+    private Double signOutLng;
+
+    /**
+     * 下班打卡时距离公司的距离（米）
+     */
+    private Double signOutDistance;
+
+    /**
+     * 下班打卡位置描述（逆地理编码地址）
+     */
+    private String signOutAddress;
+
+    /**
+     * 打卡有效半径快照（米）
+     * 存储当天的规则半径，避免后续公司修改半径影响历史记录的判定
+     */
+    private Integer ruleRadius;
+
+    /**
+     * 记录创建时间 (首次上班打卡时生成)
      */
     private LocalDateTime createTime;
 
     /**
-     * 记录更新时间
+     * 记录更新时间 (下班打卡时更新)
      */
     private LocalDateTime updateTime;
 }

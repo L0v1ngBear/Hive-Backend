@@ -5,11 +5,11 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
-import java.math.BigDecimal;
+import java.time.LocalTime;
 
-@TableName("tenant_location")
+@TableName("tenant_attendance_info")
 @Data
-public class TenantLocation {
+public class TenantAttendanceRule {
 
     @TableId(type = IdType.AUTO)
     private Long id;
@@ -22,11 +22,23 @@ public class TenantLocation {
 
     private Integer status;
 
-    private BigDecimal latitude;
+    private Double latitude;
 
-    private BigDecimal longitude;
+    private Double longitude;
 
     private String address;
 
     private Integer radius;
+
+    private LocalTime workStartTime;
+
+    private LocalTime workEndTime;
+
+    private LocalTime offWorkStartTime;
+
+    private LocalTime offWorkEndTime;
+
+    private LocalTime overTimeStartTime;
+
+    private LocalTime overTimeEndTime;
 }

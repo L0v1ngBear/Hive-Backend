@@ -1,0 +1,15 @@
+# 开发环境专属配置（覆盖/补充公共配置）
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/dev_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+  # 开发环境日志级别更高，方便调试
+logging:
+  level:
+    com.yourpackage: DEBUG
+  # 开发环境 Redis 地址（本地）
+redis:
+  host: 127.0.0.1
+  port: 6379
+
+server:
+  port: 8080
