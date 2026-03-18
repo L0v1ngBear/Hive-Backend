@@ -13,6 +13,7 @@ import my.hive_back.module.attendance.model.entity.AttendanceRecord;
 import my.hive_back.module.tenant.mapper.TenantAttendanceInfoMapper;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -34,7 +35,8 @@ public class AttendanceService {
     @Resource
     private RedisUtil redisUtil;
 
-    public AttendanceRecord punch(AttendancePunchRequest request) {
+    @Transactional(rollbackFor = Exception.class)
+    public void punch(AttendancePunchRequest request) {
         // 1. 获取上下文基础信息
         String tenantCode = TenantPermissionContext.getTenantCode();
         Long userId = TenantPermissionContext.getUserId();
@@ -92,7 +94,6 @@ public class AttendanceService {
 
             // 插入新记录
             attendanceRecordMapper.insert(newRecord);
-            return newRecord;
 
         } else {
             // ============================
@@ -114,7 +115,6 @@ public class AttendanceService {
 
             // 修复：这里必须是 updateById，不能用 insert！
             attendanceRecordMapper.updateById(existingRecord);
-            return existingRecord;
         }
     }
 

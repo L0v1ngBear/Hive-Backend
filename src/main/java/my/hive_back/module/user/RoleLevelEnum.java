@@ -1,0 +1,19 @@
+package my.hive_back.module.user;
+
+import lombok.Getter;
+
+@Getter
+public enum RoleLevelEnum {
+    NORMAL(0, "普通员工"),
+    MANAGER(1, "部门主管"),
+    ADMIN(2, "部门总监"),
+    BOSS(3, "公司老板");
+
+    private int level;
+    private String desc;
+
+    RoleLevelEnum(int level, String desc) {
+        this.level = level;
+        this.desc = desc;
+    }
+}

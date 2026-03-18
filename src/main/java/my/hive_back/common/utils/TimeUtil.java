@@ -1,9 +1,12 @@
 package my.hive_back.common.utils;
 
+import org.springframework.stereotype.Component;
+
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 
+@Component
 public class TimeUtil {
 
     private static final ZoneId DEFAULT_ZONE = ZoneId.of("Asia/Shanghai");

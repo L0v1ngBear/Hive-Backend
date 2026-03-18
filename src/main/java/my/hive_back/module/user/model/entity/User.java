@@ -53,6 +53,11 @@ public class User {
      */
     private LocalDateTime createTime;
 
+     /**
+     * 角色等级
+     */
+    private Integer roleLevel;
+
     /**
      * 更新时间
      */
