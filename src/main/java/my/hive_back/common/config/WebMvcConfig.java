@@ -17,18 +17,17 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(tenantInterceptor)
                 .addPathPatterns("/**")
                 .excludePathPatterns(
-                        // 1. OpenAPI 核心接口（精确 + 通配符）
+                        // 1. 放行 OpenAPI 核心数据接口
                         "/v3/api-docs",
                         "/v3/api-docs/**",
-                        // 2. Swagger UI 页面（精确 + 通配符 + 根路径）
-                        "/swagger-ui",
-                        "/swagger-ui/**",
-                        "/swagger-ui/index.html",
+                        // 2. 放行 Swagger UI 及其静态资源（核心！）
                         "/swagger-ui.html",
-                        // 3. 错误转发路径（避免连锁拦截）
+                        "/swagger-ui/**",
+                        "/swagger-resources/**",
+                        "/webjars/**",         // <--- 之前缺了这个，导致页面加载不出样式和脚本！
+                        // 3. 放行错误兜底路径
                         "/error",
                         "/error/**"
-                );// 拦截所有路径（包含 /api 上下文）
-
+                );
     }
 }

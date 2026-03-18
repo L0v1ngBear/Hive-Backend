@@ -11,11 +11,3 @@ logging:
 redis:
   host: 127.0.0.1
   port: 6379
-
-# 开发环境覆盖 SpringDoc 配置（可选，保持和公共配置一致即可）
-springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui/index.html
-    url: /v3/api-docs
