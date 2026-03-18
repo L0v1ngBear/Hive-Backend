@@ -1,15 +1,21 @@
-# 开发环境专属配置（覆盖/补充公共配置）
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/dev_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://localhost:3306/hive?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
   # 开发环境日志级别更高，方便调试
 logging:
   level:
-    com.yourpackage: DEBUG
-  # 开发环境 Redis 地址（本地）
+    my.hive_back.module: DEBUG  # 增加模块包的日志，方便调试
+    my.hive_back.api: DEBUG  # 增加接口包的日志，方便调试 Swagger
+
+# 开发环境 Redis 地址（本地）
 redis:
   host: 127.0.0.1
   port: 6379
 
-server:
-  port: 8080
+# 开发环境覆盖 SpringDoc 配置（可选，保持和公共配置一致即可）
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui/index.html
+    url: /v3/api-docs

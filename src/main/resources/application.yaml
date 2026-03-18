@@ -1,6 +1,12 @@
 server:
+  port: 8080
   servlet:
-    context-path: /api
+    context-path: /api  # 全局上下文路径，所有请求都要带 /api 前缀
+
+spring:
+  profiles:
+    active: dev  # 激活开发环境配置
+
 mybatis-plus:
   type-aliases-package: my.Hive_Back.module.*.model.entity
   configuration:
@@ -8,9 +14,17 @@ mybatis-plus:
     map-underscore-to-camel-case: true
   global-config:
     db-config:
-      logic-delete-field: isDeleted # 全局逻辑删除字段名
-      logic-delete-value: 1 # 逻辑删除值
-      logic-not-delete-value: 0 # 逻辑未删除值
-spring:
-  profiles:
-    active: dev
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# SpringDoc 核心配置（公共配置，开发环境可覆盖）
+springdoc:
+  api-docs:
+    enabled: true  # 开启 API 文档生成
+    path: /v3/api-docs  # 注意：不要带 /api，因为 context-path 会自动拼接
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html  # UI 页面路径（不带 /api）
+    url: /api/v3/api-docs  # 指向 API 文档的路径（不带 /api）
+  packages-to-scan: my.hive_back.api  # 简化扫描路径，避免 **.** 语法错误

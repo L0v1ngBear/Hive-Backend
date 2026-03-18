@@ -23,10 +23,10 @@
         <lombok.version>1.18.30</lombok.version>
         <!-- 新增：MyBatis-Plus版本（适配Spring Boot 3.2.5） -->
         <mybatis-plus.version>3.5.5</mybatis-plus.version>
-        <security.version>5.7.8</security.version>
         <com.google.zxing.version>3.5.2</com.google.zxing.version>
         <jSerialComm.version>2.9.2</jSerialComm.version>
         <fastjson.version>2.0.33</fastjson.version>
+        <springdoc.version>2.5.0</springdoc.version>
     </properties>
 
     <!-- 核心：dependencyManagement 统一管理版本，不实际引入依赖 -->
@@ -43,7 +43,6 @@
                 <artifactId>spring-boot-starter-aop</artifactId>
                 <version>${project.parent.version}</version>
             </dependency>
-
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-starter-web</artifactId>
@@ -110,6 +109,11 @@
                 <artifactId>fastjson2</artifactId>
                 <version>${fastjson.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -139,10 +143,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
         <dependency>
             <groupId>com.mysql</groupId>
@@ -180,6 +180,11 @@
         <dependency>
             <groupId>com.alibaba.fastjson2</groupId>
             <artifactId>fastjson2</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
         </dependency>
     </dependencies>
 

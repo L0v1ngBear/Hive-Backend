@@ -67,7 +67,7 @@ public class ApprovalController {
      * @param auditRequest 包含审批单ID、审批动作(同意/拒绝)、审批意见等
      */
     @PostMapping("/leave/audit")
-    public ResultDTO<?> auditLeaveApproval(@RequestBody AuditRequest auditRequest) { // 建议替换为 AuditRequest DTO
+    public ResultDTO<?> auditLeaveApproval(@RequestBody AuditRequest auditRequest) {
         leaveService.auditLeaveApproval(auditRequest);
         return ResultDTO.success("请假审批处理完成");
     }

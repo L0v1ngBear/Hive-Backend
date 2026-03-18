@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.dto.ResultDTO;
 import my.hive_back.module.sys.model.mapper.SysRoleMapper;
@@ -19,6 +20,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import java.util.*;
 
 @Component
+@Slf4j
 public class TenantInterceptor implements HandlerInterceptor {
 
     @Resource
@@ -39,13 +41,15 @@ public class TenantInterceptor implements HandlerInterceptor {
 
         // 2. 租户编码为空校验（保留你原有逻辑）
         if (StringUtils.isBlank(tenantCode)) {
-            writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限：缺少租户编码");
+            writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
+            log.error("无权限：缺少租户编码");
             return false;
         }
 
         // 3. 用户ID为空校验（新增）
         if (StringUtils.isBlank(userIdStr)) {
-            writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限：缺少用户ID");
+            writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
+            log.error("无权限：缺少用户ID");
             return false;
         }
 
@@ -53,20 +57,23 @@ public class TenantInterceptor implements HandlerInterceptor {
         try {
             // 如果你tenantCode是字符串类型，可校验格式（比如字母+数字+下划线）
             if (!tenantCode.matches("^[a-zA-Z0-9_]+$")) {
-                writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限：租户编码格式非法");
+                writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
+                log.error("无权限：租户编码格式非法");
                 return false;
             }
             // 如果你userId是Long类型，解析并校验
             Long userId = Long.parseLong(userIdStr);
         } catch (NumberFormatException e) {
-            writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限：用户ID格式非法");
+            writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
+            log.error("无权限：用户ID格式非法");
             return false;
         }
 
         // 5. 校验租户是否存在（保留你原有逻辑）
         Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
         if (tenant == null) {
-            writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "无权限访问：租户不存在");
+            writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "无权限");
+            log.error("无权限访问：租户不存在");
             return false;
         }
 
@@ -76,7 +83,8 @@ public class TenantInterceptor implements HandlerInterceptor {
 
         // 7. 权限为空校验（新增）
         if (CollectionUtils.isEmpty(permCodes)) {
-            writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "无权限：用户在当前租户下无任何权限");
+            writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "无权限");
+            log.error("无权限：用户在当前租户下无任何权限");
             return false;
         }
 
