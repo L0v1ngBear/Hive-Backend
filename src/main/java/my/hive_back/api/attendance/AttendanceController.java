@@ -10,7 +10,8 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-@RestController("/attendance")
+@RestController
+@RequestMapping("/attendance")
 @Validated
 public class AttendanceController {
 

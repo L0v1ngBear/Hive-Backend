@@ -19,8 +19,8 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
   api-docs:
     enabled: true
-  swagger-ui:
-    enabled: true
-  packages-to-scan: my.hive_back.api  # 只保留这行，其他的 path 和 url 全删掉！
