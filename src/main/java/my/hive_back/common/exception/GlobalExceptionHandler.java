@@ -1,5 +1,6 @@
 package my.hive_back.common.exception;
 
+import jakarta.annotation.PostConstruct;
 import my.hive_back.common.dto.ResultDTO;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -24,6 +25,11 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @PostConstruct
+    public void init() {
+        log.info("===== GlobalExceptionHandler 已成功加载 =====");
+    }
 
     /**
      * 处理@Valid + @RequestBody的参数校验失败（POST/PUT JSON入参）

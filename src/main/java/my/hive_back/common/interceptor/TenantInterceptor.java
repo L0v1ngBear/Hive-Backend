@@ -1,5 +1,6 @@
 package my.hive_back.common.interceptor;
 
+import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
@@ -81,12 +82,6 @@ public class TenantInterceptor implements HandlerInterceptor {
         Long userId = Long.parseLong(userIdStr);
         Set<String> permCodes = getUserPermCodes(tenantCode, userId);
 
-        // 7. 权限为空校验（新增）
-        if (CollectionUtils.isEmpty(permCodes)) {
-            writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "无权限");
-            log.error("无权限：用户在当前租户下无任何权限");
-            return false;
-        }
 
         TenantPermissionContext.init(tenantCode, userId, permCodes); // 新增：初始化权限上下文
 

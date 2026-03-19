@@ -26,7 +26,7 @@ public class ResultDTO<T> {
         ResultDTO<T> result = new ResultDTO<>();
         result.setCode(code);
         result.setMsg(msg);
-        result.setData(null);
+        result.setData((T) new Object());
         return result;
     }
 

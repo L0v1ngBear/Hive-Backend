@@ -59,12 +59,12 @@ public class TenantController {
 
     }
 
-    @GetMapping("/tenant/attendanceInfo/get")
-    public ResultDTO<TenantLocationVO> getTenantLocation() {
-        TenantAttendanceRule tenantLocation = tenantService.getTenantLocation();
-        TenantLocationVO tenantLocationVO = new TenantLocationVO();
-        BeanUtils.copyProperties(tenantLocation, tenantLocationVO);
-        return ResultDTO.success(tenantLocationVO);
-    }
+//    @GetMapping("/tenant/attendanceInfo/get")
+//    public ResultDTO<TenantLocationVO> getTenantLocation() {
+//        TenantAttendanceRule tenantLocation = tenantService.getTenantLocation();
+//        TenantLocationVO tenantLocationVO = new TenantLocationVO();
+//        BeanUtils.copyProperties(tenantLocation, tenantLocationVO);
+//        return ResultDTO.success(tenantLocationVO);
+//    }
 
 }

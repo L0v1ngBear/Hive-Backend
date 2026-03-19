@@ -10,7 +10,7 @@ import my.hive_back.module.attendance.PunchStatusEnum;
 import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
 import my.hive_back.module.attendance.model.dto.AttendancePunchRequest;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
-import my.hive_back.module.tenant.mapper.TenantAttendanceInfoMapper;
+import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,12 +30,12 @@ public class AttendanceService {
     private AttendanceRecordMapper attendanceRecordMapper;
 
     @Resource
-    private TenantAttendanceInfoMapper tenantAttendanceInfoMapper;
+    private TenantAttendanceRuleMapper tenantAttendanceRuleMapper;
 
     @Resource
     private RedisUtil redisUtil;
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = BusinessException.class)
     public void punch(AttendancePunchRequest request) {
         // 1. 获取上下文基础信息
         String tenantCode = TenantPermissionContext.getTenantCode();
@@ -62,7 +62,7 @@ public class AttendanceService {
         BigDecimal validRadius = BigDecimal.valueOf(rule.getRadius()).setScale(2, RoundingMode.HALF_UP);
 
         if (distance.compareTo(validRadius) > 0) {
-            throw new RuntimeException("打卡失败：您当前距离公司 " + distance + " 米，超出了允许范围（" + validRadius + "米）");
+            throw new BusinessException("打卡失败：您当前距离公司 " + distance + " 米，超出了允许范围（" + validRadius + "米）");
         }
 
         // 5. 查询今日是否已有打卡记录
@@ -126,10 +126,7 @@ public class AttendanceService {
                 COMPANY_ATTENDANCE_RULE_KEY, tenantCode, TenantAttendanceRule.class, null);
 
         if (rule == null || rule.getRadius() == null || rule.getWorkStartTime() == null || rule.getWorkEndTime() == null || rule.getOffWorkStartTime() == null || rule.getOffWorkEndTime() == null) {
-            rule = tenantAttendanceInfoMapper.selectOne(
-                    new LambdaQueryWrapper<TenantAttendanceRule>()
-                            .eq(TenantAttendanceRule::getTenantCode, tenantCode)
-            );
+            rule = tenantAttendanceRuleMapper.selectByTenantCode(tenantCode);
             if (rule == null) {
                 throw new BusinessException("考勤配置异常：未找到所属公司的考勤规则");
             }

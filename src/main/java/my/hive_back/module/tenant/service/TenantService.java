@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.exception.BusinessException;
-import my.hive_back.module.tenant.mapper.TenantAttendanceInfoMapper;
+import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
 import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.model.dto.TenantInfoPageRequest;
 import my.hive_back.module.tenant.model.dto.TenantLocationAddRequest;
@@ -20,7 +20,7 @@ public class TenantService {
     private TenantMapper tenantMapper;
 
     @Resource
-    private TenantAttendanceInfoMapper tenantLocationMapper;
+    private TenantAttendanceRuleMapper tenantLocationMapper;
 
     public Page<Tenant> pageSearchTenant(TenantInfoPageRequest searchDTO) {
         Integer status = searchDTO.getStatus();

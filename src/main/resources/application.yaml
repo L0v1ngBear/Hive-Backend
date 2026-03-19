@@ -21,6 +21,9 @@ mybatis-plus:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+    # 增加该配置：确保跳转时带上 context-path
+    use-root-path: false
     enabled: true
   api-docs:
+    path: /v3/api-docs
     enabled: true

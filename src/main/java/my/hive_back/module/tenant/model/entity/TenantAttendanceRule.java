@@ -7,14 +7,12 @@ import lombok.Data;
 
 import java.time.LocalTime;
 
-@TableName("tenant_attendance_info")
+@TableName("tenant_attendance_rule")
 @Data
 public class TenantAttendanceRule {
 
     @TableId(type = IdType.AUTO)
     private Long id;
-
-    private Long tenantId;
 
     private String tenantCode;
 

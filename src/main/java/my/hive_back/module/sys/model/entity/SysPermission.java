@@ -15,6 +15,10 @@ public class SysPermission {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    private String tenantCode;
+
+    private String roleCode;
+
     /**
      * 权限编码（全局唯一）
      * 格式：资源:操作，示例：user:add、order:view、order:*
