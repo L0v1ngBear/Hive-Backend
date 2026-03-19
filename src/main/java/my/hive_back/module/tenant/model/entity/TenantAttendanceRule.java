@@ -26,7 +26,7 @@ public class TenantAttendanceRule {
 
     private String address;
 
-    private Integer radius;
+    private Double radius;
 
     private LocalTime workStartTime;
 

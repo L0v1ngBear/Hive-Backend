@@ -4,11 +4,14 @@ server:
     context-path: /api  # 全局上下文路径，所有请求都要带 /api 前缀
 
 spring:
+  jackson:
+    serialization:
+      fail-on-empty-beans: false
   profiles:
     active: dev  # 激活开发环境配置
 
 mybatis-plus:
-  type-aliases-package: my.Hive_Back.module.*.model.entity
+  type-aliases-package: my.hive_back.module.*.model.entity
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
     map-underscore-to-camel-case: true

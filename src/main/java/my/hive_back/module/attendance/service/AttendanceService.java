@@ -37,6 +37,7 @@ public class AttendanceService {
 
     @Transactional(rollbackFor = Exception.class, noRollbackFor = BusinessException.class)
     public void punch(AttendancePunchRequest request) {
+
         // 1. 获取上下文基础信息
         String tenantCode = TenantPermissionContext.getTenantCode();
         Long userId = TenantPermissionContext.getUserId();
@@ -58,8 +59,8 @@ public class AttendanceService {
         // 4. 校验地理位置距离
         Double userLat = request.getUserLat();
         Double userLng = request.getUserLng();
-        BigDecimal distance = calculateDistance(rule.getLatitude(), rule.getLongitude(), userLat, userLng);
-        BigDecimal validRadius = BigDecimal.valueOf(rule.getRadius()).setScale(2, RoundingMode.HALF_UP);
+        Double distance = calculateDistance(rule.getLatitude(), rule.getLongitude(), userLat, userLng);
+        Double validRadius = rule.getRadius();
 
         if (distance.compareTo(validRadius) > 0) {
             throw new BusinessException("打卡失败：您当前距离公司 " + distance + " 米，超出了允许范围（" + validRadius + "米）");
@@ -79,12 +80,12 @@ public class AttendanceService {
             newRecord.setPunchId(punchId);
             newRecord.setUserId(userId);
             newRecord.setTenantCode(tenantCode);
-
+            newRecord.setSignInDistance(distance);
             // 专属字段：记录上班信息
             newRecord.setSignInTime(nowTime);
             newRecord.setSignInLat(userLat);
             newRecord.setSignInLng(userLng);
-
+            newRecord.setRuleRadius(validRadius);
             // 修正：判断是否迟到（与规定的上班时间 rule.getWorkStartTime() 比较）
             if (rule.getWorkStartTime() != null && nowTime.isAfter(rule.getWorkStartTime())) {
                 newRecord.setSignInStatus(PunchStatusEnum.LATE.getCode()); // 迟到
@@ -103,7 +104,7 @@ public class AttendanceService {
             existingRecord.setSignOutTime(nowTime);
             existingRecord.setSignOutLat(userLat);
             existingRecord.setSignOutLng(userLng);
-
+            existingRecord.setSignOutDistance(distance);
             // 判断下班状态
             if (rule.getWorkEndTime() != null && nowTime.isAfter(rule.getWorkEndTime())) {
                 existingRecord.setSignOutStatus(PunchStatusEnum.OVERTIME.getCode()); // 加班
@@ -139,7 +140,7 @@ public class AttendanceService {
     /**
      * 计算球面距离（Haversine formula）
      */
-    private BigDecimal calculateDistance(Double companyLat, Double companyLng, Double userLat, Double userLng) {
+    private Double calculateDistance(Double companyLat, Double companyLng, Double userLat, Double userLng) {
         if (userLat == null || userLng == null) {
             throw new IllegalArgumentException("定位失败：未获取到用户的经纬度");
         }
@@ -155,7 +156,7 @@ public class AttendanceService {
         double s = 2 * Math.asin(Math.sqrt(Math.pow(Math.sin(a / 2), 2) +
                 Math.cos(radLat1) * Math.cos(radLat2) * Math.pow(Math.sin(b / 2), 2)));
         s = s * earthRadius;
-        return BigDecimal.valueOf(s).setScale(2, RoundingMode.HALF_UP);
+        return s;
     }
 
     public AttendanceRecord selectRecord(Long userId) {

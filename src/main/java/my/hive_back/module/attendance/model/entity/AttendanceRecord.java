@@ -1,8 +1,6 @@
 package my.hive_back.module.attendance.model.entity;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -98,15 +96,17 @@ public class AttendanceRecord {
      * 打卡有效半径快照（米）
      * 存储当天的规则半径，避免后续公司修改半径影响历史记录的判定
      */
-    private Integer ruleRadius;
+    private Double ruleRadius;
 
     /**
      * 记录创建时间 (首次上班打卡时生成)
      */
+    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
     /**
      * 记录更新时间 (下班打卡时更新)
      */
+    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 }

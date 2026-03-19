@@ -13,8 +13,8 @@
     <groupId>my</groupId>
     <artifactId>Hive_Back</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>Hive_Back</name>
-    <description>Hive_Back</description>
+    <name>hive_back</name>
+    <description>hive_back</description>
     <packaging>jar</packaging> <!-- 单体阶段仍为jar，微服务父工程改为pom -->
     <properties>
         <java.version>21</java.version>

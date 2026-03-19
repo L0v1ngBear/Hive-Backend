@@ -6,8 +6,8 @@ import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerIntercept
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import my.hive_back.common.context.TenantPermissionContext;
 import net.sf.jsqlparser.expression.Expression;
-import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.NullValue;
+import net.sf.jsqlparser.expression.StringValue;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -28,7 +28,7 @@ public class MybatisPlusConfig {
                 if (tenantCode == null) {
                     return new NullValue();
                 }
-                return new LongValue(tenantCode);
+                return new StringValue(tenantCode);
             }
             @Override
             public String getTenantIdColumn() {

@@ -2,7 +2,10 @@ package my.hive_back.common.dto;
 
 import lombok.Data;
 
-// 统一返回格式，单体/微服务调用都用这个
+import java.util.Collections;
+import java.util.Map;
+
+// 统一返回格式
 @Data
 public class ResultDTO<T> {
     // 状态码：200成功，其他失败
@@ -26,7 +29,7 @@ public class ResultDTO<T> {
         ResultDTO<T> result = new ResultDTO<>();
         result.setCode(code);
         result.setMsg(msg);
-        result.setData((T) new Object());
+        result.setData(null);
         return result;
     }
 
