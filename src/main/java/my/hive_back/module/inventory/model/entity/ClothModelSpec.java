@@ -12,7 +12,7 @@ public class ClothModelSpec extends BaseEntity {
 
     private String modelCode;
 
-    private String spec;
+    private Float spec;
 
     private Integer sort;
 }

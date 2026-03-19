@@ -80,7 +80,7 @@ public class InventoryService {
     @Synchronized
     @Transactional(rollbackFor = Exception.class)
     @RequirePermission(value = "inventory:in", message = "无权操作库存入库")
-    public void inCloth(@Valid InventoryInRequest inventoryInRequest) {
+    public String inCloth(@Valid InventoryInRequest inventoryInRequest) {
 
         InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.valueOf(inventoryInRequest.getInType());
         switch (inTypeEnum) {
@@ -90,8 +90,8 @@ public class InventoryService {
             case HAND:
                 //手动入库补充条码信息入库
                 CompleteBarcode(inventoryInRequest);
-                InventoryHandIn(inventoryInRequest);
-                break;
+                return InventoryHandIn(inventoryInRequest);
+//                break;
             case AUTO:
                 // 自动入库补充条码信息入库
                 CompleteBarcode(inventoryInRequest);
@@ -102,6 +102,7 @@ public class InventoryService {
         }
 
         //TODO 统一放入redis库存统计
+        return null;
     }
 
     private void CompleteBarcode(InventoryInRequest request) {
@@ -121,7 +122,7 @@ public class InventoryService {
 
     }
 
-    private void InventoryHandIn(InventoryInRequest inventoryInRequest) {
+    private String InventoryHandIn(InventoryInRequest inventoryInRequest) {
 
         Cloth cloth = new Cloth();
         BeanUtils.copyProperties(inventoryInRequest, cloth);
@@ -134,7 +135,8 @@ public class InventoryService {
         clothMapper.insert(cloth);
 
         //TODO 打印条形码
-        barCodeUtil.createBarCodeImage(cloth.getBarcode(), 200, 100);
+//        barCodeUtil.createBarCodeImage(cloth.getBarcode(), 200, 100);
+        String barCode = cloth.getBarcode();
 
         // 记录入库操作
         InventoryRecord record = new InventoryRecord();
@@ -157,7 +159,7 @@ public class InventoryService {
 
         stringRedisTemplate.opsForSet().add(inKey, meters);
         stringRedisTemplate.expire(inKey, secondsToNextDay, TimeUnit.SECONDS);
-
+        return barCode;
     }
 
     @RequirePermission(value = "inventory:out", message = "无权操作库存出库")

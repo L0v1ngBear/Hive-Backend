@@ -37,10 +37,10 @@ public class InventoryController {
     }
 
     @PostMapping("/cloth/in")
-    public ResultDTO<Void> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
+    public ResultDTO<String> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
 
-        inventoryService.inCloth(inventoryInRequest);
-        return ResultDTO.success(null);
+        String barCode = inventoryService.inCloth(inventoryInRequest);
+        return ResultDTO.success(barCode);
     }
 
     @PostMapping("cloth/out")

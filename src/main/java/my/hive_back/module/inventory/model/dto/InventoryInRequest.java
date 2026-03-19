@@ -2,6 +2,8 @@ package my.hive_back.module.inventory.model.dto;
 
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import lombok.Data;
 
 @Data
@@ -12,12 +14,13 @@ public class InventoryInRequest {
     @NotBlank
     private String modelCode;
 
-    @NotBlank
-    @Min(value = 1, message = "米数不能小于等于0")
+    @NotNull
+    @Positive(message = "米数不能小于等于0")
     private Float meters;
 
-    @NotBlank
-    private String spec;
+    @NotNull
+    @Positive(message = "规格不能小于等于0")
+    private Float spec;
 
     // 入库类型
     @NotBlank

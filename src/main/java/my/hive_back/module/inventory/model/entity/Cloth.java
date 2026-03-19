@@ -25,7 +25,7 @@ public class Cloth extends BaseEntity {
     /**
      * 规格
      */
-    private String spec;
+    private Float spec;
 
     /**
      * 总米数（高精度）
