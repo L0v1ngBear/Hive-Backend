@@ -15,10 +15,12 @@ import my.hive_back.common.utils.TimeUtil;
 import my.hive_back.module.inventory.InventoryInTypeEnum;
 import my.hive_back.module.inventory.InventoryOperateTypeEnum;
 import my.hive_back.module.inventory.mapper.ClothMapper;
+import my.hive_back.module.inventory.mapper.ClothModelSpecMapper;
 import my.hive_back.module.inventory.mapper.InventoryRecordMapper;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
 import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
+import my.hive_back.module.inventory.model.entity.ClothModelSpec;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
 import my.hive_back.module.inventory.model.entity.InventoryStatics;
 import my.hive_back.module.inventory.mapper.InventoryStaticsMapper;
@@ -42,6 +44,9 @@ public class InventoryService {
 
     @Resource
     private InventoryRecordMapper inventoryRecordMapper;
+
+    @Resource
+    private ClothModelSpecMapper clothModelSpecMapper;
 
     @Resource
     private BarCodeUtil barCodeUtil;
@@ -77,12 +82,11 @@ public class InventoryService {
      *
      * @param inventoryInRequest 入库请求
      */
-    @Synchronized
     @Transactional(rollbackFor = Exception.class)
     @RequirePermission(value = "inventory:in", message = "无权操作库存入库")
     public String inCloth(@Valid InventoryInRequest inventoryInRequest) {
 
-        InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.valueOf(inventoryInRequest.getInType());
+        InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.getCode(inventoryInRequest.getInType());
         switch (inTypeEnum) {
             case SCAN:
                 InventoryScanIn(inventoryInRequest.getBarcode());
@@ -101,8 +105,31 @@ public class InventoryService {
                 throw new IllegalArgumentException("未知的入库类型");
         }
 
+        // 维护型号对应的规格
+        saveClothModelSpec(inventoryInRequest.getModelCode(), inventoryInRequest.getSpec());
+
         //TODO 统一放入redis库存统计
         return null;
+    }
+
+    /**
+     * 规格表插入：防重复 + 批量提交（优化性能）
+     */
+    private void saveClothModelSpec(String modelCode, Float spec) {
+        // 先查后插（加唯一索引兜底：model_code + spec + tenant_code）
+        boolean exists = clothModelSpecMapper.exists(
+                new LambdaQueryWrapper<ClothModelSpec>()
+                        .eq(ClothModelSpec::getModelCode, modelCode)
+                        .eq(ClothModelSpec::getSpec, spec)
+                        .eq(ClothModelSpec::getTenantCode, TenantPermissionContext.getTenantCode())
+        );
+        if (!exists) {
+            ClothModelSpec clothModelSpec = new ClothModelSpec();
+            clothModelSpec.setModelCode(modelCode);
+            clothModelSpec.setSpec(spec);
+            clothModelSpec.setTenantCode(TenantPermissionContext.getTenantCode());
+            clothModelSpecMapper.insert(clothModelSpec);
+        }
     }
 
     private void CompleteBarcode(InventoryInRequest request) {
@@ -138,8 +165,11 @@ public class InventoryService {
 //        barCodeUtil.createBarCodeImage(cloth.getBarcode(), 200, 100);
         String barCode = cloth.getBarcode();
 
+        Long clothId = cloth.getId();
+
         // 记录入库操作
         InventoryRecord record = new InventoryRecord();
+        record.setClothId(clothId);
         record.setTenantCode(TenantPermissionContext.getTenantCode());
         record.setOperatorId(TenantPermissionContext.getUserId());
         record.setOperateType(InventoryOperateTypeEnum.IN.getCode());

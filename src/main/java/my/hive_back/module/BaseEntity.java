@@ -1,8 +1,6 @@
 package my.hive_back.module;
 
-import com.baomidou.mybatisplus.annotation.FieldFill;
-import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.Version;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -13,6 +11,7 @@ public class BaseEntity {
     /**
      * 主键ID（雪花算法生成）
      */
+    @TableId(type = IdType.AUTO)
     private Long id;
 
     /**

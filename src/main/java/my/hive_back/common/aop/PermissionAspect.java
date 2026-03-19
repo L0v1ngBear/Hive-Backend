@@ -30,7 +30,6 @@ public class PermissionAspect {
 
         // 2. 权限校验：抛出自定义异常（不再依赖 Security）
         if (!TenantPermissionContext.hasPermission(permCode)) {
-            // 替换为自定义的 PermissionDeniedException
             throw new PermissionDeniedException(message);
         }
 

@@ -32,17 +32,6 @@ public class SysPermission {
     private String permName;
 
     /**
-     * 资源类型：menu（菜单）、button（按钮）、api（接口）
-     */
-    private String resourceType;
-
-    /**
-     * 资源路径（接口URL/菜单路径）
-     * 示例：/api/tenant/user/add、/tenant/order/list
-     */
-    private String resourcePath;
-
-    /**
      * 创建时间（自动填充）
      */
     @TableField(fill = FieldFill.INSERT)

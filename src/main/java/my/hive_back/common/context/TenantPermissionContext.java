@@ -43,26 +43,21 @@ public class TenantPermissionContext {
             return false;
         }
 
-        // 支持通配符：如 order:* 匹配所有订单相关权限
-        if (permCode.endsWith(":*")) {
-            String prefix = permCode.replace(":*", "");
-            return permCodes.stream().anyMatch(p -> p.startsWith(prefix + ":"));
+        if (permCodes.contains(permCode)) {
+            return true;
         }
-        return permCodes.contains(permCode);
+
+        int colonIndex = permCode.indexOf(":");
+        String permCodePrefix = permCode.substring(0, colonIndex + 1);
+        return permCodes.contains(permCodePrefix + "*");
+//        // 支持通配符：如 order:* 匹配所有订单相关权限
+//        if (permCode.endsWith(":*")) {
+//            String prefix = permCode.replace(":*", "");
+//            return permCodes.stream().anyMatch(p -> p.startsWith(prefix + ":"));
+//        }
+//        return permCodes.contains(permCode);
     }
 
-    /**
-     * 简化版：校验权限并抛出异常（业务层直接用，无需写if）
-     */
-    public static void checkPermission(String permCode) {
-        checkPermission(permCode, "无操作权限，请联系租户管理员");
-    }
-
-    public static void checkPermission(String permCode, String message) {
-        if (!hasPermission(permCode)) {
-            throw new RuntimeException(message); // 后续用全局异常处理器捕获
-        }
-    }
 
     // ---------- 兼容原有方法 ----------
     /**
