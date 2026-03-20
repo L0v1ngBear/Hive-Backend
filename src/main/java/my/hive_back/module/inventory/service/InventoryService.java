@@ -87,6 +87,7 @@ public class InventoryService {
     public String inCloth(@Valid InventoryInRequest inventoryInRequest) {
 
         InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.getCode(inventoryInRequest.getInType());
+        String barcode = null;
         switch (inTypeEnum) {
             case SCAN:
                 InventoryScanIn(inventoryInRequest.getBarcode());
@@ -94,8 +95,8 @@ public class InventoryService {
             case HAND:
                 //手动入库补充条码信息入库
                 CompleteBarcode(inventoryInRequest);
-                return InventoryHandIn(inventoryInRequest);
-//                break;
+                barcode = InventoryHandIn(inventoryInRequest);
+                break;
             case AUTO:
                 // 自动入库补充条码信息入库
                 CompleteBarcode(inventoryInRequest);
@@ -109,7 +110,7 @@ public class InventoryService {
         saveClothModelSpec(inventoryInRequest.getModelCode(), inventoryInRequest.getSpec());
 
         //TODO 统一放入redis库存统计
-        return null;
+        return barcode;
     }
 
     /**
@@ -161,8 +162,6 @@ public class InventoryService {
 
         clothMapper.insert(cloth);
 
-        //TODO 打印条形码
-//        barCodeUtil.createBarCodeImage(cloth.getBarcode(), 200, 100);
         String barCode = cloth.getBarcode();
 
         Long clothId = cloth.getId();
@@ -186,7 +185,7 @@ public class InventoryService {
         String meters = inventoryInRequest.getMeters().toString();
         long secondsToNextDay = redisUtil.getSecondsToNextDay();
 
-
+        // TODO 高并发优化 不能用set
         stringRedisTemplate.opsForSet().add(inKey, meters);
         stringRedisTemplate.expire(inKey, secondsToNextDay, TimeUnit.SECONDS);
         return barCode;

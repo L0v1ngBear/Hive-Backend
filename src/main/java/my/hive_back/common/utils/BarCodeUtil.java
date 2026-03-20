@@ -5,38 +5,23 @@ import com.google.zxing.EncodeHintType;
 import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.oned.Code128Writer;
-import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.awt.image.BufferedImage;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 @Component
 public class BarCodeUtil {
 
-    // 打印延迟时间（秒），可根据需求调整
-    private static final int PRINT_DELAY_SECONDS = 3;
-    // 本地缓存条码的容器（线程安全）
-    private final BlockingQueue<String> barcodeCache = new LinkedBlockingQueue<>();
-    // 标记是否已提交延迟打印任务（避免重复提交）
-    private final AtomicBoolean isPrintTaskSubmitted = new AtomicBoolean(false);
-    // 单线程池：处理延迟打印任务（保证顺序）
-    private final ScheduledExecutorService printExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-        Thread t = new Thread(r, "barcode-print-thread");
-        t.setDaemon(true); // 守护线程，应用关闭时自动退出
-        return t;
-    });
-
-    // ========== 原有常量 ==========
     private static final String BARCODE_DAILY_NUMBER_KEY_PREFIX = "barcode:number:";
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyMMdd");
-    private static final Random RANDOM = new Random();
     private static final String BARCODE_PREFIX = "CL";
 
     @Resource
@@ -45,10 +30,32 @@ public class BarCodeUtil {
     @Resource
     private RedisUtil redisUtil;
 
-    // ========== 原有方法（不变） ==========
+    /**
+     * 生成条码（核心方法：线程安全且保证 Redis 计数原子性）
+     */
+    public String createBarCode(String tenantCode) {
+        if (tenantCode == null || tenantCode.isBlank()) {
+            throw new IllegalArgumentException("租户Code不能为空");
+        }
+
+        String tenantPart = normalizeTenantCode(tenantCode.trim());
+        String datePart = LocalDate.now().format(DATE_FORMATTER);
+        String redisKey = BARCODE_DAILY_NUMBER_KEY_PREFIX + tenantPart + ":" + datePart;
+
+        // 使用 Lua 脚本保证自增和设置过期时间的原子性，防止 Key 永久存在
+        Long currentSeq = incrementAndExpire(redisKey);
+
+        String baseCode = BARCODE_PREFIX + tenantPart + datePart + String.format("%04d", currentSeq);
+        return baseCode + generateCheckCode(baseCode);
+    }
+
+    /**
+     * 生成条码图片
+     */
     public BufferedImage createBarCodeImage(String text, int width, int height) {
         Map<EncodeHintType, Object> hints = new HashMap<>();
         hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
+        hints.put(EncodeHintType.MARGIN, 1); // 设置边距
         try {
             BitMatrix bitMatrix = new Code128Writer().encode(text, BarcodeFormat.CODE_128, width, height, hints);
             return MatrixToImageWriter.toBufferedImage(bitMatrix);
@@ -57,123 +64,34 @@ public class BarCodeUtil {
         }
     }
 
-
-    public String createBarCode(String tenantCode) {
-        // 1. 原有条码生成逻辑
-        if (tenantCode == null || tenantCode.trim().isEmpty()) {
-            throw new IllegalArgumentException("租户Code不能为空");
-        }
-        String tenantPart = normalizeTenantCode(tenantCode.trim());
-        String datePart = LocalDate.now().format(DATE_FORMATTER);
-        String redisKey = BARCODE_DAILY_NUMBER_KEY_PREFIX + tenantPart + "_" + datePart;
-
-        Long currentSeq = stringRedisTemplate.opsForValue().increment(redisKey, 1);
-        if (currentSeq == null) {
-            stringRedisTemplate.opsForValue().set(redisKey, "1");
-            currentSeq = 1L;
-            long expireSeconds = redisUtil.getSecondsToNextDay();
-            stringRedisTemplate.expire(redisKey, expireSeconds, TimeUnit.SECONDS);
-        } else if (currentSeq == 1) {
-            long expireSeconds = redisUtil.getSecondsToNextDay();
-            stringRedisTemplate.expire(redisKey, expireSeconds, TimeUnit.SECONDS);
-        }
-
-        String baseCode = BARCODE_PREFIX + tenantPart + datePart + currentSeq;
-        String checkCode = generateCheckCode(baseCode);
-        String finalBarcode = baseCode + checkCode;
-
-        // 2. 新增：将生成的条码加入缓存
-        barcodeCache.offer(finalBarcode);
-
-        // 3. 新增：提交延迟打印任务（仅第一次触发时提交）
-        if (isPrintTaskSubmitted.compareAndSet(false, true)) {
-            printExecutor.schedule(this::batchPrintBarcodes, PRINT_DELAY_SECONDS, TimeUnit.SECONDS);
-        }
-
-        return finalBarcode;
+    /**
+     * Redis 原子自增并设置过期时间
+     */
+    private Long incrementAndExpire(String key) {
+        String script = "local c = redis.call('incr', KEYS[1]); " +
+                "if c == 1 then redis.call('expire', KEYS[1], ARGV[1]) end; " +
+                "return c;";
+        return stringRedisTemplate.execute(
+                new DefaultRedisScript<>(script, Long.class),
+                Collections.singletonList(key),
+                String.valueOf(redisUtil.getSecondsToNextDay())
+        );
     }
 
-    // ========== 新增：批量打印核心方法 ==========
-    private void batchPrintBarcodes() {
-        try {
-            // 1. 从缓存中取出所有条码（批量获取）
-            List<String> barcodesToPrint = new ArrayList<>();
-            barcodeCache.drainTo(barcodesToPrint); // 清空缓存并获取所有元素
-
-            if (barcodesToPrint.isEmpty()) {
-                return;
-            }
-
-            // 2. 批量打印逻辑（核心：替换为你的实际打印代码）
-            System.out.println("========== 开始批量打印条码 ==========");
-            System.out.println("打印时间：" + new Date());
-            System.out.println("本次打印条码数量：" + barcodesToPrint.size());
-            System.out.println("条码列表：" + barcodesToPrint);
-
-            // ========== 替换为你的实际打印代码 ==========
-            // 示例：调用打印服务/打印机SDK
-            // printService.batchPrint(barcodesToPrint);
-            // 示例：生成条码图片后批量打印
-            /*
-            for (String barcode : barcodesToPrint) {
-                BufferedImage barcodeImage = createBarCodeImage(barcode, 300, 100);
-                // 调用打印机打印图片
-                // printer.printImage(barcodeImage);
-            }
-            */
-
-        } catch (Exception e) {
-            System.err.println("批量打印条码失败：" + e.getMessage());
-            e.printStackTrace();
-        } finally {
-            // 重置标记，允许下次提交打印任务
-            isPrintTaskSubmitted.set(false);
+    private String normalizeTenantCode(String tenantCode) {
+        // 简单处理：转大写并截取/填充至6位
+        String clean = tenantCode.toUpperCase().replaceAll("[^A-Z0-9]", "");
+        if (clean.length() >= 6) {
+            return clean.substring(clean.length() - 6);
         }
+        return String.format("%6s", clean).replace(' ', '0');
     }
 
-    // ========== 原有方法（不变） ==========
-    private static String normalizeTenantCode(String tenantCode) {
-        String cleanCode = tenantCode.replaceAll("[^a-zA-Z0-9]", "");
-        if (cleanCode.isEmpty()) {
-            throw new IllegalArgumentException("租户Code过滤特殊字符后为空，请检查格式");
-        }
-        cleanCode = cleanCode.toUpperCase();
-        if (cleanCode.length() >= 6) {
-            return cleanCode.substring(cleanCode.length() - 6);
-        } else {
-            return String.format("%-6s", cleanCode).replace(' ', '0');
-        }
-    }
-
-    private static String generateCheckCode(String baseCode) {
+    private String generateCheckCode(String baseCode) {
         int sum = 0;
         for (int i = 0; i < baseCode.length(); i++) {
-            char c = baseCode.charAt(i);
-            int coeff = (i + 1) % 2 == 0 ? 3 : 1;
-            sum += (int) c * coeff;
+            sum += baseCode.charAt(i) * ((i % 2 == 0) ? 1 : 3);
         }
-        int checkNum = sum % 100;
-        return String.format("%02d", checkNum);
-    }
-
-    @PreDestroy // Spring容器销毁时执行（比如应用停止、重启）
-    public void destroyPrintExecutor() {
-        System.out.println("开始关闭条码打印线程池...");
-        // 1. 停止接收新任务
-        printExecutor.shutdown();
-        try {
-            // 2. 等待5秒，让正在执行的打印任务完成
-            if (!printExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                System.out.println("打印线程池未在5秒内关闭，强制终止剩余任务");
-                // 3. 强制终止未完成的任务（避免卡死）
-                List<Runnable> unfinishedTasks = printExecutor.shutdownNow();
-                System.out.println("未完成的打印任务数：" + unfinishedTasks.size());
-            }
-        } catch (InterruptedException e) {
-            // 4. 捕获中断异常，再次强制关闭
-            printExecutor.shutdownNow();
-            Thread.currentThread().interrupt(); // 恢复中断状态
-        }
-        System.out.println("条码打印线程池已关闭");
+        return String.format("%02d", sum % 100);
     }
 }
