@@ -27,6 +27,12 @@ public class InventoryStatics {
     private LocalDateTime statDate;
 
     /**
+     * 租户编码（核心维度，唯一）
+     * 对应数据库字段：tenant_code
+     */
+    @TableField("tenant_code")
+    private String tenantCode;
+    /**
      * 总卷数
      * 对应数据库字段：total_roll_count
      */

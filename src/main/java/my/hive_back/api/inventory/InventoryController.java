@@ -11,10 +11,13 @@ import my.hive_back.module.inventory.model.vo.BarCodeSearchVO;
 import my.hive_back.module.inventory.model.vo.InventoryOverViewVO;
 import my.hive_back.module.inventory.service.InventoryService;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.xml.transform.Result;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 
 @RestController
 @RequestMapping("/inventory")
@@ -23,18 +26,6 @@ public class InventoryController {
 
     @Resource
     private InventoryService inventoryService;
-
-    @GetMapping("/overView")
-    public ResultDTO<InventoryOverViewVO> listInventory() {
-        InventoryStatics inventoryStatics = inventoryService.selectInventoryStatics();
-        if (inventoryStatics == null) {
-            return ResultDTO.success(new InventoryOverViewVO());
-        }
-        InventoryOverViewVO vo = new InventoryOverViewVO();
-        BeanUtils.copyProperties(inventoryStatics, vo);
-        return ResultDTO.success(vo);
-
-    }
 
     @PostMapping("/cloth/in")
     public ResultDTO<String> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
@@ -49,8 +40,6 @@ public class InventoryController {
         return ResultDTO.success(null);
     }
 
-//    @GetMapping("/list")
-//    public ResultDTO<InventoryRecordListVO> listInventoryRecord() {
 
     @GetMapping("/barCode/search")
     public ResultDTO<BarCodeSearchVO> searchBarCode(@RequestParam String barCode) {
