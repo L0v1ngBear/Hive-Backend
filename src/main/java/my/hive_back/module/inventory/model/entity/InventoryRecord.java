@@ -56,11 +56,6 @@ public class InventoryRecord {
     private Long operatorId;
 
     /**
-     * 操作人名称（冗余）
-     */
-    private String operatorName;
-
-    /**
      * 操作备注（如“扫码入库”“手动出库”）
      */
     private String remark;

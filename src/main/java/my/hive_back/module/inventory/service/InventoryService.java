@@ -117,20 +117,13 @@ public class InventoryService {
      * 规格表插入：防重复 + 批量提交（优化性能）
      */
     private void saveClothModelSpec(String modelCode, Float spec) {
-        // 先查后插（加唯一索引兜底：model_code + spec + tenant_code）
-        boolean exists = clothModelSpecMapper.exists(
-                new LambdaQueryWrapper<ClothModelSpec>()
-                        .eq(ClothModelSpec::getModelCode, modelCode)
-                        .eq(ClothModelSpec::getSpec, spec)
-                        .eq(ClothModelSpec::getTenantCode, TenantPermissionContext.getTenantCode())
-        );
-        if (!exists) {
-            ClothModelSpec clothModelSpec = new ClothModelSpec();
-            clothModelSpec.setModelCode(modelCode);
-            clothModelSpec.setSpec(spec);
-            clothModelSpec.setTenantCode(TenantPermissionContext.getTenantCode());
-            clothModelSpecMapper.insert(clothModelSpec);
-        }
+
+        // TODO 需要优化 数据库增加唯一 索引
+        ClothModelSpec clothModelSpec = new ClothModelSpec();
+        clothModelSpec.setModelCode(modelCode);
+        clothModelSpec.setSpec(spec);
+        clothModelSpec.setTenantCode(TenantPermissionContext.getTenantCode());
+        clothModelSpecMapper.insert(clothModelSpec);
     }
 
     private void CompleteBarcode(InventoryInRequest request) {
