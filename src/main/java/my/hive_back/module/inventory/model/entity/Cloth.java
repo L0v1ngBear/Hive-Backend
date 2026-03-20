@@ -1,16 +1,33 @@
 package my.hive_back.module.inventory.model.entity;
 
-import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
-import my.hive_back.module.BaseEntity;
 
 import java.time.LocalDateTime;
 
-@EqualsAndHashCode(callSuper = true)
 @TableName("cloth")
 @Data
-public class Cloth extends BaseEntity {
+public class Cloth {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    /**
+     * 租户ID（多租户隔离）
+     */
+    private String tenantCode;
+
+    /**
+     * 创建时间（自动填充）
+     */
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createTime;
+
+    /**
+     * 更新时间（自动填充）
+     */
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updateTime;
 
     /**
      * 布匹条码（唯一索引）

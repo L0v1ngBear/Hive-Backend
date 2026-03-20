@@ -173,7 +173,7 @@ public class InventoryService {
         record.setOperatorId(TenantPermissionContext.getUserId());
         record.setOperateType(InventoryOperateTypeEnum.IN.getCode());
         record.setOperateMeters(inventoryInRequest.getMeters());
-        record.setTotalMeters(inventoryInRequest.getMeters());
+        record.setRemainingMeters(inventoryInRequest.getMeters());
         inventoryRecordMapper.insert(record);
 
 
@@ -230,6 +230,10 @@ public class InventoryService {
             //TODO 重新打印条形码
 
         }
+
+        Float operatorMeters = meters == null ? cloth.getTotalMeters() : meters;
+        Float remainTotalMeters = meters == null ? 0 : cloth.getTotalMeters() - operatorMeters;
+
         updateWrapper.set(Cloth::getOutOperatorId, TenantPermissionContext.getUserId());
         updateWrapper.eq(Cloth::getBarcode, barCode);
         clothMapper.update(updateWrapper);
@@ -240,7 +244,8 @@ public class InventoryService {
         record.setClothId(clothId);
         record.setOperatorId(TenantPermissionContext.getUserId());
         record.setOperateType(InventoryOperateTypeEnum.OUT.getCode());
-        record.setOperateMeters(meters);
+        record.setOperateMeters(operatorMeters);
+        record.setRemainingMeters(remainTotalMeters);
         inventoryRecordMapper.insert(record);
 
         String outKey = INVENTORY_STATICS_OUT_KEY_PREFIX + ":" + TenantPermissionContext.getTenantCode();
