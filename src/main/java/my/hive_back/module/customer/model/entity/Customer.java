@@ -23,7 +23,7 @@ public class Customer {
     /**
      * 公司名称
      */
-    private String companyName;
+    private String customerName;
 
     /**
      * 客户类型
