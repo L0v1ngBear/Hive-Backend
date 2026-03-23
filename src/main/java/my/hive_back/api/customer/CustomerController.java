@@ -1,14 +1,25 @@
 package my.hive_back.api.customer;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
+import jakarta.validation.Valid;
+import my.hive_back.common.dto.PageResultVO;
 import my.hive_back.common.dto.ResultDTO;
+import my.hive_back.module.customer.mapper.CustomerProjectMapper;
 import my.hive_back.module.customer.model.dto.CustomerAddRequest;
+import my.hive_back.module.customer.model.dto.CustomerPageRequest;
+import my.hive_back.module.customer.model.entity.Customer;
+import my.hive_back.module.customer.model.entity.CustomerProject;
+import my.hive_back.module.customer.model.vo.CustomerPageVO;
 import my.hive_back.module.customer.service.CustomerService;
+import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/customer")
@@ -18,9 +29,46 @@ public class CustomerController {
     @Resource
     private CustomerService customerService;
 
+    @Resource
+    private CustomerProjectMapper customerProjectMapper;
+
     @PostMapping("/add")
     public ResultDTO<Void> addCustomer(@RequestBody CustomerAddRequest request) {
         customerService.addCustomer(request);
         return ResultDTO.success(null);
+    }
+
+    @GetMapping("/page")
+    public ResultDTO<PageResultVO<CustomerPageVO>> getCustomerPage(@Valid CustomerPageRequest request) {
+        Page<Customer> page = Optional.ofNullable(customerService.pageSearchCustomer(request))
+                .orElse(new Page<>()); // 若返回null，初始化空分页对象
+        // 4. 组装 VO (统计项目数和最新合作项目)
+        List<CustomerPageVO> voList = page.getRecords().stream().map(customer -> {
+            CustomerPageVO vo = new CustomerPageVO();
+            BeanUtils.copyProperties(customer, vo);
+            // 注意：如果你 DTO 里叫 companyName，这里就不用转了，按实际情况来
+
+            // 查询该客户下的所有项目 (倒序排，最新的在前面)
+            List<CustomerProject> projects = customerProjectMapper.selectList(
+                    new LambdaQueryWrapper<CustomerProject>()
+                            .eq(CustomerProject::getCustomerId, customer.getId())
+                            .orderByDesc(CustomerProject::getId)
+            );
+
+            // 组装聚合字段
+            vo.setProjectCount(projects.size());
+            vo.setProjectNames(projects.stream().map(CustomerProject::getProjectName).collect(Collectors.toList()));
+            return vo;
+        }).collect(Collectors.toList());
+
+        // 5. 封装为你统一的 PageResultVO 返回
+        PageResultVO<CustomerPageVO> result = new PageResultVO<>();
+        result.setCurrent(page.getCurrent());
+        result.setSize(page.getSize());
+        result.setTotal(page.getTotal());
+        result.setPages(page.getPages());
+        result.setData(voList);
+
+        return ResultDTO.success(result);
     }
 }

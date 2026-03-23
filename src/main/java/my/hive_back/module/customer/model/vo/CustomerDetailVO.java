@@ -1,6 +1,5 @@
-package my.hive_back.module.customer.model.dto;
+package my.hive_back.module.customer.model.vo;
 
-import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import my.hive_back.module.customer.model.entity.CustomerContact;
 import my.hive_back.module.customer.model.entity.CustomerProject;
@@ -8,19 +7,13 @@ import my.hive_back.module.customer.model.entity.CustomerProject;
 import java.util.List;
 
 @Data
-public class CustomerAddRequest {
-
-    @NotBlank(message = "客户名称不能为空")
-    private String customerName;
-
-    @NotBlank(message = "客户类型不能为空")
+public class CustomerDetailVO {
+    private Long id;
+    private String companyName;
     private Integer customerType;
-
-    @NotBlank(message = "施工区域不能为空")
     private String constructionArea;
 
+    // 包含一对多关联的子表数据
     private List<CustomerContact> contacts;
-
     private List<CustomerProject> projects;
-
 }

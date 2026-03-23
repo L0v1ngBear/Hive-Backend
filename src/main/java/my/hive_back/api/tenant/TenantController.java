@@ -29,7 +29,7 @@ public class TenantController {
     @Resource
     private TenantService tenantService;
 
-    @GetMapping("/page-search")
+    @GetMapping("/page")
     public ResultDTO<PageResultVO<TenantVO>> pageSearchTenant(@Valid @RequestBody TenantInfoPageRequest searchDTO) {
 
         Page<Tenant> tenantPage = Optional.ofNullable(tenantService.pageSearchTenant(searchDTO))
