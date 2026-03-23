@@ -71,6 +71,8 @@ public class SalesOrder {
      */
     private String expressNo;
 
+    private Integer isInvoice;
+
     /**
      * 订单创建时间
      */

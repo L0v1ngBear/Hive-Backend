@@ -19,6 +19,9 @@ public class SalesOrderStatusRequest {
     @Valid // 开启嵌套对象校验
     private ExpressInfo expressInfo;
 
+    @NotBlank(message = "是否开具发票不能为空")
+    private Integer isInvoice;
+
     /**
      * 物流信息内部类（带校验）
      */

@@ -16,4 +16,5 @@ public class SalesOrderVO {
     private String expressCompany;
     private String expressNo;
     private String createTime;
+    private Integer isInvoice;
 }
