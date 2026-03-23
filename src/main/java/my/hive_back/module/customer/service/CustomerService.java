@@ -16,7 +16,6 @@ import my.hive_back.module.customer.model.entity.Customer;
 import my.hive_back.module.customer.model.entity.CustomerContact;
 import my.hive_back.module.customer.model.entity.CustomerProject;
 import my.hive_back.module.customer.model.vo.CustomerDetailVO;
-import my.hive_back.module.tenant.model.entity.Tenant;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
