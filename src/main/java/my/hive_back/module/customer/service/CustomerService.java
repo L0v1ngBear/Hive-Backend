@@ -15,9 +15,13 @@ import my.hive_back.module.customer.model.dto.CustomerPageRequest;
 import my.hive_back.module.customer.model.entity.Customer;
 import my.hive_back.module.customer.model.entity.CustomerContact;
 import my.hive_back.module.customer.model.entity.CustomerProject;
+import my.hive_back.module.customer.model.vo.CustomerDetailVO;
 import my.hive_back.module.tenant.model.entity.Tenant;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 public class CustomerService {
@@ -115,5 +119,23 @@ public class CustomerService {
         // 3. 执行主表的分页查询
         Page<Customer> page = new Page<>(request.getPageNum(), request.getPageSize());
         return customerMapper.selectPage(page, wrapper);
+    }
+
+    public CustomerDetailVO getCustomer(Long id) {
+        Customer customer = customerMapper.selectById(id);
+        if (customer == null) {
+            throw new BusinessException("客户不存在");
+        }
+
+        List<CustomerContact> customerContactList = customerContactMapper.selectList(new LambdaQueryWrapper<CustomerContact>()
+                .eq(CustomerContact::getCustomerId, id));
+        List<CustomerProject> customerProjectList = customerProjectMapper.selectList(new LambdaQueryWrapper<CustomerProject>()
+                .eq(CustomerProject::getCustomerId, id));
+
+        CustomerDetailVO customerDetailVO = new CustomerDetailVO();
+        BeanUtils.copyProperties(customer, customerDetailVO);
+        customerDetailVO.setContacts(customerContactList);
+        customerDetailVO.setProjects(customerProjectList);
+        return customerDetailVO;
     }
 }

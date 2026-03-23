@@ -4,15 +4,20 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
+import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.dto.PageResultVO;
 import my.hive_back.common.dto.ResultDTO;
+import my.hive_back.common.exception.BusinessException;
 import my.hive_back.module.customer.mapper.CustomerProjectMapper;
 import my.hive_back.module.customer.model.dto.CustomerAddRequest;
 import my.hive_back.module.customer.model.dto.CustomerPageRequest;
 import my.hive_back.module.customer.model.entity.Customer;
+import my.hive_back.module.customer.model.entity.CustomerContact;
 import my.hive_back.module.customer.model.entity.CustomerProject;
+import my.hive_back.module.customer.model.vo.CustomerDetailVO;
 import my.hive_back.module.customer.model.vo.CustomerPageVO;
 import my.hive_back.module.customer.service.CustomerService;
+import my.hive_back.module.tenant.model.entity.Tenant;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -70,5 +75,11 @@ public class CustomerController {
         result.setData(voList);
 
         return ResultDTO.success(result);
+    }
+
+    @GetMapping("/detail/{id}")
+    public ResultDTO<CustomerDetailVO> getCustomer(@PathVariable Long id) {
+        CustomerDetailVO customerDetailVO = customerService.getCustomer(id);
+        return ResultDTO.success(customerDetailVO);
     }
 }
