@@ -9,8 +9,6 @@ import my.hive_back.module.attendance.model.entity.AttendanceRecord;
 import my.hive_back.module.leave.LeaveStatusEnum;
 import my.hive_back.module.leave.mapper.LeaveMapper;
 import my.hive_back.module.leave.model.entity.UserLeave;
-import my.hive_back.module.statics.attendance.mapper.AttendanceStaticsMapper;
-import my.hive_back.module.statics.attendance.model.AttendanceStatics;
 import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import my.hive_back.module.user.mapper.UserMapper;
@@ -22,152 +20,138 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 考勤统计定时任务
+ * 核心逻辑：每日凌晨核算昨日未打卡或打卡异常的情况，结合请假单进行状态校准
+ */
 @Slf4j
 @Component
 public class AttendanceStaticsScheduler {
 
     @Resource
     private AttendanceRecordMapper recordMapper;
+
     @Resource
     private LeaveMapper leaveMapper;
+
     @Resource
     private UserMapper userMapper;
+
     @Resource
     private TenantAttendanceRuleMapper ruleMapper;
-    @Resource
-    private AttendanceStaticsMapper attendanceStaticsMapper;
 
     /**
-     * 每天凌晨2点执行，统计昨日数据
+     * 每天凌晨2点核算昨日考勤
+     * 补充逻辑：处理那些完全没打卡（表中无记录）或打卡后状态仍为异常的用户
      */
     @Scheduled(cron = "0 0 2 * * ?")
     @Transactional(rollbackFor = Exception.class)
     public void statisticsYesterday() {
         LocalDate yesterday = LocalDate.now().minusDays(1);
-        log.info("开始执行 {} 考勤统计任务", yesterday);
+        String dateStr = yesterday.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        log.info("开始核算昨日 ({}) 考勤数据...", dateStr);
 
-        // 1. 获取所有有效的租户考勤规则
-        List<TenantAttendanceRule> rules = ruleMapper.selectList(new LambdaQueryWrapper<>());
-        Map<String, TenantAttendanceRule> ruleMap = rules.stream()
+        // 1. 获取所有在职用户
+        List<User> userList = userMapper.selectList(new LambdaQueryWrapper<User>()
+                .eq(User::getStatus, 1));
+
+        // 2. 获取所有租户的考勤规则 (Map存储提高查询效率)
+        List<TenantAttendanceRule> allRules = ruleMapper.selectList(new LambdaQueryWrapper<>());
+        Map<String, TenantAttendanceRule> ruleMap = allRules.stream()
                 .collect(Collectors.toMap(TenantAttendanceRule::getTenantCode, r -> r));
 
-        // 2. 获取所有在职用户
-        List<User> allUsers = userMapper.selectList(new LambdaQueryWrapper<User>().eq(User::getStatus, 1));
-
-        // 3. 批量查询昨日所有已通过的请假单 (优化：一次性查出，内存过滤)
+        // 3. 获取昨日所有已通过的请假单
         List<UserLeave> allLeaves = leaveMapper.selectList(new LambdaQueryWrapper<UserLeave>()
                 .eq(UserLeave::getStatus, LeaveStatusEnum.APPROVED.getCode())
-                .lt(UserLeave::getStartTime, yesterday.plusDays(1).atStartOfDay())
+//                .lt(UserLeave::getStartTime, yesterday.plusDays(1).atStartOfDay())
                 .gt(UserLeave::getEndTime, yesterday.atStartOfDay()));
         Map<Long, List<UserLeave>> userLeaveMap = allLeaves.stream()
                 .collect(Collectors.groupingBy(UserLeave::getApplyUserId));
 
-        // 4. 批量查询昨日打卡记录
-        List<AttendanceRecord> allRecords = recordMapper.selectList(new LambdaQueryWrapper<AttendanceRecord>()
-                .eq(AttendanceRecord::getCreateTime, yesterday));
-        Map<Long, AttendanceRecord> userRecordMap = allRecords.stream()
+        // 4. 获取昨日已有的打卡记录
+        List<AttendanceRecord> existingRecords = recordMapper.selectList(new LambdaQueryWrapper<AttendanceRecord>()
+                .likeRight(AttendanceRecord::getPunchId, dateStr));
+        Map<Long, AttendanceRecord> userRecordMap = existingRecords.stream()
                 .collect(Collectors.toMap(AttendanceRecord::getUserId, r -> r));
 
         // 5. 遍历用户进行判定
-        for (User user : allUsers) {
+        for (User user : userList) {
             TenantAttendanceRule rule = ruleMap.get(user.getTenantCode());
-            if (rule == null) continue; // 无规则不统计
+            if (rule == null) continue;
 
-            AttendanceRecord punch = userRecordMap.get(user.getId());
+            AttendanceRecord record = userRecordMap.get(user.getId());
             List<UserLeave> userLeaves = userLeaveMap.getOrDefault(user.getId(), List.of());
 
-            AttendanceStatics statics = processUserDayStatus(user, yesterday, punch, userLeaves, rule);
-
-            // 6. 保存或更新统计结果
-            saveOrUpdateStatics(statics);
+            processUserDayStatus(user, yesterday, dateStr, record, userLeaves, rule);
         }
-        log.info("{} 考勤统计任务完成", yesterday);
+
+        log.info("昨日考勤核算完成。");
     }
 
-    private AttendanceStatics processUserDayStatus(User user, LocalDate date, AttendanceRecord punch,
-                                                   List<UserLeave> leaves, TenantAttendanceRule rule) {
-        AttendanceStatics statics = new AttendanceStatics();
-        statics.setUserId(user.getId());
-        statics.setTenantCode(user.getTenantCode());
-        statics.setStatisticsDate(date);
+    private void processUserDayStatus(User user, LocalDate yesterday, String dateStr,
+                                      AttendanceRecord record, List<UserLeave> leaves,
+                                      TenantAttendanceRule rule) {
 
-        // 默认初始化状态
-        int finalStatus = PunchStatusEnum.NORMAL.getCode();
+        boolean isNewRecord = false;
+        if (record == null) {
+            // A. 场景：用户昨日完全没打卡，需创建初始记录判定为“缺勤”或“请假”
+            record = new AttendanceRecord();
+            record.setPunchId(dateStr + "_" + user.getId());
+            record.setUserId(user.getId());
+            record.setTenantCode(user.getTenantCode());
+            isNewRecord = true;
+        }
 
-        // --- A. 上班判定 ---
-        LocalTime workStart = rule.getWorkStartTime();
-        boolean isSignInNormal = false;
-
-        if (punch == null || punch.getSignInTime() == null) {
-            // 没打卡：检查是否被请假覆盖
-            if (isTimeCoveredByLeaves(workStart, date, leaves)) {
-                statics.set(PunchStatusEnum.LEAVE.getCode());
+        // --- 1. 上班状态校准 ---
+        if (record.getSignInTime() == null) {
+            // 没打卡：检查上班时间点是否被请假覆盖
+            if (isTimeCoveredByLeaves(rule.getWorkStartTime(), yesterday, leaves)) {
+                record.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
             } else {
-                statics.setSignInStatus(PunchStatusEnum.ABSENT.getCode());
-                finalStatus = PunchStatusEnum.ABSENT.getCode();
+                record.setSignInStatus(PunchStatusEnum.ABSENT.getCode()); // 设为缺勤/缺卡
             }
-        } else {
-            // 已打卡：检查是否迟到
-            if (punch.getSignInTime().toLocalTime().isAfter(workStart)) {
-                // 迟到了：检查迟到时间点是否在请假范围内（例如请假半天）
-                if (isTimeCoveredByLeaves(workStart, date, leaves)) {
-                    statics.setSignInStatus(PunchStatusEnum.LEAVE_COMPENSATED.getCode());
-                } else {
-                    statics.setSignInStatus(PunchStatusEnum.LATE.getCode());
-                    finalStatus = PunchStatusEnum.ABNORMAL.getCode();
-                }
-            } else {
-                statics.setSignInStatus(PunchStatusEnum.NORMAL.getCode());
-                isSignInNormal = true;
+        } else if (PunchStatusEnum.LATE.getCode().equals(record.getSignInStatus())) {
+            // 迟到：检查规定的上班时间点是否在请假范围内（例如请假半天）
+            if (isTimeCoveredByLeaves(rule.getWorkStartTime(), yesterday, leaves)) {
+                record.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
             }
         }
 
-        // --- B. 下班判定 ---
-        LocalTime workEnd = rule.getWorkEndTime();
-        if (punch == null || punch.getSignOutTime() == null) {
-            if (isTimeCoveredByLeaves(workEnd, date, leaves)) {
-                statics.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
+        // --- 2. 下班状态校准 ---
+        if (record.getSignOutTime() == null) {
+            // 没打卡：检查下班时间点是否被请假覆盖
+            if (isTimeCoveredByLeaves(rule.getWorkEndTime(), yesterday, leaves)) {
+                record.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
             } else {
-                statics.setSignOutStatus(PunchStatusEnum.ABSENT.getCode());
-                finalStatus = PunchStatusEnum.ABSENT.getCode();
+                record.setSignOutStatus(PunchStatusEnum.ABSENT.getCode());
             }
-        } else {
-            if (punch.getSignOutTime().toLocalTime().isBefore(workEnd)) {
-                if (isTimeCoveredByLeaves(workEnd, date, leaves)) {
-                    statics.setSignOutStatus(PunchStatusEnum.LEAVE_COMPENSATED.getCode());
-                } else {
-                    statics.setSignOutStatus(PunchStatusEnum.EARLY.getCode());
-                    finalStatus = PunchStatusEnum.ABNORMAL.getCode();
-                }
-            } else {
-                statics.setSignOutStatus(PunchStatusEnum.NORMAL.getCode());
+        } else if (PunchStatusEnum.EARLY.getCode().equals(record.getSignOutStatus())) {
+            // 早退：检查下班时间点是否在请假范围内
+            if (isTimeCoveredByLeaves(rule.getWorkEndTime(), yesterday, leaves)) {
+                record.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
             }
         }
 
-        statics.setFinalStatus(finalStatus);
-        return statics;
+        // --- 3. 持久化 ---
+        if (isNewRecord) {
+            recordMapper.insert(record);
+        } else {
+            recordMapper.updateById(record);
+        }
     }
 
+    /**
+     * 判定特定时间点是否被请假单覆盖
+     */
     private boolean isTimeCoveredByLeaves(LocalTime checkTime, LocalDate date, List<UserLeave> leaves) {
+        if (checkTime == null) return false;
         LocalDateTime checkDateTime = LocalDateTime.of(date, checkTime);
         return leaves.stream().anyMatch(leave ->
                 !checkDateTime.isBefore(leave.getStartTime()) && !checkDateTime.isAfter(leave.getEndTime()));
-    }
-
-    private void saveOrUpdateStatics(AttendanceStatics statics) {
-        // 先检查是否存在，存在则更新，不存在则插入
-        AttendanceStatics exist = attendanceStaticsMapper.selectOne(new LambdaQueryWrapper<AttendanceStatics>()
-                .eq(AttendanceStatics::getUserId, statics.getUserId())
-                .eq(AttendanceStatics::getStaticsDate, statics.getStaticsDate()));
-        if (exist != null) {
-            statics.setId(exist.getId());
-            attendanceStaticsMapper.updateById(statics);
-        } else {
-            attendanceStaticsMapper.insert(statics);
-        }
     }
 }
