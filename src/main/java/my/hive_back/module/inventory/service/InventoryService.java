@@ -144,6 +144,9 @@ public class InventoryService {
                 clothMapper.update(luw);
             }
 
+
+            // TODO 出库重新打印条码，修改米数
+
             // 4. 发送异步通知：记录流水与统计（不阻塞主事务提交）
             // 建议：此处若并发极高，可改为发送 MQ 消息
             asyncLogAndStatics(barCode, tenantCode, userId, metersToOut, INVENTORY_STATICS_OUT_KEY_PREFIX);
