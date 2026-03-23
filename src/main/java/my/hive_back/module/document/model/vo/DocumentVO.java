@@ -1,7 +1,10 @@
 package my.hive_back.module.document.model.vo;
 
+import lombok.Data;
+
 import java.time.LocalDateTime;
 
+@Data
 public class DocumentVO {
     private Long id;
     private Long parentId;

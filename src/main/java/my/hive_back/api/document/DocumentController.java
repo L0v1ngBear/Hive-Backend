@@ -44,4 +44,22 @@ public class DocumentController {
         documentService.uploadFile(file);
         return ResultDTO.success(null);
     }
+
+    @PutMapping("/document/rename")
+    public ResultDTO<Void> renameDocument(@RequestParam Long documentId, @RequestParam String newName) {
+        documentService.renameDocument(documentId, newName);
+        return ResultDTO.success(null);
+    }
+
+    @PutMapping("/document/move")
+    public ResultDTO<Void> moveDocument(@RequestParam Long documentId, @RequestParam Long newParentId) {
+        documentService.moveDocument(documentId, newParentId);
+        return ResultDTO.success(null);
+    }
+
+    @GetMapping("/document/breadcrumbs")
+    public ResultDTO<List<DocumentVO>> breadcrumbsBreadcrumbs(@RequestParam Long documentId) {
+        List<DocumentVO> breadcrumbs = documentService.getBreadcrumbs(documentId);
+        return ResultDTO.success(breadcrumbs);
+    }
 }
