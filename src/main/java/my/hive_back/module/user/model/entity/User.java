@@ -59,6 +59,10 @@ public class User {
     private Integer roleLevel;
 
     /**
+     * 状态 (0: 离职, 1: 在职)
+     */
+    private Integer status;
+    /**
      * 更新时间
      */
     private LocalDateTime updateTime;

@@ -204,8 +204,6 @@ public class LeaveService {
             if (isFinalApprover) {
                 // [终审节点]：权限足够，流程结束
                 approval.setStatus(LeaveStatusEnum.APPROVED.getCode());
-                // 审批一旦通过，立刻同步到考勤系统！
-                syncLeaveToAttendance(approval);
             } else {
                 // [中间节点]：权限不够，需要流转给更上一级领导
                 Long nextManagerId = null;
@@ -222,15 +220,12 @@ public class LeaveService {
                     syncLeaveToAttendance(approval);
                 }
             }
-            leaveMapper.updateById(approval);
         } else {
             approval.setStatus(LeaveStatusEnum.REJECTED.getCode());
             approval.setAuditComment(auditRequest.getComment());
-            leaveMapper.updateById(approval);
             // TODO: (可选) 发送通知给申请人：“您的请假被拒绝”
-            return;
         }
-
+        leaveMapper.updateById(approval);
     }
 
     /**
@@ -294,7 +289,7 @@ public class LeaveService {
                 boolean needUpdate = false;
 
                 // 如果上班没打卡被记成了缺勤，改为请假
-                if (existingRecord.getSignInStatus() == null || existingRecord.getSignInStatus().equals(PunchStatusEnum.ABSENT.getCode())) {
+                if (existingRecord.getSignInStatus() == null) {
                     existingRecord.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
                     needUpdate = true;
                 }

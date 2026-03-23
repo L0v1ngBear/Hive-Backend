@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -35,87 +36,44 @@ public class AttendanceService {
     @Resource
     private RedisUtil redisUtil;
 
-    @Transactional(rollbackFor = Exception.class, noRollbackFor = BusinessException.class)
+    @Transactional(rollbackFor = Exception.class)
     public void punch(AttendancePunchRequest request) {
-
-        // 1. 获取上下文基础信息
         String tenantCode = TenantPermissionContext.getTenantCode();
         Long userId = TenantPermissionContext.getUserId();
         LocalTime nowTime = TimeUtil.nowTime();
+        String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String punchId = dateStr + "_" + userId;
 
-        String punchId = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "_" + userId;
-
-        // 2. 获取公司考勤规则（包含位置与时间规则）
         TenantAttendanceRule rule = getCompanyAttendanceRule(tenantCode);
 
-        // 3. 校验时间是否在允许打卡的整体开放时间段内
-        if (rule.getWorkStartTime() != null && nowTime.isBefore(rule.getWorkStartTime())) {
-            throw new BusinessException("打卡失败：未到今日开放打卡时间");
-        }
-        if (rule.getOverTimeEndTime() != null && nowTime.isAfter(rule.getOverTimeEndTime())) {
-            throw new BusinessException("打卡失败：今日打卡通道已关闭");
+        // 基础校验：距离校验
+        Double distance = calculateDistance(rule.getLatitude(), rule.getLongitude(), request.getUserLat(), request.getUserLng());
+        if (distance > rule.getRadius()) {
+            throw new BusinessException("超出打卡范围");
         }
 
-        // 4. 校验地理位置距离
-        Double userLat = request.getUserLat();
-        Double userLng = request.getUserLng();
-        Double distance = calculateDistance(rule.getLatitude(), rule.getLongitude(), userLat, userLng);
-        Double validRadius = rule.getRadius();
+        AttendanceRecord record = attendanceRecordMapper.selectOne(
+                new LambdaQueryWrapper<AttendanceRecord>().eq(AttendanceRecord::getPunchId, punchId));
 
-        if (distance.compareTo(validRadius) > 0) {
-            throw new BusinessException("打卡失败：您当前距离公司 " + distance + " 米，超出了允许范围（" + validRadius + "米）");
-        }
-
-        // 5. 查询今日是否已有打卡记录
-        AttendanceRecord existingRecord = attendanceRecordMapper.selectOne(
-                new LambdaQueryWrapper<AttendanceRecord>()
-                        .eq(AttendanceRecord::getPunchId, punchId)
-        );
-
-        if (existingRecord == null) {
-            // ============================
-            // 场景 A: 没有记录 -> 首次打卡（上班）
-            // ============================
-            AttendanceRecord newRecord = new AttendanceRecord();
-            newRecord.setPunchId(punchId);
-            newRecord.setUserId(userId);
-            newRecord.setTenantCode(tenantCode);
-            newRecord.setSignInDistance(distance);
-            // 专属字段：记录上班信息
-            newRecord.setSignInTime(nowTime);
-            newRecord.setSignInLat(userLat);
-            newRecord.setSignInLng(userLng);
-            newRecord.setRuleRadius(validRadius);
-            // 修正：判断是否迟到（与规定的上班时间 rule.getWorkStartTime() 比较）
-            if (rule.getWorkStartTime() != null && nowTime.isAfter(rule.getWorkStartTime())) {
-                newRecord.setSignInStatus(PunchStatusEnum.LATE.getCode()); // 迟到
-            } else {
-                newRecord.setSignInStatus(PunchStatusEnum.NORMAL.getCode()); // 正常上班
-            }
-
-            // 插入新记录
-            attendanceRecordMapper.insert(newRecord);
-
+        if (record == null) {
+            // 上班打卡
+            record = new AttendanceRecord();
+            record.setPunchId(punchId);
+            record.setUserId(userId);
+            record.setTenantCode(tenantCode);
+            record.setSignInTime(nowTime);
+            record.setSignInDistance(distance);
+            // 仅做初步判定，最终由统计任务核准
+            record.setSignInStatus(nowTime.isAfter(rule.getWorkStartTime()) ?
+                    PunchStatusEnum.LATE.getCode() : PunchStatusEnum.NORMAL.getCode());
+            attendanceRecordMapper.insert(record);
         } else {
-            // ============================
-            // 场景 B: 已有记录 -> 再次打卡（更新为下班/加班）
-            // ============================
-            // 专属字段：记录下班信息（多次打卡会覆盖最新的下班时间，符合实际业务）
-            existingRecord.setSignOutTime(nowTime);
-            existingRecord.setSignOutLat(userLat);
-            existingRecord.setSignOutLng(userLng);
-            existingRecord.setSignOutDistance(distance);
-            // 判断下班状态
-            if (rule.getWorkEndTime() != null && nowTime.isAfter(rule.getWorkEndTime())) {
-                existingRecord.setSignOutStatus(PunchStatusEnum.OVERTIME.getCode()); // 加班
-            } else if (rule.getOffWorkStartTime() != null && nowTime.isBefore(rule.getOffWorkStartTime())) {
-                existingRecord.setSignOutStatus(PunchStatusEnum.EARLY.getCode()); // 早退
-            } else {
-                existingRecord.setSignOutStatus(PunchStatusEnum.NORMAL.getCode()); // 正常下班
-            }
-
-            // 修复：这里必须是 updateById，不能用 insert！
-            attendanceRecordMapper.updateById(existingRecord);
+            // 下班打卡（覆盖更新，以最后一次为准）
+            record.setSignOutTime(nowTime);
+            record.setSignOutDistance(distance);
+            record.setSignOutStatus(nowTime.isBefore(rule.getWorkEndTime()) ?
+                    PunchStatusEnum.EARLY.getCode() : PunchStatusEnum.NORMAL.getCode());
+            attendanceRecordMapper.updateById(record);
         }
     }
 
