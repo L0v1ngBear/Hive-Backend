@@ -23,7 +23,6 @@ public class Tenant {
 
     /**
      * 租户编码
-     * 唯一标识，格式规范：如TENANT_001、TEST_002，用于租户隔离（非主键）
      */
     private String tenantCode;
 
