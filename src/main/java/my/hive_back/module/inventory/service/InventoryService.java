@@ -10,7 +10,6 @@ import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.exception.BusinessException;
 import my.hive_back.common.utils.BarCodeUtil;
 import my.hive_back.common.utils.RedisUtil;
-import my.hive_back.common.utils.TimeUtil;
 import my.hive_back.module.inventory.InventoryInTypeEnum;
 import my.hive_back.module.inventory.InventoryOperateTypeEnum;
 import my.hive_back.module.inventory.mapper.ClothMapper;
@@ -32,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -234,5 +234,11 @@ public class InventoryService {
 
     public InventoryStatics selectInventoryStatics() {
         return staticsMapper.selectOne(new LambdaQueryWrapper<InventoryStatics>());
+    }
+
+    public List<ClothModelSpec> searchModelSpec(String keyword) {
+        LambdaQueryWrapper<ClothModelSpec> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.like(ClothModelSpec::getModelCode, keyword);
+        return clothModelSpecMapper.selectList(queryWrapper);
     }
 }

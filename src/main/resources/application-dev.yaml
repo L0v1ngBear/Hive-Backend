@@ -1,4 +1,10 @@
 spring:
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 4
+
   datasource:
     url: jdbc:mysql://localhost:3306/hive?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
     username: root
@@ -8,9 +14,3 @@ logging:
   level:
     my.hive_back.module: DEBUG  # 增加模块包的日志，方便调试
     my.hive_back.api: DEBUG  # 增加接口包的日志，方便调试 Swagger
-
-# 开发环境 Redis 地址（本地）
-redis:
-  host: 127.0.0.1
-  port: 6379
-  database: 4
