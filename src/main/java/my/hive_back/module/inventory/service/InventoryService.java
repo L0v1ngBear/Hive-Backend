@@ -75,7 +75,7 @@ public class InventoryService {
                 inventoryInRequest.setBarcode(barcode);
                 inventoryHandIn(inventoryInRequest);
             }
-            default -> throw new IllegalArgumentException("未知的入库类型");
+            default -> throw new BusinessException("未知的入库类型");
         }
 
         // 2. 异步维护型号规格：规格库插入不影响主流程入库结果
