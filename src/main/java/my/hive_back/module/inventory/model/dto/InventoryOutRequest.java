@@ -7,7 +7,7 @@ import lombok.Data;
 public class InventoryOutRequest {
 
     @NotBlank
-    private String barCode;
+    private String barcode;
 
 
     private Float meters;

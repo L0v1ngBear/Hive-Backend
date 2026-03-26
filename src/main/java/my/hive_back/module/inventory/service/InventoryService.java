@@ -22,6 +22,7 @@ import my.hive_back.module.inventory.model.entity.ClothModelSpec;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
 import my.hive_back.module.inventory.model.entity.InventoryStatics;
 import my.hive_back.module.inventory.mapper.InventoryStaticsMapper;
+import my.hive_back.module.inventory.model.vo.ClothInfoVO;
 import org.springframework.beans.BeanUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -62,7 +63,7 @@ public class InventoryService {
      */
     @Transactional(rollbackFor = Exception.class)
     @RequirePermission(value = "inventory:in", message = "无权操作库存入库")
-    public String inCloth(@Valid InventoryInRequest inventoryInRequest) {
+    public ClothInfoVO inCloth(@Valid InventoryInRequest inventoryInRequest) {
         InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.getCode(inventoryInRequest.getInType());
         String barcode;
 
@@ -80,7 +81,9 @@ public class InventoryService {
         // 2. 异步维护型号规格：规格库插入不影响主流程入库结果
         saveClothModelSpecAsync(inventoryInRequest.getModelCode(), inventoryInRequest.getSpec(), TenantPermissionContext.getTenantCode());
 
-        return barcode;
+        ClothInfoVO clothInfoVO = new ClothInfoVO();
+        BeanUtils.copyProperties(inventoryInRequest, clothInfoVO);
+        return clothInfoVO;
     }
 
     /**
@@ -89,7 +92,7 @@ public class InventoryService {
     @RequirePermission(value = "inventory:out", message = "无权操作库存出库")
     @Transactional(rollbackFor = Exception.class)
     public void outCloth(@Valid InventoryOutRequest request) {
-        String barCode = request.getBarCode();
+        String barCode = request.getBarcode();
         String tenantCode = TenantPermissionContext.getTenantCode();
         Long userId = TenantPermissionContext.getUserId();
 
@@ -145,12 +148,15 @@ public class InventoryService {
             }
 
 
-            // TODO 出库重新打印条码，修改米数
-
             // 4. 发送异步通知：记录流水与统计（不阻塞主事务提交）
-            // 建议：此处若并发极高，可改为发送 MQ 消息
+
             asyncLogAndStatics(barCode, tenantCode, userId, metersToOut, INVENTORY_STATICS_OUT_KEY_PREFIX);
 
+            // 5. 出库成功后，返回出库信息
+            ClothInfoVO clothInfoVO = new ClothInfoVO();
+            BeanUtils.copyProperties(request, clothInfoVO);
+
+            return clothInfoVO;
         } finally {
             stringRedisTemplate.delete(lockKey);
         }

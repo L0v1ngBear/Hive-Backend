@@ -2,6 +2,7 @@ package my.hive_back.common.utils;
 
 import com.alibaba.fastjson2.JSON;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 
+@Slf4j
 @Component
 public class RedisUtil {
 
@@ -49,11 +51,11 @@ public class RedisUtil {
                 return targetType.cast(Integer.parseInt(value));
             } else {
                 // 不支持的类型返回默认值
-                return defaultValue;
+                return JSON.parseObject(value, targetType);
             }
         } catch (NumberFormatException e) {
             // 转换失败打印日志（建议替换为logback/log4j2）
-            System.err.printf("转换Redis值失败，hashKey=%s, tenantCode=%s, value=%s%n", hashKey, tenantCode, value);
+            log.error("转换Redis值失败，hashKey={}, tenantCode={}, value={}", hashKey, tenantCode, value, e);
             return defaultValue;
         }
     }

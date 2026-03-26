@@ -7,21 +7,15 @@ import my.hive_back.module.inventory.model.dto.InventoryInRequest;
 import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
 import my.hive_back.module.inventory.model.entity.ClothModelSpec;
-import my.hive_back.module.inventory.model.entity.InventoryStatics;
 import my.hive_back.module.inventory.model.vo.BarCodeSearchVO;
-import my.hive_back.module.inventory.model.vo.InventoryOverViewVO;
+import my.hive_back.module.inventory.model.vo.ClothInfoVO;
 import my.hive_back.module.inventory.model.vo.ModelCodeVO;
 import my.hive_back.module.inventory.service.InventoryService;
 import org.springframework.beans.BeanUtils;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import javax.xml.transform.Result;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/inventory")
@@ -32,16 +26,17 @@ public class InventoryController {
     private InventoryService inventoryService;
 
     @PostMapping("/cloth/in")
-    public ResultDTO<String> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
+    public ResultDTO<ClothInfoVO> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
 
-        String barCode = inventoryService.inCloth(inventoryInRequest);
-        return ResultDTO.success(barCode);
+        ClothInfoVO clothInfoVO = inventoryService.inCloth(inventoryInRequest);
+        return ResultDTO.success(clothInfoVO);
+
     }
 
     @PostMapping("cloth/out")
-    public ResultDTO<Void> outCloth(@Valid @RequestBody InventoryOutRequest inventoryOutRequest) {
-        inventoryService.outCloth(inventoryOutRequest);
-        return ResultDTO.success(null);
+    public ResultDTO<ClothInfoVO> outCloth(@Valid @RequestBody InventoryOutRequest inventoryOutRequest) {
+        ClothInfoVO clothInfoVO = inventoryService.outCloth(inventoryOutRequest);
+        return ResultDTO.success(clothInfoVO);
     }
 
 
