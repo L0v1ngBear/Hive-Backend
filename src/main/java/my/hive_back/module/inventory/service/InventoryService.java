@@ -87,11 +87,11 @@ public class InventoryService {
     }
 
     /**
-     * 出库逻辑极致优化：SETNX锁 + 原子更新
+     * 出库逻辑
      */
     @RequirePermission(value = "inventory:out", message = "无权操作库存出库")
     @Transactional(rollbackFor = Exception.class)
-    public void outCloth(@Valid InventoryOutRequest request) {
+    public ClothInfoVO outCloth(@Valid InventoryOutRequest request) {
         String barCode = request.getBarcode();
         String tenantCode = TenantPermissionContext.getTenantCode();
         Long userId = TenantPermissionContext.getUserId();
@@ -110,8 +110,12 @@ public class InventoryService {
         }
 
         try {
-            // 3. 核心优化：直接执行更新，利用数据库行锁与 ge 约束判断余量
-            // 减少一次 selectOne 查询，合并校验与更新，响应时间减少约 50ms+
+            // 3. 为了前端能够拿到完整数据用于打印（包含型号、规格等），我们需要先查询出原布匹信息
+            Cloth cloth = selectClothByBarCode(barCode);
+            if (cloth == null) {
+                throw new BusinessException("条码不存在");
+            }
+
             Float metersToOut = request.getMeters();
 
             // 如果是部分出库（指定米数）
@@ -123,18 +127,19 @@ public class InventoryService {
                         .setSql("remaining_meters = remaining_meters - " + metersToOut)
                         .set(Cloth::getOutTime, LocalDateTime.now())
                         .set(Cloth::getOutOperatorId, userId)
-                        .setSql("status = CASE WHEN remaining_meters = 0 THEN " + InventoryOperateTypeEnum.OUT.getCode() +
+                        // 注意这里修改了逻辑：当刚好把剩余米数扣完时，状态变为已出库(OUT)，否则为部分出库(PART_OUT)
+                        .setSql("status = CASE WHEN remaining_meters = " + metersToOut + " THEN " + InventoryOperateTypeEnum.OUT.getCode() +
                                 " ELSE " + InventoryOperateTypeEnum.PART_OUT.getCode() + " END");
 
                 int rows = clothMapper.update(luw);
                 if (rows == 0) {
                     throw new BusinessException("出库失败：库存不足或状态异常");
                 }
+
+                // 更新内存中的对象用于后续返回
+                cloth.setRemainingMeters(cloth.getRemainingMeters() - metersToOut);
             } else {
                 // 如果是全额出库（未指定米数）
-                // 先查一下为了记录流水，这种场景较少，可接受一次查询
-                Cloth cloth = selectClothByBarCode(barCode);
-                if (cloth == null) throw new BusinessException("条码不存在");
                 metersToOut = cloth.getRemainingMeters();
 
                 LambdaUpdateWrapper<Cloth> luw = new LambdaUpdateWrapper<>();
@@ -145,16 +150,18 @@ public class InventoryService {
                         .set(Cloth::getOutTime, LocalDateTime.now())
                         .set(Cloth::getOutOperatorId, userId);
                 clothMapper.update(luw);
+
+                // 更新内存中的对象用于后续返回
+                cloth.setRemainingMeters(0F);
             }
 
-
             // 4. 发送异步通知：记录流水与统计（不阻塞主事务提交）
-
             asyncLogAndStatics(barCode, tenantCode, userId, metersToOut, INVENTORY_STATICS_OUT_KEY_PREFIX);
 
-            // 5. 出库成功后，返回出库信息
+            // 5. 出库成功后，组装完整的出库信息返回给前端打印
             ClothInfoVO clothInfoVO = new ClothInfoVO();
-            BeanUtils.copyProperties(request, clothInfoVO);
+            BeanUtils.copyProperties(cloth, clothInfoVO);
+            clothInfoVO.setMeters(cloth.getRemainingMeters());
 
             return clothInfoVO;
         } finally {
