@@ -59,7 +59,7 @@ public class InventoryController {
         return ResultDTO.success(voList);
     }
 
-    @GetMapping("/inventory/trend")
+    @GetMapping("/trend")
     public ResultDTO<InventoryTrendVO> trend() {
 
         // 获取七天内的库存趋势数据
@@ -68,7 +68,7 @@ public class InventoryController {
         return ResultDTO.success(trendVO);
     }
 
-    @GetMapping("/inventory/record/recent")
+    @GetMapping("/record/recent")
     public ResultDTO<List<InventoryRecordVO>> recentRecord() {
         List<InventoryRecord> recordList = inventoryService.getUserRecentRecord();
         List<InventoryRecordVO> voList = recordList.stream().map(record -> {
@@ -80,7 +80,7 @@ public class InventoryController {
         return ResultDTO.success(voList);
     }
 
-    @GetMapping("/inventory/warning/list")
+    @GetMapping("/warning/list")
     public ResultDTO<List<InventoryRecordVO>> warningList() {
         //TODO 对接ai自动分析
         return ResultDTO.success(null);
