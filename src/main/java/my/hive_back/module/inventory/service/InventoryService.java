@@ -237,6 +237,7 @@ public class InventoryService {
         // 入库流水记录（暂未异步，入库频率通常低于出库/查询）
         InventoryRecord record = new InventoryRecord();
         record.setClothId(cloth.getId());
+        record.setModelCode(inventoryInRequest.getModelCode());
         record.setTenantCode(TenantPermissionContext.getTenantCode());
         record.setOperatorId(TenantPermissionContext.getUserId());
         record.setOperateType(InventoryOperateTypeEnum.IN.getCode());

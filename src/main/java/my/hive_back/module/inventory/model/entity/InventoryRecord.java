@@ -38,8 +38,10 @@ public class InventoryRecord {
      */
     private Long clothId;
 
+    private String modelCode;
+
     /**
-     * 操作类型（1-入库，2-出库）
+     * 操作类型（0-入库，1-出库）
      */
     private Integer operateType;
 
@@ -55,9 +57,5 @@ public class InventoryRecord {
      */
     private Long operatorId;
 
-    /**
-     * 操作备注（如“扫码入库”“手动出库”）
-     */
-    private String remark;
 
 }
