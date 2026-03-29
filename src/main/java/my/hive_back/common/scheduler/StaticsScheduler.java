@@ -3,16 +3,23 @@ package my.hive_back.common.scheduler;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import my.hive_back.common.utils.RedisUtil;
 import my.hive_back.module.attendance.PunchStatusEnum;
 import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
 import my.hive_back.module.leave.LeaveStatusEnum;
 import my.hive_back.module.leave.mapper.LeaveMapper;
 import my.hive_back.module.leave.model.entity.UserLeave;
+import my.hive_back.module.statics.inventory.mapper.InventoryTrendStaticsMapper;
+import my.hive_back.module.statics.inventory.model.entity.InventoryTrendStatics;
+import my.hive_back.module.statics.inventory.service.InventoryTrendStaticsService;
 import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
+import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
+import my.hive_back.module.tenant.model.entity.Tenant;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,17 +28,18 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 考勤统计定时任务
+ * 统计数据定时任务
  * 核心逻辑：每日凌晨核算昨日未打卡或打卡异常的情况，结合请假单进行状态校准
  */
 @Slf4j
 @Component
-public class AttendanceStaticsScheduler {
+public class StaticsScheduler {
 
     @Resource
     private AttendanceRecordMapper recordMapper;
@@ -44,6 +52,24 @@ public class AttendanceStaticsScheduler {
 
     @Resource
     private TenantAttendanceRuleMapper ruleMapper;
+
+    @Value("${redis.key.prefix.trend.today_in}")
+    private String REDIS_TODAY_IN;
+
+    @Value("${redis.key.prefix.trend.today_out}")
+    private String REDIS_TODAY_OUT;
+
+    @Resource
+    private TenantMapper tenantMapper;
+
+    @Resource
+    private RedisUtil redisUtil;
+
+    @Resource
+    private InventoryTrendStaticsMapper staticsMapper;
+
+    @Resource
+    private InventoryTrendStaticsService staticsService;
 
     /**
      * 每天凌晨2点核算昨日考勤
@@ -153,5 +179,100 @@ public class AttendanceStaticsScheduler {
         LocalDateTime checkDateTime = LocalDateTime.of(date, checkTime);
         return leaves.stream().anyMatch(leave ->
                 !checkDateTime.isBefore(leave.getStartTime()) && !checkDateTime.isAfter(leave.getEndTime()));
+    }
+
+
+    /**
+     * 每天凌晨 01:00 执行：Redis 统计数据 → 持久化到 DB
+     */
+    @Scheduled(cron = "0 0 1 * * ?")
+    public void inventoryDailyStatTask() {
+        log.info("===== 【多租户】库存日统计定时任务开始 =====");
+
+        LocalDate statDate = LocalDate.now().minusDays(1);
+        log.info("统计日期：{}", statDate);
+
+        // 1. 获取所有租户编码
+        List<String> tenantCodes = tenantMapper.selectList(new LambdaQueryWrapper<Tenant>()
+                        .select(Tenant::getTenantCode))
+                .stream()
+                .map(Tenant::getTenantCode)
+                .toList();
+
+        if (tenantCodes.isEmpty()) {
+            log.info("无租户，任务结束");
+            return;
+        }
+
+        // 2. 构建 待插入/更新 统计列表
+        List<InventoryTrendStatics> insertList = new ArrayList<>();
+        List<InventoryTrendStatics> updateList = new ArrayList<>();
+        LocalDateTime statDateTime = statDate.atStartOfDay();
+
+        for (String tenantCode : tenantCodes) {
+            try {
+                // 从Redis获取今日统计
+                Float totalIn = redisUtil.getHashValue(REDIS_TODAY_IN, tenantCode, Float.class);
+                Float totalOut = redisUtil.getHashValue(REDIS_TODAY_OUT, tenantCode, Float.class);
+                totalIn = totalIn == null ? 0f : totalIn;
+                totalOut = totalOut == null ? 0f : totalOut;
+
+                // 构建统计对象
+                InventoryTrendStatics stat = new InventoryTrendStatics();
+                stat.setStatDate(statDateTime);
+                stat.setTenantCode(tenantCode);
+                stat.setDayInMeters(totalIn);
+                stat.setDayOutMeters(totalOut);
+                stat.setUpdateTime(LocalDateTime.now());
+
+                // 查询是否已存在
+                LambdaQueryWrapper<InventoryTrendStatics> queryWrapper = new LambdaQueryWrapper<>();
+                queryWrapper.eq(InventoryTrendStatics::getStatDate, statDateTime);
+                queryWrapper.eq(InventoryTrendStatics::getTenantCode, tenantCode);
+                InventoryTrendStatics exist = staticsMapper.selectOne(queryWrapper);
+
+                if (exist != null) {
+                    // 已存在 → 加入更新列表
+                    stat.setId(exist.getId());
+                    updateList.add(stat);
+                } else {
+                    // 不存在 → 加入新增列表
+                    stat.setCreateTime(LocalDateTime.now());
+                    insertList.add(stat);
+                }
+
+                log.info("租户 [{}] 统计完成 → 入库：{}，出库：{}", tenantCode, totalIn, totalOut);
+            } catch (Exception e) {
+                log.error("租户 [{}] 统计异常，已跳过", tenantCode, e);
+            }
+        }
+
+        // ========================
+        // 批量操作（关键优化）
+        // ========================
+        if (!insertList.isEmpty()) {
+            staticsService.saveBatch(insertList); // 批量插入
+        }
+        if (!updateList.isEmpty()) {
+            staticsService.updateBatchById(updateList); // 批量更新
+        }
+
+        // 3. 清空Redis今日统计
+        clearTodayRedisCache();
+
+        log.info("===== 【多租户】库存日统计任务全部完成 =====");
+    }
+
+    /**
+     * 清空今日Redis统计
+     */
+    private void clearTodayRedisCache() {
+        try {
+            redisUtil.deleteHashKey(REDIS_TODAY_IN);
+            redisUtil.deleteHashKey(REDIS_TODAY_OUT);
+            log.info("Redis 今日统计已清空");
+        } catch (Exception e) {
+            log.error("清空Redis失败", e);
+        }
     }
 }

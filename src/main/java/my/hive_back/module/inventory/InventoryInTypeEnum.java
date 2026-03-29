@@ -2,6 +2,7 @@ package my.hive_back.module.inventory;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
+import my.hive_back.common.exception.BusinessException;
 
 @Getter
 public enum InventoryInTypeEnum {
@@ -24,6 +25,6 @@ public enum InventoryInTypeEnum {
                 return inTypeEnum;
             }
         }
-        throw new IllegalArgumentException("未知的入库类型");
+        throw new BusinessException("未知的入库类型");
     }
 }

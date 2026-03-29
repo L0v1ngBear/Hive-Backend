@@ -81,8 +81,8 @@ public class AttendanceService {
      * 获取公司考勤规则（缓存优先）
      */
     private TenantAttendanceRule getCompanyAttendanceRule(String tenantCode) {
-        TenantAttendanceRule rule = redisUtil.getHashValueAndConvert(
-                COMPANY_ATTENDANCE_RULE_KEY, tenantCode, TenantAttendanceRule.class, null);
+        TenantAttendanceRule rule = redisUtil.getHashValue(
+                COMPANY_ATTENDANCE_RULE_KEY, tenantCode, TenantAttendanceRule.class);
 
         if (rule == null || rule.getRadius() == null || rule.getWorkStartTime() == null || rule.getWorkEndTime() == null || rule.getOffWorkStartTime() == null || rule.getOffWorkEndTime() == null) {
             rule = tenantAttendanceRuleMapper.selectByTenantCode(tenantCode);

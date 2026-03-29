@@ -2,6 +2,7 @@ package my.hive_back.module.inventory.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -20,10 +21,12 @@ import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
 import my.hive_back.module.inventory.model.entity.ClothModelSpec;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
-import my.hive_back.module.inventory.model.entity.InventoryStatics;
-import my.hive_back.module.inventory.mapper.InventoryStaticsMapper;
+import my.hive_back.module.statics.inventory.mapper.InventoryTrendStaticsMapper;
 import my.hive_back.module.inventory.model.vo.ClothInfoVO;
+import my.hive_back.module.statics.inventory.model.entity.InventoryTrendStatics;
+import my.hive_back.module.statics.inventory.model.vo.InventoryTrendVO;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
@@ -32,6 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -40,7 +45,7 @@ import java.util.concurrent.TimeUnit;
 public class InventoryService {
 
     @Resource
-    private InventoryStaticsMapper staticsMapper;
+    private InventoryTrendStaticsMapper staticsMapper;
     @Resource
     private InventoryRecordMapper inventoryRecordMapper;
     @Resource
@@ -54,9 +59,15 @@ public class InventoryService {
     @Resource
     private RedisUtil redisUtil;
 
+    @Value("${redis.key-prefix.trend.today_in}")
+    private String REDIS_TODAY_IN;
+    @Value("${redis.key-prefix.trend.today_out}")
+    private String REDIS_TODAY_OUT;
+
     private static final String INVENTORY_STATICS_IN_KEY_PREFIX = "inventory:in:statics:";
     private static final String INVENTORY_STATICS_OUT_KEY_PREFIX = "inventory:out:statics:";
     private static final String CLOTH_OUT_LOCK_PREFIX = "lock:cloth:out:";
+
 
     /**
      * 统一入库入口
@@ -245,13 +256,75 @@ public class InventoryService {
                 .eq(Cloth::getTenantCode, TenantPermissionContext.getTenantCode()));
     }
 
-    public InventoryStatics selectInventoryStatics() {
-        return staticsMapper.selectOne(new LambdaQueryWrapper<InventoryStatics>());
-    }
-
     public List<ClothModelSpec> searchModelSpec(String keyword) {
         LambdaQueryWrapper<ClothModelSpec> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.like(ClothModelSpec::getModelCode, keyword);
         return clothModelSpecMapper.selectList(queryWrapper);
     }
+
+    public List<InventoryRecord> getUserRecentRecord() {
+        Long userId = TenantPermissionContext.getUserId();
+        Page<InventoryRecord> page = new Page<>(1, 10);
+        page.setSearchCount(false);
+
+        LambdaQueryWrapper<InventoryRecord> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(InventoryRecord::getOperatorId, userId)
+                .orderByDesc(InventoryRecord::getCreateTime);
+
+        return inventoryRecordMapper.selectPage(page, queryWrapper).getRecords();
+    }
+
+    public InventoryTrendVO getLastWeekTrend() {
+        InventoryTrendVO vo = new InventoryTrendVO();
+        LocalDateTime now = LocalDateTime.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd");
+
+        // 1. 先查【前6天】数据（从DB）
+        LocalDateTime dbEndDate = now.minusDays(1);  // 截止到昨天
+        LocalDateTime dbStartDate = now.minusDays(6); // 往前6天
+        LambdaQueryWrapper<InventoryTrendStatics> wrapper = new LambdaQueryWrapper<>();
+        wrapper.between(InventoryTrendStatics::getStatDate, dbStartDate, dbEndDate);
+        wrapper.orderByAsc(InventoryTrendStatics::getStatDate);
+        List<InventoryTrendStatics> dbList = staticsMapper.selectList(wrapper);
+
+        // 2. 查【今天】实时数据（从Redis）
+        Float todayIn = redisUtil.getHashValue(REDIS_TODAY_IN, TenantPermissionContext.getTenantCode(), Float.class);
+        Float todayOut = redisUtil.getHashValue(REDIS_TODAY_OUT, TenantPermissionContext.getTenantCode(), Float.class);
+
+        // 3. 组装 7 天数据（自动补0）
+        List<String> dateList = new ArrayList<>();
+        List<Float> inList = new ArrayList<>();
+        List<Float> outList = new ArrayList<>();
+
+        for (int i = 6; i >= 0; i--) {
+            LocalDateTime date = now.minusDays(i);
+            LocalDate currentDay = date.toLocalDate();
+            String dateStr = date.format(formatter);
+            dateList.add(dateStr);
+
+            if (i == 0) {
+                // ======================
+                // 今天 → 从 Redis 取
+                // ======================
+                inList.add(todayIn);
+                outList.add(todayOut);
+            } else {
+                // ======================
+                // 前6天 → 从 DB 取
+                // ======================
+                InventoryTrendStatics stat = dbList.stream()
+                        .filter(item -> item.getStatDate().toLocalDate().equals(currentDay))
+                        .findFirst().orElse(null);
+
+                inList.add(stat == null ? 0f : stat.getDayInMeters());
+                outList.add(stat == null ? 0f : stat.getDayOutMeters());
+            }
+        }
+
+        vo.setDates(dateList);
+        vo.setInMeters(inList);
+        vo.setOutMeters(outList);
+        return vo;
+    }
+
 }

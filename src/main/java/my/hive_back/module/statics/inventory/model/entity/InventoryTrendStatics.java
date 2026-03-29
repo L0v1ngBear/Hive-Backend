@@ -1,4 +1,4 @@
-package my.hive_back.module.inventory.model.entity;
+package my.hive_back.module.statics.inventory.model.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  */
 @TableName("inventory_statics")
 @Data
-public class InventoryStatics {
+public class InventoryTrendStatics {
     /**
      * 主键ID（自增）
      */
@@ -32,19 +32,6 @@ public class InventoryStatics {
      */
     @TableField("tenant_code")
     private String tenantCode;
-    /**
-     * 总卷数
-     * 对应数据库字段：total_roll_count
-     */
-    @TableField("total_roll_count")
-    private Long totalRollCount;
-
-    /**
-     * 总米数（用BigDecimal避免浮点精度丢失）
-     * 对应数据库字段：total_meters
-     */
-    @TableField("total_meters")
-    private Float totalMeters;
 
     /**
      * 日入米数

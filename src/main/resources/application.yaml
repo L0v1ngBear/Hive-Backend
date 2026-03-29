@@ -30,3 +30,10 @@ springdoc:
   api-docs:
     path: /v3/api-docs
     enabled: true
+redis:
+  key-prefix:
+    inventory:
+    trend:
+      today_in: inventory:today:in
+      today_out: inventory:today:out
+

@@ -28,37 +28,6 @@ public class RedisUtil {
         return (tomorrowZero - now) / 1000;
     }
 
-    /**
-     * 从Redis Hash中取值并转换为指定类型（数值类型专用）
-     * @param hashKey Redis Hash的主Key
-     * @param tenantCode Hash的子Key
-     * @param targetType 目标类型（仅支持Double/Integer）
-     * @param defaultValue 转换失败/值为空时的默认值
-     * @return 转换后的值或默认值
-     */
-    public <T> T getHashValueAndConvert(String hashKey, String tenantCode, Class<T> targetType, T defaultValue) {
-        // 1. 获取 Redis Hash 中的值，避免 NPE
-        String value = (String) stringRedisTemplate.opsForHash().get(hashKey, tenantCode);
-        if (value == null || value.isBlank()) {
-            return defaultValue;
-        }
-
-        // 2. 根据目标类型进行安全转换
-        try {
-            if (targetType == Double.class) {
-                return targetType.cast(Double.parseDouble(value));
-            } else if (targetType == Integer.class) {
-                return targetType.cast(Integer.parseInt(value));
-            } else {
-                // 不支持的类型返回默认值
-                return JSON.parseObject(value, targetType);
-            }
-        } catch (NumberFormatException e) {
-            // 转换失败打印日志（建议替换为logback/log4j2）
-            log.error("转换Redis值失败，hashKey={}, tenantCode={}, value={}", hashKey, tenantCode, value, e);
-            return defaultValue;
-        }
-    }
 
     /**
      * 向Redis Hash中存入值（支持任意对象，基于FastJSON序列化）
@@ -102,5 +71,9 @@ public class RedisUtil {
         } catch (Exception e) {
             throw new RuntimeException("Redis Hash值FastJSON反序列化失败：" + e.getMessage(), e);
         }
+    }
+
+    public void deleteHashKey(String redisHashKey) {
+        stringRedisTemplate.delete(redisHashKey);
     }
 }
