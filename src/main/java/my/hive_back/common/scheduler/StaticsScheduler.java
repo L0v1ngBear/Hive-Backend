@@ -53,10 +53,10 @@ public class StaticsScheduler {
     @Resource
     private TenantAttendanceRuleMapper ruleMapper;
 
-    @Value("${redis.key.prefix.trend.today_in}")
+    @Value("${redis.key-prefix.trend.today_in}")
     private String REDIS_TODAY_IN;
 
-    @Value("${redis.key.prefix.trend.today_out}")
+    @Value("${redis.key-prefix.trend.today_out}")
     private String REDIS_TODAY_OUT;
 
     @Resource
