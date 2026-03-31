@@ -121,16 +121,4 @@ public enum OrderStatusEnum {
         return currentStatus != null && currentStatus.canFlowTo(targetStatus);
     }
 
-    /**
-     * 重载静态方法：通过状态索引判断流转合法性
-     * @param currentIndex 当前状态索引（如0）
-     * @param targetIndex 目标状态索引（如1）
-     * @return true-可流转，false-不可流转
-     */
-    public static boolean canFlowTo(Integer currentIndex, Integer targetIndex) {
-        OrderStatusEnum currentStatus = getByIndex(currentIndex);
-        OrderStatusEnum targetStatus = getByIndex(targetIndex);
-
-        return currentStatus != null && currentStatus.canFlowTo(targetStatus);
-    }
 }

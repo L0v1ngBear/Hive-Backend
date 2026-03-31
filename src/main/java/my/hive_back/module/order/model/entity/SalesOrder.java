@@ -9,13 +9,17 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/**
+ * 销售订单 - 主表 (Order Header)
+ */
 @TableName("sales_order")
 @Data
 public class SalesOrder {
+
     /**
-     * 订单ID（主键）
+     * 订单ID（主键，如：SO20260331001）
      */
-    @TableId(type = IdType.INPUT) // 订单号手动生成，不使用自增
+    @TableId(type = IdType.INPUT)
     private String orderId;
 
     @TableField("tenant_code")
@@ -37,24 +41,10 @@ public class SalesOrder {
     private String customerName;
 
     /**
-     * 客户联系方式（扩展字段）
+     * 项目名称
      */
-    private String customerPhone;
+    private String projectName;
 
-    /**
-     * 商品描述（列表页展示用）
-     */
-    private String goodsDesc;
-
-    /**
-     * 订单总金额
-     */
-    private BigDecimal totalAmount;
-
-    /**
-     * 订单总数量
-     */
-    private Integer totalQuantity;
 
     /**
      * 预计发货日期
@@ -71,25 +61,17 @@ public class SalesOrder {
      */
     private String expressNo;
 
-    private Integer isInvoice;
-
     /**
-     * 订单创建时间
+     * 是否需要发票 (0-否，1-是)
      */
-    private LocalDateTime createTime;
+    private Integer isInvoice;
 
     /**
      * 订单创建人
      */
     private String creator;
 
-    /**
-     * 订单更新时间
-     */
-    private LocalDateTime updateTime;
+    private LocalDateTime createTime;
 
-    /**
-     * 操作备注
-     */
-    private String remark;
+    private LocalDateTime updateTime;
 }

@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import my.hive_back.common.dto.PageResultVO;
 import my.hive_back.common.dto.ResultDTO;
+import my.hive_back.module.order.model.dto.SalesOrderAddRequest;
 import my.hive_back.module.order.model.dto.SalesOrderStatusRequest;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.order.model.dto.SalesOrderListRequest;
@@ -90,5 +91,11 @@ public class SalesOrderController {
         SalesOrderVO statusVO = new SalesOrderVO();
         BeanUtils.copyProperties(order, statusVO);
         return ResultDTO.success(statusVO);
+    }
+
+    @PostMapping("/orders/add")
+    public ResultDTO<Void> addSalesOrder(@Valid @RequestBody SalesOrderAddRequest request) {
+        salesOrderService.addSalesOrder(request);
+        return ResultDTO.success(null);
     }
 }

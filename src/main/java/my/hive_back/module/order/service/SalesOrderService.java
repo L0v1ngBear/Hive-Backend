@@ -3,11 +3,15 @@ package my.hive_back.module.order.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import my.hive_back.common.annotation.RequirePermission;
+import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.exception.BusinessException;
+import my.hive_back.module.order.IsInvoiceEnum;
 import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.mapper.SalesOrderMapper;
+import my.hive_back.module.order.model.dto.SalesOrderAddRequest;
 import my.hive_back.module.order.model.dto.SalesOrderStatusRequest;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.order.model.dto.SalesOrderListRequest;
@@ -15,6 +19,8 @@ import my.hive_back.module.order.model.vo.SalesOrderVO;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 
 @Slf4j
 @Service
@@ -93,5 +99,26 @@ public class SalesOrderService{
     @RequirePermission(value = "order:sales:detail", message = "您没有权限查询销售订单详情")
     public SalesOrder getByIdandTenantId(String orderId) {
         return salesOrderMapper.selectByOrderId(orderId);
+    }
+
+
+    @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = "order:sales:add", message = "您没有权限添加销售订单")
+    public void addSalesOrder(@Valid SalesOrderAddRequest request) {
+        SalesOrder order = new SalesOrder();
+
+        Integer createProductionOrder = request.getCreateProductionOrder();
+
+        // 不需要创建生产订单
+        if (createProductionOrder == null || createProductionOrder == 0) {
+            BeanUtils.copyProperties(request, order);
+            order.setIsInvoice(IsInvoiceEnum.NO.getCode());
+            order.setTenantCode(TenantPermissionContext.getTenantCode());
+            order.setStatus(OrderStatusEnum.PENDING_CONFIRM.getCode());
+        } else if (createProductionOrder == 1) {
+            // TODO 调用生产订单服务创建生产订单
+        }
+
+        salesOrderMapper.insert(order);
     }
 }

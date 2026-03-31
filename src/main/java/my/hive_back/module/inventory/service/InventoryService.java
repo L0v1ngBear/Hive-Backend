@@ -2,6 +2,7 @@ package my.hive_back.module.inventory.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
@@ -219,7 +220,8 @@ public class InventoryService {
         specEntity.setTenantCode(tenantCode);
         try {
             clothModelSpecMapper.insert(specEntity);
-        } catch (DuplicateKeyException ignored) {}
+        } catch (DuplicateKeyException ignored) {
+        }
     }
 
     private void inventoryHandIn(InventoryInRequest inventoryInRequest) {
@@ -259,13 +261,16 @@ public class InventoryService {
 
     public List<ClothModelSpec> searchModelSpec(String keyword) {
         LambdaQueryWrapper<ClothModelSpec> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.like(ClothModelSpec::getModelCode, keyword);
+        if (!StringUtils.isBlank(keyword)) {
+            queryWrapper.like(ClothModelSpec::getModelCode, keyword);
+        }
+
         return clothModelSpecMapper.selectList(queryWrapper);
     }
 
     public List<InventoryRecord> getUserRecentRecord() {
         Long userId = TenantPermissionContext.getUserId();
-        Page<InventoryRecord> page = new Page<>(1, 10);
+        Page<InventoryRecord> page = new Page<>(1, 7);
         page.setSearchCount(false);
 
         LambdaQueryWrapper<InventoryRecord> queryWrapper = new LambdaQueryWrapper<>();
