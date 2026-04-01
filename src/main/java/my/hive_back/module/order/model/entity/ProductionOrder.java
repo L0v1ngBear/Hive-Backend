@@ -38,8 +38,8 @@ public class ProductionOrder {
     /**
      * 面料型号（如T800-210）
      */
-    @TableField("model")
-    private String model;
+    @TableField("model_code")
+    private String modelCode;
 
 
     /**
@@ -96,12 +96,12 @@ public class ProductionOrder {
      * 创建人
      */
     @TableField(value = "creator", fill = FieldFill.INSERT)
-    private String creator;
+    private Long creator;
 
     /**
      * 更新人
      */
     @TableField(value = "updater", fill = FieldFill.INSERT_UPDATE)
-    private String updater;
+    private Long updater;
 
 }

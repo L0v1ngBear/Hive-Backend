@@ -4,11 +4,11 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import my.hive_back.common.dto.PageResultVO;
 import my.hive_back.common.dto.ResultDTO;
+import my.hive_back.module.order.model.dto.ProductionOrderUpdateRequest;
 import my.hive_back.module.order.model.dto.SalesOrderAddRequest;
-import my.hive_back.module.order.model.dto.SalesOrderStatusRequest;
+import my.hive_back.module.order.model.dto.SalesOrderUpdateRequest;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.order.model.dto.SalesOrderListRequest;
 import my.hive_back.module.order.model.vo.SalesOrderVO;
@@ -30,18 +30,14 @@ public class SalesOrderController {
      */
     @GetMapping("/orders/list")
     public ResultDTO<PageResultVO<SalesOrderVO>> selectSalesOrder(@RequestParam SalesOrderListRequest request) {
-        Page<SalesOrder> page = salesOrderService.selectSalesOrder(request);
+        Page<SalesOrderVO> page = salesOrderService.selectSalesOrder(request);
         PageResultVO<SalesOrderVO> pageResultVo = new PageResultVO<>() {
             {
                 setCurrent(page.getCurrent());
                 setSize(page.getSize());
                 setTotal(page.getTotal());
                 setPages(page.getPages());
-                setData(page.getRecords().stream().map(order -> {
-                    SalesOrderVO vo = new SalesOrderVO();
-                    BeanUtils.copyProperties(order, vo);
-                    return vo;
-                }).toList());
+                setData(page.getRecords());
             }
         };
         return ResultDTO.success(pageResultVo);
@@ -54,7 +50,7 @@ public class SalesOrderController {
     public ResultDTO<SalesOrderVO> getSalesOrderStatus(
             @NotBlank(message = "订单ID不能为空")
             @PathVariable("orderId") String orderId) {
-        SalesOrder order = salesOrderService.getByIdandTenantId(orderId);
+        SalesOrderVO order = salesOrderService.getByIdandTenantId(orderId);
         if (order == null) {
             return ResultDTO.fail(404, "订单不存在");
         }
@@ -64,16 +60,18 @@ public class SalesOrderController {
     }
 
     /**
-     * 更新订单状态：路径参数 + 请求体校验
+     * 通用流转接口：支持更改订单大状态或更新生产小工序
      */
-    @PostMapping("/orders/status/{orderId}")
+    @PutMapping("/orders/{orderId}/status")
     public ResultDTO<SalesOrderVO> updateOrderStatus(
-            @NotBlank(message = "订单ID不能为空")
-            @PathVariable("orderId") String orderId,
-            @Valid @RequestBody SalesOrderStatusRequest request) {
+            @NotBlank @PathVariable String orderId,
+            @Valid @RequestBody SalesOrderUpdateRequest request) {
 
-        SalesOrderVO statusVO = salesOrderService.updateOrderStatus(orderId, request);
-        return ResultDTO.success(statusVO);
+        SalesOrder order = salesOrderService.updateStatusAndProcess(orderId, request);
+
+        SalesOrderVO vo = new SalesOrderVO();
+        BeanUtils.copyProperties(order, vo);
+        return ResultDTO.success(vo);
     }
 
     /**
@@ -83,7 +81,7 @@ public class SalesOrderController {
     public ResultDTO<SalesOrderVO> getSalesOrderExpressInfo(
             @NotBlank(message = "订单ID不能为空")
             @PathVariable("orderId") String orderId) {
-        SalesOrder order = salesOrderService.getByIdandTenantId(orderId);
+        SalesOrderVO order = salesOrderService.getByIdandTenantId(orderId);
         if (order == null) {
             return ResultDTO.fail(404, "订单不存在");
         }

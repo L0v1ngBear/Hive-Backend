@@ -2,9 +2,12 @@ package my.hive_back.api.order;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import jakarta.annotation.Resource;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import my.hive_back.common.dto.PageResultVO;
 import my.hive_back.common.dto.ResultDTO;
+import my.hive_back.module.order.model.dto.ProductionOrderUpdateRequest;
+import my.hive_back.module.order.model.dto.ProductionOrderAddRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderListRequest;
 import my.hive_back.module.order.model.entity.ProductionOrder;
 import my.hive_back.module.order.model.entity.ProductionOrderStatusLog;
@@ -85,16 +88,23 @@ public class ProductionOrderController {
         return ResultDTO.success(logVOList);
     }
 
-    // 生产工序更新
-    @PostMapping("/orders/process/{orderId}")
-    public ResultDTO<ProductionOrderVO> processProductionOrder(
+    /**
+     * 通用流转接口：支持更改订单大状态或更新生产小工序
+     */
+    @PostMapping("/orders/{orderId}/status")
+    public ResultDTO<ProductionOrderVO> updateOrderStatus(
             @NotBlank @PathVariable String orderId,
-            @NotBlank @RequestBody Integer process) {
-        ProductionOrder order = productionOrderService.processProductionOrder(orderId, process);
+            @Valid @RequestBody ProductionOrderUpdateRequest request) {
+
+        ProductionOrder order = productionOrderService.updateStatusAndProcess(orderId, request);
+
         ProductionOrderVO vo = new ProductionOrderVO();
         BeanUtils.copyProperties(order, vo);
         return ResultDTO.success(vo);
     }
 
-    //TODO 更新订单状态
+    @PostMapping("/orders/add")
+    public ResultDTO<ProductionOrderVO> addProductionOrder(@RequestBody ProductionOrderAddRequest request) {
+
+    }
 }

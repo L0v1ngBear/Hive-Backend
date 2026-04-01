@@ -7,14 +7,12 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
-public class SalesOrderStatusRequest {
+public class SalesOrderUpdateRequest {
 
     @NotBlank(message = "目标状态不能为空")
     @Pattern(regexp = "^(pending_ship|shipped|completed)$", message = "目标状态仅支持：pending_ship、shipped、completed")
     private String status;
 
-    @Size(max = 500, message = "操作备注长度不能超过500字符")
-    private String remark = "";
 
     @Valid // 开启嵌套对象校验
     private ExpressInfo expressInfo;

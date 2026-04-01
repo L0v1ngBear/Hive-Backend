@@ -27,12 +27,7 @@ public class ProductionOrderVO {
     /** 
      * 面料型号（如T800-210）
      */
-    private String model;
-
-    /**
-     * 面料名称（如涤纶弹力布）
-     */
-    private String fabric;
+    private String modelCode;
 
     /**
      * 克重
@@ -42,27 +37,13 @@ public class ProductionOrderVO {
     /**
      * 幅宽（cm）
      */
-    private BigDecimal width;
-
-    /**
-     * 颜色（如藏青色）
-     */
-    private String color;
+    private BigDecimal spec;
 
     /**
      * 数量
      */
     private Integer quantity;
 
-    /**
-     * 单价（元）
-     */
-    private BigDecimal price;
-
-    /**
-     * 总价（自动计算）
-     */
-    private BigDecimal totalAmount;
 
     /**
      * 当前生产工序：ProductionProcessEnum 0-整经，1-浆纱，2-织造，3-验布，4-卷布

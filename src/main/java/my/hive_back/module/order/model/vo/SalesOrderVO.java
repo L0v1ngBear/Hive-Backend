@@ -1,20 +1,78 @@
 package my.hive_back.module.order.model.vo;
 
 import lombok.Data;
+import my.hive_back.module.order.model.entity.SalesOrderDetail;
 
 import java.math.BigDecimal;
+import java.util.List;
 
+/**
+ * 销售订单展示对象 (适配前端主子表结构)
+ */
 @Data
 public class SalesOrderVO {
+
     private String orderId;
+
+    /**
+     * 订单状态：pending_confirm, pending_material, producing, pending_ship, shipped, completed
+     */
     private String status;
+
     private String customerName;
-    private String goodsDesc;
-    private BigDecimal totalAmount;
-    private Integer totalQuantity;
+
+    /**
+     * 项目名称
+     */
+    private String projectName;
+
+
     private String deliveryDate;
+
+    /**
+     * 是否同步创建生产订单 0-否 1-是
+     */
+    private Integer createProductionOrder;
+
     private String expressCompany;
+
     private String expressNo;
+
     private String createTime;
+
+    /**
+     * 是否开票 0-否 1-是
+     */
     private Integer isInvoice;
+
+    /**
+     * 核心修改：商品明细列表
+     */
+    private List<OrderItemVO> items;
+
+    /**
+     * 商品明细内部类
+     */
+    @Data
+    public static class OrderItemVO {
+        /**
+         * 商品型号 (如: T800-210)
+         */
+        private String modelCode;
+
+        /**
+         * 数量
+         */
+        private BigDecimal quantity;
+
+        /**
+         * 克重
+         */
+        private Float weight;
+
+        /**
+         * 规格/幅宽
+         */
+        private Float spec;
+    }
 }
