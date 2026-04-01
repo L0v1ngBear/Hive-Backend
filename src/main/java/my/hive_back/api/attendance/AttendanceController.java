@@ -10,6 +10,9 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
+import java.util.List;
+
 @RestController
 @RequestMapping("/attendance")
 @Validated
@@ -25,14 +28,17 @@ public class AttendanceController {
     }
 
     @GetMapping("/select/record/{userId}")
-    public ResultDTO<AttendanceRecordVO> selectRecord(@PathVariable Long userId) {
-        AttendanceRecord attendanceRecord = attendanceService.selectRecord(userId);
+    public ResultDTO<List<AttendanceRecordVO>> selectRecord(@PathVariable Long userId) {
+        List<AttendanceRecord> attendanceRecords = attendanceService.selectRecord(userId);
         // 空值处理
-        if (attendanceRecord == null) {
-            return ResultDTO.success(new AttendanceRecordVO());
+        if (attendanceRecords == null || attendanceRecords.isEmpty()) {
+            return ResultDTO.success(Collections.emptyList());
         }
-        AttendanceRecordVO attendanceRecordVO = new AttendanceRecordVO();
-        BeanUtils.copyProperties(attendanceRecord, attendanceRecordVO);
-        return ResultDTO.success(attendanceRecordVO);
+        List<AttendanceRecordVO> voList = attendanceRecords.stream().map(record -> {
+            AttendanceRecordVO vo = new AttendanceRecordVO();
+            BeanUtils.copyProperties(record, vo);
+            return vo;
+        }).toList();
+        return ResultDTO.success(voList);
     }
 }

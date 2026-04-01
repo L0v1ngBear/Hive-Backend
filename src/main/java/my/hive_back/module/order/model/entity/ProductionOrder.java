@@ -41,29 +41,19 @@ public class ProductionOrder {
     @TableField("model")
     private String model;
 
-    /**
-     * 面料名称（如涤纶弹力布）
-     */
-    @TableField("fabric")
-    private String fabric;
 
     /**
      * 克重
      */
     @TableField("weight")
-    private BigDecimal weight;
+    private Float weight;
 
     /**
      * 幅宽（cm）
      */
-    @TableField("width")
-    private BigDecimal width;
+    @TableField("spec")
+    private String spec;
 
-    /**
-     * 颜色（如藏青色）
-     */
-    @TableField("color")
-    private String color;
 
     /**
      * 数量
@@ -72,37 +62,17 @@ public class ProductionOrder {
     private Integer quantity;
 
     /**
-     * 单价（元）
-     */
-    @TableField("price")
-    private BigDecimal price;
-
-    /**
-     * 总价（自动计算）
-     */
-    @TableField("total_amount")
-    private BigDecimal totalAmount;
-
-    /**
      * 当前生产工序：ProductionProcessEnum 0-整经，1-浆纱，2-织造，3-验布，4-卷布
      */
     @TableField("process")
     private Integer process;
 
-    /**
-     * 客户名称
-     */
-    @TableField("customer_id")
-    private String customerId;
 
     @TableField("customer_name")
     private String customerName;
 
     @TableField("project_name")
     private String projectName;
-
-    @TableField("contactPhone")
-    private String contactPhone;
 
     /**
      * 预计交付日期

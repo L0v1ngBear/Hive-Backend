@@ -15,12 +15,10 @@ import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 @Service
 public class AttendanceService {
@@ -117,8 +115,8 @@ public class AttendanceService {
         return s;
     }
 
-    public AttendanceRecord selectRecord(Long userId) {
-        return attendanceRecordMapper.selectOne(
+    public List<AttendanceRecord> selectRecord(Long userId) {
+        return attendanceRecordMapper.selectList(
                 new LambdaQueryWrapper<AttendanceRecord>()
                         .eq(AttendanceRecord::getUserId, userId)
                         .orderByDesc(AttendanceRecord::getId)

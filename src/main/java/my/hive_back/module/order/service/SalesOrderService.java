@@ -11,6 +11,7 @@ import my.hive_back.common.exception.BusinessException;
 import my.hive_back.module.order.IsInvoiceEnum;
 import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.mapper.SalesOrderMapper;
+import my.hive_back.module.order.model.dto.ProductionOrderAddRequest;
 import my.hive_back.module.order.model.dto.SalesOrderAddRequest;
 import my.hive_back.module.order.model.dto.SalesOrderStatusRequest;
 import my.hive_back.module.order.model.entity.SalesOrder;
@@ -28,6 +29,9 @@ public class SalesOrderService{
 
     @Resource
     private SalesOrderMapper salesOrderMapper;
+
+    @Resource
+    private ProductionOrderService productionOrderService;
 
     @RequirePermission(value = "order:sales:list", message = "您没有权限查询销售订单列表")
     public Page<SalesOrder> selectSalesOrder(SalesOrderListRequest request) {
@@ -117,6 +121,9 @@ public class SalesOrderService{
             order.setStatus(OrderStatusEnum.PENDING_CONFIRM.getCode());
         } else if (createProductionOrder == 1) {
             // TODO 调用生产订单服务创建生产订单
+            ProductionOrderAddRequest productionOrderRequest = new ProductionOrderAddRequest();
+            BeanUtils.copyProperties(request, productionOrderRequest);
+            productionOrderService.addProductionOrder(productionOrderRequest);
         }
 
         salesOrderMapper.insert(order);

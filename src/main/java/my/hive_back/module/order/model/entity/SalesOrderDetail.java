@@ -33,11 +33,6 @@ public class SalesOrderDetail {
     private String modelCode;
 
     /**
-     * 商品描述/名称 (如: 涤纶弹力布)
-     */
-    private String goodsDesc;
-
-    /**
      * 规格 (如: 门幅/克重)
      */
     private String spec;
