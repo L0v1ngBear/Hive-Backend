@@ -182,20 +182,26 @@ public class ProductionOrderService {
 
     @Transactional(rollbackFor = Exception.class)
     public void addProductionOrder(ProductionOrderAddRequest request) {
-        ProductionOrder productionOrder = new ProductionOrder();
-        String orderId = codeGeneratorUtil.generateProductionOrderCode();
-        productionOrder.setOrderId(orderId);
-        BeanUtils.copyProperties(request, productionOrder);
-        productionOrderMapper.insert(productionOrder);
+        // 委托给全参方法，salesOrderId 传 null
+        this.addProductionOrder(request, null);
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void addProductionOrder(ProductionOrderAddRequest request, String salesOrderId) {
         ProductionOrder productionOrder = new ProductionOrder();
+
+        // 1. 先拷贝 DTO 属性 (必须放在前面，防止覆盖下面手动赋值的业务核心字段)
         BeanUtils.copyProperties(request, productionOrder);
-        String orderId = codeGeneratorUtil.generateProductionOrderCode();
-        productionOrder.setOrderId(orderId);
-        productionOrder.setSalesOrderId(salesOrderId);
+
+        // 2. 生成并设置流水号
+        productionOrder.setOrderId(codeGeneratorUtil.generateProductionOrderCode());
+
+        // 3. 关联销售订单 (如果有的话)
+        if (StringUtils.isNotBlank(salesOrderId)) {
+            productionOrder.setSalesOrderId(salesOrderId);
+        }
+
+        // 4. 插入数据库
         productionOrderMapper.insert(productionOrder);
     }
 }
