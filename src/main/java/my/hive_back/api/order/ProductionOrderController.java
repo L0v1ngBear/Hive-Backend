@@ -104,7 +104,8 @@ public class ProductionOrderController {
     }
 
     @PostMapping("/orders/add")
-    public ResultDTO<ProductionOrderVO> addProductionOrder(@RequestBody ProductionOrderAddRequest request) {
-
+    public ResultDTO<Void> addProductionOrder(@RequestBody ProductionOrderAddRequest request) {
+        productionOrderService.addProductionOrder(request);
+        return ResultDTO.success(null);
     }
 }

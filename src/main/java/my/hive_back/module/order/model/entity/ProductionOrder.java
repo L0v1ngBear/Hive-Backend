@@ -16,7 +16,7 @@ public class ProductionOrder {
     /**
      * 主键ID
      */
-    @TableId(type = IdType.AUTO)
+    @TableId(type = IdType.INPUT)
     private Long id;
 
     @TableField("tenant_code")
@@ -28,6 +28,8 @@ public class ProductionOrder {
     @TableField("order_id")
     private String orderId;
 
+    @TableField("sales_order_id")
+    private String salesOrderId;
 
     /**
      * 订单状态：OrderStatusEnum pending_confirm-待确认，pending_material-备料中，producing-生产中，pending_ship-待发货，shipped-已发货，completed-已完成

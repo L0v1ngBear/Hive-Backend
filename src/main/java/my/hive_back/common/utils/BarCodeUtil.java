@@ -6,6 +6,7 @@ import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.oned.Code128Writer;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -20,7 +21,9 @@ import java.util.Map;
 @Component
 public class BarCodeUtil {
 
-    private static final String BARCODE_DAILY_NUMBER_KEY_PREFIX = "barcode:number:";
+    @Value("${redis.key-prefix.barCode.prefix}")
+    private static String BARCODE_DAILY_NUMBER_KEY_PREFIX;
+
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyMMdd");
     private static final String BARCODE_PREFIX = "CL";
 

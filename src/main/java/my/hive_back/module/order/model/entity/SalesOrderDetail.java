@@ -19,7 +19,7 @@ public class SalesOrderDetail {
     /**
      * 明细主键ID
      */
-    @TableId(type = IdType.AUTO) // 雪花算法自动生成ID
+    @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
@@ -41,16 +41,6 @@ public class SalesOrderDetail {
      * 需求数量(米)
      */
     private BigDecimal quantity;
-
-    /**
-     * 商品单价
-     */
-    private BigDecimal unitPrice;
-
-    /**
-     * 该明细行总价 (quantity * unitPrice)
-     */
-    private BigDecimal lineAmount;
 
     private LocalDateTime createTime;
 

@@ -9,14 +9,17 @@ import jakarta.validation.constraints.NotBlank;
 import my.hive_back.common.annotation.RequirePermission;
 import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.exception.BusinessException;
+import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.ProcessEnum;
 import my.hive_back.module.order.mapper.ProductionOrderMapper;
 import my.hive_back.module.order.mapper.ProductionOrderStatusLogMapper;
+import my.hive_back.module.order.model.dto.ProductionOrderAddRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderUpdateRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderListRequest;
 import my.hive_back.module.order.model.entity.ProductionOrder;
 import my.hive_back.module.order.model.entity.ProductionOrderStatusLog;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +33,9 @@ public class ProductionOrderService {
 
     @Resource
     private ProductionOrderStatusLogMapper statusLogMapper;
+
+    @Resource
+    private CodeGeneratorUtil codeGeneratorUtil;
 
     /**
      * 查询生产订单列表
@@ -172,5 +178,24 @@ public class ProductionOrderService {
         }
 
         return order;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void addProductionOrder(ProductionOrderAddRequest request) {
+        ProductionOrder productionOrder = new ProductionOrder();
+        String orderId = codeGeneratorUtil.generateProductionOrderCode();
+        productionOrder.setOrderId(orderId);
+        BeanUtils.copyProperties(request, productionOrder);
+        productionOrderMapper.insert(productionOrder);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void addProductionOrder(ProductionOrderAddRequest request, String salesOrderId) {
+        ProductionOrder productionOrder = new ProductionOrder();
+        BeanUtils.copyProperties(request, productionOrder);
+        String orderId = codeGeneratorUtil.generateProductionOrderCode();
+        productionOrder.setOrderId(orderId);
+        productionOrder.setSalesOrderId(salesOrderId);
+        productionOrderMapper.insert(productionOrder);
     }
 }

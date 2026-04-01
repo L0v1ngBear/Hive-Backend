@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import my.hive_back.common.annotation.RequirePermission;
 import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.exception.BusinessException;
+import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.module.order.IsInvoiceEnum;
 import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.mapper.SalesOrderDetailMapper;
@@ -32,7 +33,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-public class SalesOrderService{
+public class SalesOrderService {
 
     @Resource
     private SalesOrderMapper salesOrderMapper;
@@ -42,6 +43,9 @@ public class SalesOrderService{
 
     @Resource
     private SalesOrderDetailMapper salesOrderDetailMapper;
+
+    @Resource
+    private CodeGeneratorUtil codeGeneratorUtil;
 
     @RequirePermission(value = "order:sales:list", message = "您没有权限查询销售订单列表")
     public Page<SalesOrderVO> selectSalesOrder(SalesOrderListRequest request) {
@@ -111,59 +115,6 @@ public class SalesOrderService{
         return resultPage;
     }
 
-//    @Transactional(rollbackFor = Exception.class)
-//    @RequirePermission(value = "order:sales:update", message = "您没有权限更新销售订单状态")
-//    public SalesOrderVO updateOrderStatus(String orderId, SalesOrderStatusRequest request) {
-//
-//        // 校验已发货订单是否提供物流信息
-//        if (OrderStatusEnum.SHIPPED.getName().equals(request.getStatus())) {
-//            if (request.getExpressInfo() == null ||
-//                    request.getExpressInfo().getExpressCompany().isBlank() ||
-//                    request.getExpressInfo().getExpressNo().isBlank()) {
-//                throw new BusinessException(401, "已发货订单必须提供物流信息");
-//            }
-//        }
-//
-//        LambdaQueryWrapper<SalesOrder> queryWrapper = new LambdaQueryWrapper<>();
-//        queryWrapper.eq(SalesOrder::getOrderId, orderId);
-//
-//        // 查询订单是否存在
-//        SalesOrder order = salesOrderMapper.selectOne(queryWrapper);
-//
-//        if (order == null) {
-//            throw new BusinessException(404, "订单不存在");
-//        }
-//
-//        // 校验订单状态转换是否有效
-//        String oldStatus = order.getStatus();
-//        String newStatus = request.getStatus();
-//        if (!OrderStatusEnum.canFlowTo(oldStatus, newStatus)) {
-//            throw new BusinessException(401, "订单状态转换无效");
-//        }
-//
-//        // 更新订单状态
-//        // 乐观锁控制
-//        order.setStatus(newStatus);
-//        // 仅当状态为已发货时，才赋值物流信息
-//        if (OrderStatusEnum.SHIPPED.getName().equals(newStatus)) {
-//            order.setExpressCompany(request.getExpressInfo().getExpressCompany());
-//            order.setExpressNo(request.getExpressInfo().getExpressNo());
-//        } else {
-//            // 非发货状态：可清空物流信息（或根据业务需求处理）
-//            order.setExpressCompany(null);
-//            order.setExpressNo(null);
-//        }
-//
-//        salesOrderMapper.updateStatus(order, oldStatus);
-//
-//        // copy属性
-//        SalesOrderVO vo = new SalesOrderVO();
-//        BeanUtils.copyProperties(order, vo);
-//
-//        // 返回更新后的订单状态
-//        return vo;
-//    }
-
     /**
      * 根据订单ID查询订单详情 (返回 VO 对象)
      */
@@ -213,25 +164,33 @@ public class SalesOrderService{
 
         Integer createProductionOrder = request.getCreateProductionOrder();
 
-        // 不需要创建生产订单
-        if (createProductionOrder == null || createProductionOrder == 0) {
-            BeanUtils.copyProperties(request, order);
-            order.setIsInvoice(IsInvoiceEnum.NO.getCode());
-            order.setTenantCode(TenantPermissionContext.getTenantCode());
-            order.setStatus(OrderStatusEnum.PENDING_CONFIRM.getCode());
-        } else if (createProductionOrder == 1) {
-            // TODO 调用生产订单服务创建生产订单
+        BeanUtils.copyProperties(request, order);
+        String orderId = codeGeneratorUtil.generateSalesOrderCode();
+        order.setOrderId(orderId);
+        order.setIsInvoice(IsInvoiceEnum.NO.getCode());
+        order.setTenantCode(TenantPermissionContext.getTenantCode());
+        order.setStatus(OrderStatusEnum.PENDING_CONFIRM.getCode());
+        salesOrderMapper.insert(order);
 
+
+        request.getItems().forEach(item -> {
+            SalesOrderDetail detail = new SalesOrderDetail();
+            detail.setOrderId(order.getOrderId());
+            BeanUtils.copyProperties(item, detail);
+            salesOrderDetailMapper.insert(detail);
+        });
+
+        // 需要创建生产订单
+        if (createProductionOrder == 1) {
             request.getItems().forEach(item -> {
                 ProductionOrderAddRequest productionOrderRequest = new ProductionOrderAddRequest();
                 BeanUtils.copyProperties(request, productionOrderRequest);
                 BeanUtils.copyProperties(item, productionOrderRequest);
-                productionOrderRequest.setStatus(OrderStatusEnum.PENDING_CONFIRM.getCode());
-                productionOrderService.addProductionOrder(productionOrderRequest);
+                productionOrderService.addProductionOrder(productionOrderRequest, order.getOrderId());
             });
         }
 
-        salesOrderMapper.insert(order);
+
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -262,7 +221,7 @@ public class SalesOrderService{
             order.setExpressCompany(expressInfo.getExpressCompany());
             order.setExpressNo(expressInfo.getExpressNo());
         }
-        // 如果是其他状态（如 pending_ship 待发货），业务上可能允许清空或保留物流信息
+        // 如果是其他状态（如 pending_ship 待发货）
         // 这里采取覆盖策略，如果传了物流信息就更新，没传就不动
         else if (request.getExpressInfo() != null) {
             order.setExpressCompany(request.getExpressInfo().getExpressCompany());

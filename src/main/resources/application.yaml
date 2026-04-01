@@ -32,6 +32,8 @@ springdoc:
     enabled: true
 redis:
   key-prefix:
+    barCode:
+      prefix: barcode:number:daily
     inventory:
     trend:
       today_in: inventory:today:in
