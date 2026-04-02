@@ -34,6 +34,11 @@ public class MybatisPlusConfig {
             public String getTenantIdColumn() {
                 return "tenant_code";
             }
+
+            @Override
+            public boolean ignoreTable(String tableName) {
+                return "tenant".equalsIgnoreCase(tableName);
+            }
         }));
 
         interceptor.addInnerInterceptor(new PaginationInnerInterceptor());

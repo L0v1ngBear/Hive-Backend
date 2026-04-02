@@ -29,7 +29,7 @@ public class SalesOrderController {
      * 订单列表查询：GET + 复杂对象参数（需要@Valid触发对象内部校验）
      */
     @GetMapping("/orders/list")
-    public ResultDTO<PageResultVO<SalesOrderVO>> selectSalesOrder(@RequestParam SalesOrderListRequest request) {
+    public ResultDTO<PageResultVO<SalesOrderVO>> selectSalesOrder(@RequestBody SalesOrderListRequest request) {
         Page<SalesOrderVO> page = salesOrderService.selectSalesOrder(request);
         PageResultVO<SalesOrderVO> pageResultVo = new PageResultVO<>() {
             {
