@@ -29,7 +29,7 @@ public class SalesOrderController {
      * 订单列表查询：GET + 复杂对象参数（需要@Valid触发对象内部校验）
      */
     @GetMapping("/orders/list")
-    public ResultDTO<PageResultVO<SalesOrderVO>> selectSalesOrder(@RequestBody SalesOrderListRequest request) {
+    public ResultDTO<PageResultVO<SalesOrderVO>> selectSalesOrder(SalesOrderListRequest request) {
         Page<SalesOrderVO> page = salesOrderService.selectSalesOrder(request);
         PageResultVO<SalesOrderVO> pageResultVo = new PageResultVO<>() {
             {
@@ -62,7 +62,7 @@ public class SalesOrderController {
     /**
      * 通用流转接口：支持更改订单大状态或更新生产小工序
      */
-    @PutMapping("/orders/{orderId}/status")
+    @PostMapping("/orders/{orderId}/status")
     public ResultDTO<SalesOrderVO> updateOrderStatus(
             @NotBlank @PathVariable String orderId,
             @Valid @RequestBody SalesOrderUpdateRequest request) {

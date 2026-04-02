@@ -23,7 +23,6 @@ import java.util.stream.Collectors;
 
 /**
  * 生产订单控制器
- *
  */
 @RestController
 @RequestMapping("/production")
@@ -39,7 +38,7 @@ public class ProductionOrderController {
      */
     @GetMapping("/orders/list")
     public ResultDTO<PageResultVO<ProductionOrderVO>> selectProductionOrder(
-            @RequestParam ProductionOrderListRequest request) {
+            ProductionOrderListRequest request) {
 
         IPage<ProductionOrder> page = productionOrderService.selectProductionOrder(request);
         PageResultVO<ProductionOrderVO> pageResultVO = new PageResultVO<>() {
