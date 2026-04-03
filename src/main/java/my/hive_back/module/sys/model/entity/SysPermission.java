@@ -9,38 +9,41 @@ import java.time.LocalDateTime;
 @Data
 public class SysPermission {
 
-    /**
-     * 权限主键ID
-     */
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    private String tenantCode;
-
-    private String roleCode;
-
     /**
-     * 权限编码（全局唯一）
-     * 格式：资源:操作，示例：user:add、order:view、order:*
+     * 父级权限ID（用于前端构建菜单树，顶级菜单为0）
      */
-    private String permCode;
+    private Long parentId;
 
     /**
-     * 权限名称
-     * 示例：用户添加、订单查看、订单所有权限
+     * 权限名称 (示例：用户管理、订单查看)
      */
     private String permName;
 
     /**
-     * 创建时间（自动填充）
+     * 权限编码（全局唯一核心标识）
+     * 格式：资源:操作，示例：user:add、order:view
      */
+    private String permCode;
+
+    /**
+     * 权限类型 (1-目录，2-菜单，3-按钮/接口)
+     */
+    private Integer permType;
+
+    /**
+     * 排序号 (用于前端菜单展示顺序)
+     */
+    private Integer sort;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
-    /**
-     * 逻辑删除标识
-     */
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updateTime;
+
     @TableLogic
     private Integer isDeleted;
-
 }

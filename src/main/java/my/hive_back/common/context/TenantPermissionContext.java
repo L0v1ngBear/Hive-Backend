@@ -28,10 +28,14 @@ public class TenantPermissionContext {
     }
 
     /**
-     * 核心：校验是否有指定权限
-     * @param permCode 权限编码（如：order:add、order:*）
+     * 核心：校验是否有指定权限 (支持超级管理员 *，以及多级通配符如 sys:*, sys:user:*)
+     * @param permCode 权限编码（如：sys:user:add）
      */
     public static boolean hasPermission(String permCode) {
+        if (permCode == null || permCode.trim().isEmpty()) {
+            return false; // 如果未指定具体权限，默认不放行
+        }
+
         ConcurrentHashMap<String, Object> context = THREAD_LOCAL.get();
         if (context == null) {
             return false;
@@ -43,19 +47,32 @@ public class TenantPermissionContext {
             return false;
         }
 
+        // 1. 上帝模式：如果有全局通配符，直接放行 (超级管理员特权)
+        if (permCodes.contains("*") || permCodes.contains("*:*")) {
+            return true;
+        }
+
+        // 2. 精确匹配：拥有指定的绝对权限
         if (permCodes.contains(permCode)) {
             return true;
         }
 
-        int colonIndex = permCode.indexOf(":");
-        String permCodePrefix = permCode.substring(0, colonIndex + 1);
-        return permCodes.contains(permCodePrefix + "*");
-//        // 支持通配符：如 order:* 匹配所有订单相关权限
-//        if (permCode.endsWith(":*")) {
-//            String prefix = permCode.replace(":*", "");
-//            return permCodes.stream().anyMatch(p -> p.startsWith(prefix + ":"));
-//        }
-//        return permCodes.contains(permCode);
+        // 3. 多级通配符逐级降级匹配
+        // 例如需要 sys:user:add 权限，会依次去 Set 里找是否存在：
+        // -> sys:user:*
+        // -> sys:*
+        int lastColonIndex = permCode.lastIndexOf(":");
+        while (lastColonIndex > 0) {
+            String prefix = permCode.substring(0, lastColonIndex);
+            if (permCodes.contains(prefix + ":*")) {
+                return true;
+            }
+            // 继续往前找上一级的冒号
+            lastColonIndex = prefix.lastIndexOf(":");
+        }
+
+        // 都没匹配上，拦截
+        return false;
     }
 
 

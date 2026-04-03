@@ -10,7 +10,5 @@ import java.util.List;
 public interface SysUserRoleMapper extends BaseMapper<SysUserRole> {
 
     @InterceptorIgnore(tenantLine = "true")
-    @Select("SELECT role_id FROM sys_user_role WHERE user_id = #{userId} and tenant_code = #{tenantCode}")
-    List<String> selectRoleCodesByUserAndTenant(Long userId, String tenantCode);
-
+    List<String> selectPermCodesByUserIdAndTenantCode(Long userId, String tenantCode);
 }
