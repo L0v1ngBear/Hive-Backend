@@ -20,7 +20,7 @@ mybatis-plus:
       logic-delete-field: isDeleted
       logic-delete-value: 1
       logic-not-delete-value: 0
-
+  mapper-locations: classpath:xml/*.xml
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
