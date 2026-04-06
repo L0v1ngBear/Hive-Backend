@@ -3,7 +3,7 @@ package my.hive_back.api.approval;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import my.hive_back.common.dto.ResultDTO;
+import my.hive_back.common.dto.Result;
 import my.hive_back.module.leave.model.dto.AuditRequest;
 import my.hive_back.module.leave.model.dto.LeaveSubmitRequest;
 import my.hive_back.module.leave.model.entity.UserLeave;
@@ -40,9 +40,9 @@ public class ApprovalController {
      * @param request 包含请假类型、开始时间、结束时间、事由等
      */
     @PostMapping("/leave/submit")
-    public ResultDTO<String> submitLeaveApproval(@Valid @RequestBody LeaveSubmitRequest request) {
+    public Result<String> submitLeaveApproval(@Valid @RequestBody LeaveSubmitRequest request) {
         String leaveCode = leaveService.submitLeaveApproval(request);
-        return ResultDTO.success(leaveCode);
+        return Result.success(leaveCode);
     }
 
     /**
@@ -50,7 +50,7 @@ public class ApprovalController {
      * @param leaveCode 请假单 ID
      */
     @GetMapping("/leave/{leaveCode}")
-    public ResultDTO<LeaveDetailVO> getLeaveApprovalDetail(@NotBlank @PathVariable("leaveCode") String leaveCode) {
+    public Result<LeaveDetailVO> getLeaveApprovalDetail(@NotBlank @PathVariable("leaveCode") String leaveCode) {
         // TODO: 查询请假单详情及审批进度
         UserLeave userLeave = leaveService.getLeaveByCode(leaveCode);
         LeaveDetailVO leaveDetailVO = new LeaveDetailVO();
@@ -59,7 +59,7 @@ public class ApprovalController {
         BeanUtils.copyProperties(userLeave, leaveDetailVO);
         leaveDetailVO.setApplyUserName(user.getName());
         leaveDetailVO.setAuditorName(manager.getName());
-        return ResultDTO.success(leaveDetailVO);
+        return Result.success(leaveDetailVO);
     }
 
     /**
@@ -67,9 +67,9 @@ public class ApprovalController {
      * @param auditRequest 包含审批单ID、审批动作(同意/拒绝)、审批意见等
      */
     @PostMapping("/leave/audit")
-    public ResultDTO<?> auditLeaveApproval(@RequestBody AuditRequest auditRequest) {
+    public Result<?> auditLeaveApproval(@RequestBody AuditRequest auditRequest) {
         leaveService.auditLeaveApproval(auditRequest);
-        return ResultDTO.success("请假审批处理完成");
+        return Result.success("请假审批处理完成");
     }
 
 

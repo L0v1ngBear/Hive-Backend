@@ -4,20 +4,16 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
-import my.hive_back.common.context.TenantPermissionContext;
-import my.hive_back.common.dto.PageResultVO;
-import my.hive_back.common.dto.ResultDTO;
-import my.hive_back.common.exception.BusinessException;
+import my.hive_back.common.dto.PageResult;
+import my.hive_back.common.dto.Result;
 import my.hive_back.module.customer.mapper.CustomerProjectMapper;
 import my.hive_back.module.customer.model.dto.CustomerAddRequest;
 import my.hive_back.module.customer.model.dto.CustomerPageRequest;
 import my.hive_back.module.customer.model.entity.Customer;
-import my.hive_back.module.customer.model.entity.CustomerContact;
 import my.hive_back.module.customer.model.entity.CustomerProject;
 import my.hive_back.module.customer.model.vo.CustomerDetailVO;
 import my.hive_back.module.customer.model.vo.CustomerPageVO;
 import my.hive_back.module.customer.service.CustomerService;
-import my.hive_back.module.tenant.model.entity.Tenant;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -38,13 +34,13 @@ public class CustomerController {
     private CustomerProjectMapper customerProjectMapper;
 
     @PostMapping("/add")
-    public ResultDTO<Void> addCustomer(@RequestBody CustomerAddRequest request) {
+    public Result<Void> addCustomer(@RequestBody CustomerAddRequest request) {
         customerService.addCustomer(request);
-        return ResultDTO.success(null);
+        return Result.success(null);
     }
 
     @GetMapping("/page")
-    public ResultDTO<PageResultVO<CustomerPageVO>> getCustomerPage(@Valid CustomerPageRequest request) {
+    public Result<PageResult<CustomerPageVO>> getCustomerPage(@Valid CustomerPageRequest request) {
         Page<Customer> page = Optional.ofNullable(customerService.pageSearchCustomer(request))
                 .orElse(new Page<>()); // 若返回null，初始化空分页对象
         // 4. 组装 VO (统计项目数和最新合作项目)
@@ -67,19 +63,19 @@ public class CustomerController {
         }).collect(Collectors.toList());
 
         // 5. 封装为你统一的 PageResultVO 返回
-        PageResultVO<CustomerPageVO> result = new PageResultVO<>();
+        PageResult<CustomerPageVO> result = new PageResult<>();
         result.setCurrent(page.getCurrent());
         result.setSize(page.getSize());
         result.setTotal(page.getTotal());
         result.setPages(page.getPages());
         result.setData(voList);
 
-        return ResultDTO.success(result);
+        return Result.success(result);
     }
 
     @GetMapping("/detail/{id}")
-    public ResultDTO<CustomerDetailVO> getCustomer(@PathVariable Long id) {
+    public Result<CustomerDetailVO> getCustomer(@PathVariable Long id) {
         CustomerDetailVO customerDetailVO = customerService.getCustomer(id);
-        return ResultDTO.success(customerDetailVO);
+        return Result.success(customerDetailVO);
     }
 }

@@ -1,7 +1,7 @@
 package my.hive_back.common.exception;
 
 import jakarta.annotation.PostConstruct;
-import my.hive_back.common.dto.ResultDTO;
+import my.hive_back.common.dto.Result;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
@@ -36,7 +36,7 @@ public class GlobalExceptionHandler {
      * 返回HTTP 400 + 业务码400
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ResultDTO<Void>> handleRequestBodyValidException(MethodArgumentNotValidException e) {
+    public ResponseEntity<Result<Void>> handleRequestBodyValidException(MethodArgumentNotValidException e) {
         // 获取校验失败的字段信息
         BindingResult bindingResult = e.getBindingResult();
         List<FieldError> fieldErrors = bindingResult.getFieldErrors();
@@ -50,7 +50,7 @@ public class GlobalExceptionHandler {
         log.error("JSON参数校验失败：{}", errorMsg, e);
 
         // 构建统一响应体，返回HTTP 400状态码
-        ResultDTO<Void> result = ResultDTO.fail(400, errorMsg);
+        Result<Void> result = Result.fail(400, errorMsg);
         return new ResponseEntity<>(result, HttpStatus.BAD_REQUEST);
     }
 
@@ -59,7 +59,7 @@ public class GlobalExceptionHandler {
      * 返回HTTP 400 + 业务码400
      */
     @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<ResultDTO<Void>> handleRequestParamValidException(ConstraintViolationException e) {
+    public ResponseEntity<Result<Void>> handleRequestParamValidException(ConstraintViolationException e) {
         // 获取参数校验失败信息
         Set<ConstraintViolation<?>> violations = e.getConstraintViolations();
 
@@ -76,7 +76,7 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("；"));
 
         log.error("路径/查询参数校验失败：{}", errorMsg, e);
-        ResultDTO<Void> result = ResultDTO.fail(400, errorMsg);
+        Result<Void> result = Result.fail(400, errorMsg);
         return new ResponseEntity<>(result, HttpStatus.BAD_REQUEST);
     }
 
@@ -85,10 +85,10 @@ public class GlobalExceptionHandler {
      * 返回HTTP 200 + 自定义业务码（业务异常不改变HTTP状态码）
      */
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ResultDTO<Void>> handleBusinessException(BusinessException e) {
+    public ResponseEntity<Result<Void>> handleBusinessException(BusinessException e) {
         // 业务异常只打印warn日志（非系统错误）
         log.warn("业务异常：{}", e.getMsg());
-        ResultDTO<Void> result = ResultDTO.fail(e.getCode(), e.getMsg());
+        Result<Void> result = Result.fail(e.getCode(), e.getMsg());
         return new ResponseEntity<>(result, HttpStatus.OK);
     }
 
@@ -97,11 +97,11 @@ public class GlobalExceptionHandler {
      * 返回HTTP 500 + 业务码500
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ResultDTO<Void>> handleGlobalException(Exception e) {
+    public ResponseEntity<Result<Void>> handleGlobalException(Exception e) {
         // 系统异常打印error日志（包含堆栈）
         log.error("系统内部异常", e);
         // 对外隐藏具体异常信息，只返回友好提示
-        ResultDTO<Void> result = ResultDTO.fail(500, "服务器内部错误，请稍后重试");
+        Result<Void> result = Result.fail(500, "服务器内部错误，请稍后重试");
         return new ResponseEntity<>(result, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
@@ -109,9 +109,9 @@ public class GlobalExceptionHandler {
      * 处理参数类型转换异常（如String转Long失败）
      */
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ResultDTO<Void>> handleIllegalArgException(IllegalArgumentException e) {
+    public ResponseEntity<Result<Void>> handleIllegalArgException(IllegalArgumentException e) {
         log.error("参数格式错误：{}", e.getMessage(), e);
-        ResultDTO<Void> result = ResultDTO.fail(400, "参数格式错误：" + e.getMessage());
+        Result<Void> result = Result.fail(400, "参数格式错误：" + e.getMessage());
         return new ResponseEntity<>(result, HttpStatus.BAD_REQUEST);
     }
 
@@ -119,16 +119,16 @@ public class GlobalExceptionHandler {
      * 处理空指针异常（兜底补充）
      */
     @ExceptionHandler(NullPointerException.class)
-    public ResponseEntity<ResultDTO<Void>> handleNullPointerException(NullPointerException e) {
+    public ResponseEntity<Result<Void>> handleNullPointerException(NullPointerException e) {
         log.error("空指针异常", e);
-        ResultDTO<Void> result = ResultDTO.fail(500, "服务器内部错误，请稍后重试");
+        Result<Void> result = Result.fail(500, "服务器内部错误，请稍后重试");
         return new ResponseEntity<>(result, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     // 处理无权限异常
     @ExceptionHandler(PermissionDeniedException.class)
-    public ResponseEntity<ResultDTO<Void>> handleAccessDenied(PermissionDeniedException e) {
-        ResultDTO<Void> result = ResultDTO.fail(403, "无权限");
+    public ResponseEntity<Result<Void>> handleAccessDenied(PermissionDeniedException e) {
+        Result<Void> result = Result.fail(403, "无权限");
         return new ResponseEntity<>(result, HttpStatus.FORBIDDEN);
     }
 }

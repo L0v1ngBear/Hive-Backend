@@ -4,8 +4,8 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import my.hive_back.common.dto.PageResultVO;
-import my.hive_back.common.dto.ResultDTO;
+import my.hive_back.common.dto.PageResult;
+import my.hive_back.common.dto.Result;
 import my.hive_back.module.order.model.dto.ProductionOrderUpdateRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderAddRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderListRequest;
@@ -37,11 +37,11 @@ public class ProductionOrderController {
      * 补充：@Valid 触发复杂对象内部校验
      */
     @GetMapping("/orders/list")
-    public ResultDTO<PageResultVO<ProductionOrderVO>> selectProductionOrder(
+    public Result<PageResult<ProductionOrderVO>> selectProductionOrder(
             ProductionOrderListRequest request) {
 
         IPage<ProductionOrder> page = productionOrderService.selectProductionOrder(request);
-        PageResultVO<ProductionOrderVO> pageResultVO = new PageResultVO<>() {
+        PageResult<ProductionOrderVO> pageResultVO = new PageResult<>() {
             {
                 setCurrent(page.getCurrent());
                 setSize(page.getSize());
@@ -54,7 +54,7 @@ public class ProductionOrderController {
                 }).collect(Collectors.toList()));
             }
         };
-        return ResultDTO.success(pageResultVO);
+        return Result.success(pageResultVO);
     }
 
     /**
@@ -62,7 +62,7 @@ public class ProductionOrderController {
      * 补充：orderId 非空 + 格式校验
      */
     @GetMapping("/orders/detail/{orderId}")
-    public ResultDTO<ProductionOrderVO> getProductionOrderDetail(
+    public Result<ProductionOrderVO> getProductionOrderDetail(
             // 1. 非空校验：订单ID不能为空
             @NotBlank(message = "生产订单ID不能为空")
             @PathVariable("orderId") String orderId) {
@@ -70,11 +70,11 @@ public class ProductionOrderController {
         ProductionOrder order = productionOrderService.selectProductionOrderDetail(orderId);
         ProductionOrderVO vo = new ProductionOrderVO();
         BeanUtils.copyProperties(order, vo);
-        return ResultDTO.success(vo);
+        return Result.success(vo);
     }
 
     @GetMapping("/orders/status-log/{orderId}")
-    public ResultDTO<List<ProductionOrderStatusLogVO>> getProductionStatusLog(@NotBlank @PathVariable String orderId) {
+    public Result<List<ProductionOrderStatusLogVO>> getProductionStatusLog(@NotBlank @PathVariable String orderId) {
         List<ProductionOrderStatusLog> statusLog = productionOrderService.selectOrderStausLog(orderId);
 
         List<ProductionOrderStatusLogVO> logVOList = statusLog.stream().map(log ->
@@ -84,14 +84,14 @@ public class ProductionOrderController {
             return vo;
         }).toList();
 
-        return ResultDTO.success(logVOList);
+        return Result.success(logVOList);
     }
 
     /**
      * 通用流转接口：支持更改订单大状态或更新生产小工序
      */
     @PostMapping("/orders/{orderId}/status")
-    public ResultDTO<ProductionOrderVO> updateOrderStatus(
+    public Result<ProductionOrderVO> updateOrderStatus(
             @NotBlank @PathVariable String orderId,
             @Valid @RequestBody ProductionOrderUpdateRequest request) {
 
@@ -99,12 +99,12 @@ public class ProductionOrderController {
 
         ProductionOrderVO vo = new ProductionOrderVO();
         BeanUtils.copyProperties(order, vo);
-        return ResultDTO.success(vo);
+        return Result.success(vo);
     }
 
     @PostMapping("/orders/add")
-    public ResultDTO<Void> addProductionOrder(@RequestBody ProductionOrderAddRequest request) {
+    public Result<Void> addProductionOrder(@RequestBody ProductionOrderAddRequest request) {
         productionOrderService.addProductionOrder(request);
-        return ResultDTO.success(null);
+        return Result.success(null);
     }
 }

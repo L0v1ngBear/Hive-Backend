@@ -2,7 +2,7 @@ package my.hive_back.api.inventory;
 
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
-import my.hive_back.common.dto.ResultDTO;
+import my.hive_back.common.dto.Result;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
 import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
@@ -26,50 +26,50 @@ public class InventoryController {
     private InventoryService inventoryService;
 
     @PostMapping("/cloth/in")
-    public ResultDTO<ClothInfoVO> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
+    public Result<ClothInfoVO> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
 
         ClothInfoVO clothInfoVO = inventoryService.inCloth(inventoryInRequest);
-        return ResultDTO.success(clothInfoVO);
+        return Result.success(clothInfoVO);
 
     }
 
     @PostMapping("/cloth/out")
-    public ResultDTO<ClothInfoVO> outCloth(@Valid @RequestBody InventoryOutRequest inventoryOutRequest) {
+    public Result<ClothInfoVO> outCloth(@Valid @RequestBody InventoryOutRequest inventoryOutRequest) {
         ClothInfoVO clothInfoVO = inventoryService.outCloth(inventoryOutRequest);
-        return ResultDTO.success(clothInfoVO);
+        return Result.success(clothInfoVO);
     }
 
 
     @GetMapping("/barCode/search")
-    public ResultDTO<BarCodeSearchVO> searchBarCode(@RequestParam String barCode) {
+    public Result<BarCodeSearchVO> searchBarCode(@RequestParam String barCode) {
         Cloth cloth = inventoryService.selectClothByBarCode(barCode);
         BarCodeSearchVO vo = new BarCodeSearchVO();
         BeanUtils.copyProperties(cloth, vo);
-        return ResultDTO.success(vo);
+        return Result.success(vo);
     }
 
     @GetMapping("/model/search")
-    public ResultDTO<List<ModelCodeVO>> searchModelCode(@RequestParam String keyword) {
+    public Result<List<ModelCodeVO>> searchModelCode(@RequestParam String keyword) {
         List<ClothModelSpec> modelSpecList = inventoryService.searchModelSpec(keyword);
         List<ModelCodeVO> voList = modelSpecList.stream().map(modelSpec -> {
             ModelCodeVO vo = new ModelCodeVO();
             BeanUtils.copyProperties(modelSpec, vo);
             return vo;
         }).toList();
-        return ResultDTO.success(voList);
+        return Result.success(voList);
     }
 
     @GetMapping("/trend")
-    public ResultDTO<InventoryTrendVO> trend() {
+    public Result<InventoryTrendVO> trend() {
 
         // 获取七天内的库存趋势数据
         InventoryTrendVO trendVO = inventoryService.getLastWeekTrend();
 
-        return ResultDTO.success(trendVO);
+        return Result.success(trendVO);
     }
 
     @GetMapping("/record/recent")
-    public ResultDTO<List<InventoryRecordVO>> recentRecord() {
+    public Result<List<InventoryRecordVO>> recentRecord() {
         List<InventoryRecord> recordList = inventoryService.getUserRecentRecord();
         List<InventoryRecordVO> voList = recordList.stream().map(record -> {
             InventoryRecordVO vo = new InventoryRecordVO();
@@ -77,13 +77,13 @@ public class InventoryController {
             vo.setOperateId(record.getId());
             return vo;
         }).toList();
-        return ResultDTO.success(voList);
+        return Result.success(voList);
     }
 
     @GetMapping("/warning/list")
-    public ResultDTO<List<InventoryRecordVO>> warningList() {
+    public Result<List<InventoryRecordVO>> warningList() {
         //TODO 对接ai自动分析
-        return ResultDTO.success(null);
+        return Result.success(null);
     }
 
 }

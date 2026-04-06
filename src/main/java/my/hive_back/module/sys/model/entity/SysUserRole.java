@@ -14,8 +14,6 @@ public class SysUserRole {
 
     private Long userId;
 
-    private String tenantCode;
-
     private Long roleId;
 
     @TableField(fill = FieldFill.INSERT)

@@ -8,7 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import my.hive_back.common.context.TenantPermissionContext;
-import my.hive_back.common.dto.ResultDTO;
+import my.hive_back.common.dto.Result;
 import my.hive_back.module.sys.model.mapper.SysUserRoleMapper;
 import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.model.entity.Tenant;
@@ -119,7 +119,7 @@ public class TenantInterceptor implements HandlerInterceptor {
 
     private void writeErrorResponse(HttpServletResponse response, HttpStatus httpStatus,
                                     Integer bizCode, String msg) throws Exception {
-        ResultDTO<Void> errorResult = ResultDTO.fail(bizCode, msg);
+        Result<Void> errorResult = Result.fail(bizCode, msg);
         response.setContentType("application/json;charset=UTF-8");
         response.setStatus(httpStatus.value());
         try (var writer = response.getWriter()) {

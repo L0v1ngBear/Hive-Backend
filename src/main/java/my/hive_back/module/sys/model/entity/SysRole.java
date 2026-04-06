@@ -16,8 +16,6 @@ public class SysRole {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    private String tenantCode;
-
     private String roleCode;
 
     private String roleName;
