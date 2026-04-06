@@ -15,7 +15,6 @@
                  INNER JOIN sys_permission p ON rp.permission_id = p.id
             AND p.is_deleted = 0
         WHERE ur.user_id = #{userId}
-          AND ur.tenant_code = #{tenantCode}
           AND ur.is_deleted = 0
           AND p.perm_code IS NOT NULL
           AND p.perm_code != ''
