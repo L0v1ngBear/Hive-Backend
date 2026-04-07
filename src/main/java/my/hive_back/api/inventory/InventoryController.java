@@ -86,4 +86,9 @@ public class InventoryController {
         return Result.success(null);
     }
 
+    @PostMapping("/cloth/out/finish")
+    public Result<Void> finishOutbound(@RequestParam String orderNo) {
+        inventoryService.finishOutbound(orderNo);
+        return Result.success(null);
+    }
 }

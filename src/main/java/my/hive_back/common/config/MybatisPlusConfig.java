@@ -37,6 +37,9 @@ public class MybatisPlusConfig {
 
             @Override
             public boolean ignoreTable(String tableName) {
+                if (TenantPermissionContext.isIgnoreTenant()) {
+                    return true;
+                }
                 return "tenant".equalsIgnoreCase(tableName);
             }
         }));

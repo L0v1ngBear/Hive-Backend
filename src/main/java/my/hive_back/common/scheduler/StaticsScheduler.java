@@ -3,6 +3,7 @@ package my.hive_back.common.scheduler;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.utils.RedisUtil;
 import my.hive_back.module.attendance.PunchStatusEnum;
 import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
@@ -78,45 +79,53 @@ public class StaticsScheduler {
     @Scheduled(cron = "0 0 2 * * ?")
     @Transactional(rollbackFor = Exception.class)
     public void statisticsYesterday() {
-        LocalDate yesterday = LocalDate.now().minusDays(1);
-        String dateStr = yesterday.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        log.info("开始核算昨日 ({}) 考勤数据...", dateStr);
+        // 【关键】：开启忽略多租户插件，让接下来的所有查询在全表进行
+        TenantPermissionContext.setIgnoreTenant(true);
 
-        // 1. 获取所有在职用户
-        List<User> userList = userMapper.selectList(new LambdaQueryWrapper<User>()
-                .eq(User::getStatus, 1));
+        try {
+            LocalDate yesterday = LocalDate.now().minusDays(1);
+            String dateStr = yesterday.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+            log.info("开始核算所有租户昨日 ({}) 考勤数据...", dateStr);
 
-        // 2. 获取所有租户的考勤规则 (Map存储提高查询效率)
-        List<TenantAttendanceRule> allRules = ruleMapper.selectList(new LambdaQueryWrapper<>());
-        Map<String, TenantAttendanceRule> ruleMap = allRules.stream()
-                .collect(Collectors.toMap(TenantAttendanceRule::getTenantCode, r -> r));
+            // 1. 获取所有在职用户 (此时 selectList 不会自动拼接 AND tenant_code = ?)
+            List<User> userList = userMapper.selectList(new LambdaQueryWrapper<User>()
+                    .eq(User::getStatus, 1));
 
-        // 3. 获取昨日所有已通过的请假单
-        List<UserLeave> allLeaves = leaveMapper.selectList(new LambdaQueryWrapper<UserLeave>()
-                .eq(UserLeave::getStatus, LeaveStatusEnum.APPROVED.getCode())
-//                .lt(UserLeave::getStartTime, yesterday.plusDays(1).atStartOfDay())
-                .gt(UserLeave::getEndTime, yesterday.atStartOfDay()));
-        Map<Long, List<UserLeave>> userLeaveMap = allLeaves.stream()
-                .collect(Collectors.groupingBy(UserLeave::getApplyUserId));
+            // 2. 获取所有租户的考勤规则
+            List<TenantAttendanceRule> allRules = ruleMapper.selectList(new LambdaQueryWrapper<>());
+            Map<String, TenantAttendanceRule> ruleMap = allRules.stream()
+                    .collect(Collectors.toMap(TenantAttendanceRule::getTenantCode, r -> r));
 
-        // 4. 获取昨日已有的打卡记录
-        List<AttendanceRecord> existingRecords = recordMapper.selectList(new LambdaQueryWrapper<AttendanceRecord>()
-                .likeRight(AttendanceRecord::getPunchId, dateStr));
-        Map<Long, AttendanceRecord> userRecordMap = existingRecords.stream()
-                .collect(Collectors.toMap(AttendanceRecord::getUserId, r -> r));
+            // 3. 获取昨日所有已通过的请假单
+            List<UserLeave> allLeaves = leaveMapper.selectList(new LambdaQueryWrapper<UserLeave>()
+                    .eq(UserLeave::getStatus, LeaveStatusEnum.APPROVED.getCode())
+                    .gt(UserLeave::getEndTime, yesterday.atStartOfDay()));
+            Map<Long, List<UserLeave>> userLeaveMap = allLeaves.stream()
+                    .collect(Collectors.groupingBy(UserLeave::getApplyUserId));
 
-        // 5. 遍历用户进行判定
-        for (User user : userList) {
-            TenantAttendanceRule rule = ruleMap.get(user.getTenantCode());
-            if (rule == null) continue;
+            // 4. 获取昨日已有的打卡记录
+            List<AttendanceRecord> existingRecords = recordMapper.selectList(new LambdaQueryWrapper<AttendanceRecord>()
+                    .likeRight(AttendanceRecord::getPunchId, dateStr));
+            Map<Long, AttendanceRecord> userRecordMap = existingRecords.stream()
+                    .collect(Collectors.toMap(AttendanceRecord::getUserId, r -> r));
 
-            AttendanceRecord record = userRecordMap.get(user.getId());
-            List<UserLeave> userLeaves = userLeaveMap.getOrDefault(user.getId(), List.of());
+            // 5. 遍历用户进行判定
+            for (User user : userList) {
+                TenantAttendanceRule rule = ruleMap.get(user.getTenantCode());
+                if (rule == null) continue;
 
-            processUserDayStatus(user, yesterday, dateStr, record, userLeaves, rule);
+                AttendanceRecord record = userRecordMap.get(user.getId());
+                List<UserLeave> userLeaves = userLeaveMap.getOrDefault(user.getId(), List.of());
+
+                processUserDayStatus(user, yesterday, dateStr, record, userLeaves, rule);
+            }
+
+            log.info("昨日所有租户考勤核算完成。");
+
+        } finally {
+            // 【关键】：任务执行完，务必清除标记，防止线程池复用污染其他业务
+            TenantPermissionContext.clearIgnore();
         }
-
-        log.info("昨日考勤核算完成。");
     }
 
     private void processUserDayStatus(User user, LocalDate yesterday, String dateStr,

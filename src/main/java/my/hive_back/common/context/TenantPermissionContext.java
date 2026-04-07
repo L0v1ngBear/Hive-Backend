@@ -15,6 +15,20 @@ public class TenantPermissionContext {
     private static final String KEY_USER_ID = "userId";
     private static final String KEY_PERM_CODES = "permCodes";
 
+    private static final ThreadLocal<Boolean> IGNORE_TENANT = new ThreadLocal<>();
+
+    public static void setIgnoreTenant(boolean ignore) {
+        IGNORE_TENANT.set(ignore);
+    }
+
+    public static boolean isIgnoreTenant() {
+        return Boolean.TRUE.equals(IGNORE_TENANT.get());
+    }
+
+    public static void clearIgnore() {
+        IGNORE_TENANT.remove();
+    }
+
     /**
      * 初始化上下文（核心方法：拦截器中调用）
      */

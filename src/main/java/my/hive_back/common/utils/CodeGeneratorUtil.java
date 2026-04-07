@@ -79,4 +79,8 @@ public class CodeGeneratorUtil {
     public String generateProductionOrderCode() {
         return generateCode("PO", 6);
     }
+
+    public String generateOutboundOrderNo() {
+        return generateCode("CK", 6);
+    }
 }

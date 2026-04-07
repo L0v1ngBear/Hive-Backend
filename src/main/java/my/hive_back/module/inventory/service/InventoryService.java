@@ -11,17 +11,18 @@ import my.hive_back.common.annotation.RequirePermission;
 import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.exception.BusinessException;
 import my.hive_back.common.utils.BarCodeUtil;
+import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.common.utils.RedisUtil;
 import my.hive_back.module.inventory.InventoryInTypeEnum;
 import my.hive_back.module.inventory.InventoryOperateTypeEnum;
-import my.hive_back.module.inventory.mapper.ClothMapper;
-import my.hive_back.module.inventory.mapper.ClothModelSpecMapper;
-import my.hive_back.module.inventory.mapper.InventoryRecordMapper;
+import my.hive_back.module.inventory.mapper.*;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
 import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
 import my.hive_back.module.inventory.model.entity.ClothModelSpec;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
+import my.hive_back.module.inventory.model.entity.OutboundOrder;
+import my.hive_back.module.inventory.model.entity.OutboundItem;
 import my.hive_back.module.statics.inventory.mapper.InventoryTrendStaticsMapper;
 import my.hive_back.module.inventory.model.vo.ClothInfoVO;
 import my.hive_back.module.statics.inventory.model.entity.InventoryTrendStatics;
@@ -34,6 +35,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -59,6 +61,12 @@ public class InventoryService {
     private StringRedisTemplate stringRedisTemplate;
     @Resource
     private RedisUtil redisUtil;
+    @Resource
+    private OutboundOrderMapper outboundOrderMapper;
+    @Resource
+    private CodeGeneratorUtil codeGeneratorUtil;
+    @Resource
+    private OutboundItemMapper outboundItemMapper;
 
     @Value("${redis.key-prefix.trend.today_in}")
     private String REDIS_TODAY_IN;
@@ -105,6 +113,8 @@ public class InventoryService {
     @Transactional(rollbackFor = Exception.class)
     public ClothInfoVO outCloth(@Valid InventoryOutRequest request) {
         String barCode = request.getBarcode();
+        String orderNo = request.getOrderNo();
+        String customerName = request.getCustomerName();
         String tenantCode = TenantPermissionContext.getTenantCode();
         Long userId = TenantPermissionContext.getUserId();
 
@@ -122,7 +132,7 @@ public class InventoryService {
         }
 
         try {
-            // 3. 为了前端能够拿到完整数据用于打印（包含型号、规格等），我们需要先查询出原布匹信息
+            // 3. 查询原布匹信息
             Cloth cloth = selectClothByBarCode(barCode);
             if (cloth == null) {
                 throw new BusinessException("条码不存在");
@@ -130,16 +140,15 @@ public class InventoryService {
 
             Float metersToOut = request.getMeters();
 
-            // 如果是部分出库（指定米数）
+            // 3.1 执行出库扣减 (保持你原有的优秀逻辑不变)
             if (metersToOut != null && metersToOut > 0) {
                 LambdaUpdateWrapper<Cloth> luw = new LambdaUpdateWrapper<>();
                 luw.eq(Cloth::getBarcode, barCode)
                         .eq(Cloth::getTenantCode, tenantCode)
-                        .ge(Cloth::getRemainingMeters, metersToOut) // SQL 层面保证库存不为负
+                        .ge(Cloth::getRemainingMeters, metersToOut)
                         .setSql("remaining_meters = remaining_meters - " + metersToOut)
                         .set(Cloth::getOutTime, LocalDateTime.now())
                         .set(Cloth::getOutOperatorId, userId)
-                        // 注意这里修改了逻辑：当刚好把剩余米数扣完时，状态变为已出库(OUT)，否则为部分出库(PART_OUT)
                         .setSql("status = CASE WHEN remaining_meters = " + metersToOut + " THEN " + InventoryOperateTypeEnum.OUT.getCode() +
                                 " ELSE " + InventoryOperateTypeEnum.PART_OUT.getCode() + " END");
 
@@ -147,13 +156,9 @@ public class InventoryService {
                 if (rows == 0) {
                     throw new BusinessException("出库失败：库存不足或状态异常");
                 }
-
-                // 更新内存中的对象用于后续返回
                 cloth.setRemainingMeters(cloth.getRemainingMeters() - metersToOut);
             } else {
-                // 如果是全额出库（未指定米数）
                 metersToOut = cloth.getRemainingMeters();
-
                 LambdaUpdateWrapper<Cloth> luw = new LambdaUpdateWrapper<>();
                 luw.eq(Cloth::getBarcode, barCode)
                         .eq(Cloth::getTenantCode, tenantCode)
@@ -162,15 +167,57 @@ public class InventoryService {
                         .set(Cloth::getOutTime, LocalDateTime.now())
                         .set(Cloth::getOutOperatorId, userId);
                 clothMapper.update(luw);
-
-                // 更新内存中的对象用于后续返回
                 cloth.setRemainingMeters(0F);
             }
+
+            // ==================== 【新增：出库单据归集逻辑】 ====================
+            // 因为在此处上方已经扣减成功，且处于 @Transactional 内，若下方报错，上面的库存扣减会安全回滚。
+
+            // a. 查找当前租户下，该客户是否存在“待打印 (0)”的合并出库单
+            LambdaQueryWrapper<OutboundOrder> orderQuery = new LambdaQueryWrapper<>();
+            orderQuery.eq(OutboundOrder::getTenantCode, tenantCode)
+                    .eq(OutboundOrder::getOrderNo, orderNo)
+                    .eq(OutboundOrder::getPrintStatus, 0) // 0-待打印
+                    .last("LIMIT 1"); // 保证并发下只查一条
+
+            OutboundOrder order = outboundOrderMapper.selectOne(orderQuery);
+
+            // b. 如果没有待打印单据，说明是今天扫的该客户的第一卷布，新建单据主表
+            if (order == null) {
+                order = new OutboundOrder();
+                order.setTenantCode(tenantCode);
+                order.setOrderNo(codeGeneratorUtil.generateOutboundOrderNo()); // 生成诸如 CK20260407001 的单号
+                order.setCustomerName(customerName);
+                order.setPrintStatus(0); // 置为待打印，等待 Vue PC端拉取
+                order.setOperatorId(userId);
+                order.setCreateTime(LocalDateTime.now());
+                outboundOrderMapper.insert(order); // MyBatis-Plus 会自动回填 ID
+            }
+
+            // c. 无论主表是新查出的还是新建的，都将本次扫码作为“明细”挂载进去
+            OutboundItem item = new OutboundItem();
+            item.setTenantCode(tenantCode);
+            item.setOrderId(order.getId());
+            item.setBarcode(cloth.getBarcode());
+            item.setModelCode(cloth.getModelCode());
+            item.setSpec(cloth.getSpec());
+            // 注意这里是本次出库的米数(metersToOut)，而不是布匹的剩余米数
+            item.setMeters(metersToOut);
+
+            // d. 计算价格（PC端打印出库单需要显示金额）
+            // 建议：如果你有单独的型号表，请根据 cloth.getModelCode() 去查询设定的单价
+            BigDecimal price = modelMapper.getPrice(tenantCode, cloth.getModelCode());
+            item.setPrice(price);
+            // 计算金额：单价 * 米数 (将 Float 转为 BigDecimal 计算避免精度丢失)
+            item.setTotalAmount(price.multiply(BigDecimal.valueOf(metersToOut)));
+
+            outboundItemMapper.insert(item);
+            // ===================================================================
 
             // 4. 发送异步通知：记录流水与统计（不阻塞主事务提交）
             asyncLogAndStatics(barCode, tenantCode, userId, metersToOut, INVENTORY_STATICS_OUT_KEY_PREFIX);
 
-            // 5. 出库成功后，组装完整的出库信息返回给前端打印
+            // 5. 出库成功后，组装完整的出库信息返回给前端打印（注意这里返回的仍是布匹操作后的余量信息）
             ClothInfoVO clothInfoVO = new ClothInfoVO();
             BeanUtils.copyProperties(cloth, clothInfoVO);
             clothInfoVO.setMeters(cloth.getRemainingMeters());
@@ -333,4 +380,20 @@ public class InventoryService {
         return vo;
     }
 
+    public void finishOutbound(String orderNo) {
+        String tenantCode = TenantPermissionContext.getTenantCode();
+
+        // 将该客户名下所有“扫码中(0)”的单据改为“待打印(1)”
+        LambdaUpdateWrapper<OutboundOrder> luw = new LambdaUpdateWrapper<>();
+        luw.eq(OutboundOrder::getTenantCode, tenantCode)
+                .eq(OutboundOrder::getOrderNo, orderNo)
+                .eq(OutboundOrder::getPrintStatus, 0)
+                .set(OutboundOrder::getPrintStatus, 1)
+                .set(OutboundOrder::getUpdateTime, LocalDateTime.now());
+
+        int rows = outboundOrderMapper.update(null, luw);
+        if (rows == 0) {
+            throw new BusinessException("未发现可结单的记录");
+        }
+    }
 }
