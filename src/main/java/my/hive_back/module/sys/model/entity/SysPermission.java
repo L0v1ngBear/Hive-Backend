@@ -29,11 +29,6 @@ public class SysPermission {
     private String permCode;
 
     /**
-     * 权限类型 (1-目录，2-菜单，3-按钮/接口)
-     */
-    private Integer permType;
-
-    /**
      * 排序号 (用于前端菜单展示顺序)
      */
     private Integer sort;
