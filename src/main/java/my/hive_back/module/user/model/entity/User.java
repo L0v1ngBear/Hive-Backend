@@ -53,13 +53,8 @@ public class User {
      */
     private LocalDateTime createTime;
 
-     /**
-     * 角色等级
-     */
-    private Integer roleLevel;
-
     /**
-     * 状态 (0: 离职, 1: 在职)
+     * 状态 (0: 离职, 1: 在职， 2：试用)
      */
     private Integer status;
     /**

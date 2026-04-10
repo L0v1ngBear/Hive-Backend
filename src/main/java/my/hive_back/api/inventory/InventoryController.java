@@ -8,12 +8,20 @@ import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
 import my.hive_back.module.inventory.model.entity.ClothModelSpec;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
-import my.hive_back.module.inventory.model.vo.*;
+import my.hive_back.module.inventory.model.vo.BarCodeSearchVO;
+import my.hive_back.module.inventory.model.vo.ClothInfoVO;
+import my.hive_back.module.inventory.model.vo.InventoryRecordVO;
+import my.hive_back.module.inventory.model.vo.ModelCodeVO;
 import my.hive_back.module.inventory.service.InventoryService;
 import my.hive_back.module.statics.inventory.model.vo.InventoryTrendVO;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
@@ -27,10 +35,8 @@ public class InventoryController {
 
     @PostMapping("/cloth/in")
     public Result<ClothInfoVO> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
-
         ClothInfoVO clothInfoVO = inventoryService.inCloth(inventoryInRequest);
         return Result.success(clothInfoVO);
-
     }
 
     @PostMapping("/cloth/out")
@@ -38,7 +44,6 @@ public class InventoryController {
         ClothInfoVO clothInfoVO = inventoryService.outCloth(inventoryOutRequest);
         return Result.success(clothInfoVO);
     }
-
 
     @GetMapping("/barCode/search")
     public Result<BarCodeSearchVO> searchBarCode(@RequestParam String barCode) {
@@ -61,11 +66,7 @@ public class InventoryController {
 
     @GetMapping("/trend")
     public Result<InventoryTrendVO> trend() {
-
-        // 获取七天内的库存趋势数据
-        InventoryTrendVO trendVO = inventoryService.getLastWeekTrend();
-
-        return Result.success(trendVO);
+        return Result.success(inventoryService.getLastWeekTrend());
     }
 
     @GetMapping("/record/recent")
@@ -82,13 +83,18 @@ public class InventoryController {
 
     @GetMapping("/warning/list")
     public Result<List<InventoryRecordVO>> warningList() {
-        //TODO 对接ai自动分析
         return Result.success(null);
     }
 
     @PostMapping("/cloth/out/finish")
-    public Result<Void> finishOutbound(@RequestParam String orderNo) {
-        inventoryService.finishOutbound(orderNo);
+    public Result<Void> finishOutboundCompat(@RequestParam String orderNo) {
+        inventoryService.submitOutboundToPrint(orderNo);
+        return Result.success(null);
+    }
+
+    @PostMapping("/outbound/submit-print")
+    public Result<Void> submitOutboundToPrint(@RequestParam String orderNo) {
+        inventoryService.submitOutboundToPrint(orderNo);
         return Result.success(null);
     }
 }
