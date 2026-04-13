@@ -28,6 +28,16 @@ public class User {
     private String name;
 
     /**
+     * 登录账号
+     */
+    private String loginName;
+
+    /**
+     * 登录密码
+     */
+    private String password;
+
+    /**
      * 手机号
      */
     private String phone;
@@ -47,6 +57,11 @@ public class User {
      * 直属上级ID (用于查询上下级关系，0或null表示没有上级/最高级)
      */
     private Long managerId;
+
+    /**
+     * 角色级别
+     */
+    private Integer roleLevel;
 
     /**
      * 创建时间

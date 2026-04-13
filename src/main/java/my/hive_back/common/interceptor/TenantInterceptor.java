@@ -7,8 +7,10 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import my.hive_back.common.auth.AuthUserInfo;
 import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.dto.Result;
+import my.hive_back.common.utils.TokenUtil;
 import my.hive_back.module.sys.model.mapper.SysUserRoleMapper;
 import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.model.entity.Tenant;
@@ -17,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -39,18 +42,44 @@ public class TenantInterceptor implements HandlerInterceptor {
 
     private static final String PERM_CACHE_KEY_PREFIX = "sys:perms:";
 
+    @Value("${auth.allow-legacy-header:true}")
+    private boolean allowLegacyHeader;
+
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        String tenantCode = request.getHeader("Tenant-Code");
-        String userIdStr = request.getHeader("User-Id");
+        String tenantCode;
+        Long userId;
+        String authHeader = request.getHeader("Authorization");
 
-        if (StringUtils.isBlank(tenantCode)) {
-            writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
-            return false;
-        }
+        if (StringUtils.isNotBlank(authHeader)) {
+            AuthUserInfo authUserInfo = resolveAuthUser(authHeader);
+            if (authUserInfo == null || StringUtils.isBlank(authUserInfo.getTenantCode()) || authUserInfo.getUserId() == null) {
+                writeErrorResponse(response, HttpStatus.UNAUTHORIZED, 401, "登录已失效");
+                return false;
+            }
+            tenantCode = authUserInfo.getTenantCode();
+            userId = authUserInfo.getUserId();
+        } else if (allowLegacyHeader) {
+            tenantCode = request.getHeader("Tenant-Code");
+            String userIdStr = request.getHeader("User-Id");
 
-        if (StringUtils.isBlank(userIdStr)) {
-            writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
+            if (StringUtils.isBlank(tenantCode) || StringUtils.isBlank(userIdStr)) {
+                writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
+                return false;
+            }
+
+            try {
+                if (!tenantCode.matches("^[a-zA-Z0-9_]+$")) {
+                    writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
+                    return false;
+                }
+                userId = Long.parseLong(userIdStr);
+            } catch (NumberFormatException e) {
+                writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
+                return false;
+            }
+        } else {
+            writeErrorResponse(response, HttpStatus.UNAUTHORIZED, 401, "请先登录");
             return false;
         }
 
@@ -59,23 +88,29 @@ public class TenantInterceptor implements HandlerInterceptor {
                 writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
                 return false;
             }
-            Long.parseLong(userIdStr);
-        } catch (NumberFormatException e) {
+        } catch (Exception e) {
             writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
             return false;
         }
 
         Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
-        if (tenant == null) {
+        if (tenant == null || !Objects.equals(tenant.getStatus(), 1)) {
             writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "无权限");
             return false;
         }
 
-        Long userId = Long.parseLong(userIdStr);
         Set<String> permCodes = getUserPermCodes(tenantCode, userId);
 
         TenantPermissionContext.init(tenantCode, userId, permCodes);
         return true;
+    }
+
+    private AuthUserInfo resolveAuthUser(String authHeader) {
+        String token = authHeader.trim();
+        if (token.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            token = token.substring(7).trim();
+        }
+        return TokenUtil.parseToken(token);
     }
 
     /**

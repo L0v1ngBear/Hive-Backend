@@ -16,9 +16,9 @@ spring:
           min-idle: 0   # 连接池中的最小空闲连接
 
   datasource:
-    url: jdbc:mysql://mysql:3306/hive?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
-    username: root
-    password: chaojimali.25
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
 mybatis-plus:
@@ -30,3 +30,14 @@ mybatis-plus:
       logic-delete-field: isDeleted
       logic-delete-value: 1
       logic-not-delete-value: 0
+
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false
+
+auth:
+  allow-legacy-header: false
+  token:
+    secret: ${AUTH_TOKEN_SECRET}

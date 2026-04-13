@@ -14,3 +14,8 @@ logging:
   level:
     my.hive_back.module: DEBUG  # 增加模块包的日志，方便调试
     my.hive_back.api: DEBUG  # 增加接口包的日志，方便调试 Swagger
+
+auth:
+  allow-legacy-header: true
+  token:
+    secret: hive-back-dev-token-secret

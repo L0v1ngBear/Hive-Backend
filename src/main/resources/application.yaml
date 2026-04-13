@@ -30,6 +30,14 @@ springdoc:
   api-docs:
     path: /v3/api-docs
     enabled: true
+auth:
+  allow-legacy-header: false
+  token:
+    expire-hours: 24
+  login:
+    max-fail-count: 5
+    max-ip-fail-count: 20
+    lock-minutes: 15
 redis:
   key-prefix:
     barCode:
