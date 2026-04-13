@@ -3,6 +3,7 @@ package my.hive_back.api.inventory;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import my.hive_back.common.dto.Result;
+import my.hive_back.common.exception.BusinessException;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
 import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
@@ -35,19 +36,20 @@ public class InventoryController {
 
     @PostMapping("/cloth/in")
     public Result<ClothInfoVO> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
-        ClothInfoVO clothInfoVO = inventoryService.inCloth(inventoryInRequest);
-        return Result.success(clothInfoVO);
+        return Result.success(inventoryService.inCloth(inventoryInRequest));
     }
 
     @PostMapping("/cloth/out")
     public Result<ClothInfoVO> outCloth(@Valid @RequestBody InventoryOutRequest inventoryOutRequest) {
-        ClothInfoVO clothInfoVO = inventoryService.outCloth(inventoryOutRequest);
-        return Result.success(clothInfoVO);
+        return Result.success(inventoryService.outCloth(inventoryOutRequest));
     }
 
     @GetMapping("/barCode/search")
     public Result<BarCodeSearchVO> searchBarCode(@RequestParam String barCode) {
         Cloth cloth = inventoryService.selectClothByBarCode(barCode);
+        if (cloth == null) {
+            throw new BusinessException("未查询到布匹信息");
+        }
         BarCodeSearchVO vo = new BarCodeSearchVO();
         BeanUtils.copyProperties(cloth, vo);
         return Result.success(vo);
@@ -83,7 +85,7 @@ public class InventoryController {
 
     @GetMapping("/warning/list")
     public Result<List<InventoryRecordVO>> warningList() {
-        return Result.success(null);
+        return Result.success(inventoryService.warningList());
     }
 
     @PostMapping("/cloth/out/finish")

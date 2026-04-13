@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS bad_product_record (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    tenant_code VARCHAR(64) NOT NULL COMMENT '租户编码',
+    defective_id VARCHAR(64) NOT NULL COMMENT '次品编号',
+    order_id VARCHAR(64) NULL COMMENT '关联订单号',
+    type VARCHAR(32) NOT NULL COMMENT '次品类型',
+    creator_id BIGINT NULL COMMENT '创建人ID',
+    creator_name VARCHAR(64) NULL COMMENT '创建人姓名',
+    quantity DECIMAL(12,2) NOT NULL COMMENT '次品数量',
+    loss_amount DECIMAL(12,2) NOT NULL COMMENT '损失金额',
+    description VARCHAR(500) NULL COMMENT '问题描述',
+    status VARCHAR(32) NOT NULL DEFAULT 'pending' COMMENT '处理状态',
+    process_method VARCHAR(255) NULL COMMENT '处理方式',
+    process_remark VARCHAR(500) NULL COMMENT '处理备注',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_bad_product_defective_id (tenant_code, defective_id),
+    KEY idx_bad_product_status (tenant_code, status),
+    KEY idx_bad_product_type (tenant_code, type),
+    KEY idx_bad_product_create_time (tenant_code, create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='次品登记表';

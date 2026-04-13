@@ -38,7 +38,7 @@ public class CodeGeneratorUtil {
 
         // 3. 构建 Redis Key (按 租户 + 业务 + 日期 隔离)
         // 例如：sys:seq:108:LQ:20260401
-        String redisKey = String.format("sys:seq:%d:%s:%s", tenantCode, prefix, dateStr);
+        String redisKey = String.format("sys:seq:%s:%s:%s", tenantCode, prefix, dateStr);
 
         // 4. 利用 Redis 的原子递增特性生成流水号
         Long increment = stringRedisTemplate.opsForValue().increment(redisKey);

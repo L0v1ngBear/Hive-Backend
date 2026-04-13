@@ -18,4 +18,6 @@ public class InventoryOutRequest {
 
     @NotBlank
     private String customerName;
+
+    private String requestId;
 }

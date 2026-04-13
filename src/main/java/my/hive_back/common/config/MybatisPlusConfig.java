@@ -2,6 +2,7 @@ package my.hive_back.common.config;
 
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
+import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import my.hive_back.common.context.TenantPermissionContext;
@@ -11,13 +12,9 @@ import net.sf.jsqlparser.expression.StringValue;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-
 @Configuration
 public class MybatisPlusConfig {
 
-    /*
-    分页插件
-     */
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
@@ -30,6 +27,7 @@ public class MybatisPlusConfig {
                 }
                 return new StringValue(tenantCode);
             }
+
             @Override
             public String getTenantIdColumn() {
                 return "tenant_code";
@@ -43,7 +41,7 @@ public class MybatisPlusConfig {
                 return "tenant".equalsIgnoreCase(tableName);
             }
         }));
-
+        interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
         interceptor.addInnerInterceptor(new PaginationInnerInterceptor());
         return interceptor;
     }

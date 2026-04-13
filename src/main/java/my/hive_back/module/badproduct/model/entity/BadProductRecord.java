@@ -1,4 +1,4 @@
-package my.hive_back.module.inventory.model.entity;
+package my.hive_back.module.badproduct.model.entity;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -7,30 +7,39 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("outbound_order")
-public class OutboundOrder {
+@TableName("bad_product_record")
+public class BadProductRecord {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
     private String tenantCode;
 
-    /** 系统内部出库单号 */
-    private String orderNo;
+    private String defectiveId;
 
-    /** 业务来源单号，例如销售单号/装车单号 */
-    private String bizOrderNo;
+    private String orderId;
 
-    private String customerName;
+    private String type;
 
-    private Integer orderStatus;
+    private Long creatorId;
 
-    private Integer printStatus;
+    private String creatorName;
 
-    private Long operatorId;
+    private BigDecimal quantity;
+
+    private BigDecimal lossAmount;
+
+    private String description;
+
+    private String status;
+
+    private String processMethod;
+
+    private String processRemark;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
