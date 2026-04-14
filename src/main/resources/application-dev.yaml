@@ -12,8 +12,27 @@ spring:
   # 开发环境日志级别更高，方便调试
 logging:
   level:
-    my.hive_back.module: DEBUG  # 增加模块包的日志，方便调试
-    my.hive_back.api: DEBUG  # 增加接口包的日志，方便调试 Swagger
+    root: INFO
+    my.hive_back: DEBUG
+    my.hive_back.module: DEBUG
+    my.hive_back.api: DEBUG
+    my.hive_back.module.auth.mapper: TRACE
+    my.hive_back.module.attendance.mapper: DEBUG
+    my.hive_back.module.badproduct.mapper: DEBUG
+    my.hive_back.module.customer.mapper: DEBUG
+    my.hive_back.module.document.mapper: DEBUG
+    my.hive_back.module.finance.mapper: DEBUG
+    my.hive_back.module.inventory.mapper: DEBUG
+    my.hive_back.module.label.mapper: DEBUG
+    my.hive_back.module.leave.mapper: DEBUG
+    my.hive_back.module.order.mapper: DEBUG
+    my.hive_back.module.price.mapper: DEBUG
+    my.hive_back.module.statics: DEBUG
+    com.baomidou.mybatisplus: DEBUG
+    org.apache.ibatis: TRACE
+    org.mybatis: DEBUG
+    java.sql: DEBUG
+    javax.sql: DEBUG
 
 auth:
   allow-legacy-header: true

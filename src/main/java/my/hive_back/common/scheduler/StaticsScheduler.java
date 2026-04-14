@@ -21,13 +21,14 @@ import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
 import my.hive_back.module.tenant.model.entity.Tenant;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.UUID;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +42,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Component
 public class StaticsScheduler {
+
+    private static final String ATTENDANCE_STAT_LOCK_KEY = "scheduler:attendance:daily";
+    private static final String INVENTORY_STAT_LOCK_KEY = "scheduler:inventory:daily";
 
     @Resource
     private AttendanceRecordMapper recordMapper;
@@ -67,6 +71,9 @@ public class StaticsScheduler {
     private RedisUtil redisUtil;
 
     @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
     private InventoryTrendStaticsMapper staticsMapper;
 
     @Resource
@@ -76,9 +83,14 @@ public class StaticsScheduler {
      * 每天凌晨2点核算昨日考勤
      * 补充逻辑：处理那些完全没打卡（表中无记录）或打卡后状态仍为异常的用户
      */
-    @Scheduled(cron = "0 0 2 * * ?")
-    @Transactional(rollbackFor = Exception.class)
+    @Scheduled(cron = "${scheduler.attendance.daily-cron:0 0 2 * * ?}")
     public void statisticsYesterday() {
+        String attendanceLockValue = tryRunWithLock(ATTENDANCE_STAT_LOCK_KEY, 30 * 60);
+        if (attendanceLockValue == null) {
+            log.info("昨日考勤核算任务已在其他节点执行，本次跳过");
+            return;
+        }
+
         // 【关键】：开启忽略多租户插件，让接下来的所有查询在全表进行
         TenantPermissionContext.setIgnoreTenant(true);
 
@@ -92,7 +104,8 @@ public class StaticsScheduler {
                     .eq(User::getStatus, 1));
 
             // 2. 获取所有租户的考勤规则
-            List<TenantAttendanceRule> allRules = ruleMapper.selectList(new LambdaQueryWrapper<>());
+            List<TenantAttendanceRule> allRules = ruleMapper.selectList(new LambdaQueryWrapper<TenantAttendanceRule>()
+                    .eq(TenantAttendanceRule::getStatus, 1));
             Map<String, TenantAttendanceRule> ruleMap = allRules.stream()
                     .collect(Collectors.toMap(TenantAttendanceRule::getTenantCode, r -> r));
 
@@ -122,9 +135,13 @@ public class StaticsScheduler {
 
             log.info("昨日所有租户考勤核算完成。");
 
+        } catch (Exception ex) {
+            log.error("昨日考勤核算任务执行失败", ex);
+
         } finally {
             // 【关键】：任务执行完，务必清除标记，防止线程池复用污染其他业务
             TenantPermissionContext.clearIgnore();
+            releaseLock(ATTENDANCE_STAT_LOCK_KEY, attendanceLockValue);
         }
     }
 
@@ -194,94 +211,108 @@ public class StaticsScheduler {
     /**
      * 每天凌晨 01:00 执行：Redis 统计数据 → 持久化到 DB
      */
-    @Scheduled(cron = "0 0 1 * * ?")
+    @Scheduled(cron = "${scheduler.inventory.daily-cron:0 5 0 * * ?}")
     public void inventoryDailyStatTask() {
-        log.info("===== 【多租户】库存日统计定时任务开始 =====");
-
-        LocalDate statDate = LocalDate.now().minusDays(1);
-        log.info("统计日期：{}", statDate);
-
-        // 1. 获取所有租户编码
-        List<String> tenantCodes = tenantMapper.selectList(new LambdaQueryWrapper<Tenant>()
-                        .select(Tenant::getTenantCode))
-                .stream()
-                .map(Tenant::getTenantCode)
-                .toList();
-
-        if (tenantCodes.isEmpty()) {
-            log.info("无租户，任务结束");
+        String inventoryLockValue = tryRunWithLock(INVENTORY_STAT_LOCK_KEY, 20 * 60);
+        if (inventoryLockValue == null) {
+            log.info("库存日统计任务已在其他节点执行，本次跳过");
             return;
         }
 
-        // 2. 构建 待插入/更新 统计列表
-        List<InventoryTrendStatics> insertList = new ArrayList<>();
-        List<InventoryTrendStatics> updateList = new ArrayList<>();
-        LocalDateTime statDateTime = statDate.atStartOfDay();
+        log.info("===== 【多租户】库存日统计定时任务开始 =====");
 
-        for (String tenantCode : tenantCodes) {
-            try {
-                // 从Redis获取今日统计
-                Float totalIn = redisUtil.getHashValue(REDIS_TODAY_IN, tenantCode, Float.class);
-                Float totalOut = redisUtil.getHashValue(REDIS_TODAY_OUT, tenantCode, Float.class);
-                totalIn = totalIn == null ? 0f : totalIn;
-                totalOut = totalOut == null ? 0f : totalOut;
+        try {
+            LocalDate statDate = LocalDate.now().minusDays(1);
+            log.info("统计日期：{}", statDate);
 
-                // 构建统计对象
-                InventoryTrendStatics stat = new InventoryTrendStatics();
-                stat.setStatDate(statDateTime);
-                stat.setTenantCode(tenantCode);
-                stat.setDayInMeters(totalIn);
-                stat.setDayOutMeters(totalOut);
-                stat.setUpdateTime(LocalDateTime.now());
+            List<String> tenantCodes = tenantMapper.selectList(new LambdaQueryWrapper<Tenant>()
+                            .eq(Tenant::getDeleted, 0)
+                            .eq(Tenant::getStatus, 1)
+                            .select(Tenant::getTenantCode))
+                    .stream()
+                    .map(Tenant::getTenantCode)
+                    .toList();
 
-                // 查询是否已存在
-                LambdaQueryWrapper<InventoryTrendStatics> queryWrapper = new LambdaQueryWrapper<>();
-                queryWrapper.eq(InventoryTrendStatics::getStatDate, statDateTime);
-                queryWrapper.eq(InventoryTrendStatics::getTenantCode, tenantCode);
-                InventoryTrendStatics exist = staticsMapper.selectOne(queryWrapper);
-
-                if (exist != null) {
-                    // 已存在 → 加入更新列表
-                    stat.setId(exist.getId());
-                    updateList.add(stat);
-                } else {
-                    // 不存在 → 加入新增列表
-                    stat.setCreateTime(LocalDateTime.now());
-                    insertList.add(stat);
-                }
-
-                log.info("租户 [{}] 统计完成 → 入库：{}，出库：{}", tenantCode, totalIn, totalOut);
-            } catch (Exception e) {
-                log.error("租户 [{}] 统计异常，已跳过", tenantCode, e);
+            if (tenantCodes.isEmpty()) {
+                log.info("无可用租户，任务结束");
+                return;
             }
-        }
 
-        // ========================
-        // 批量操作（关键优化）
-        // ========================
-        if (!insertList.isEmpty()) {
-            staticsService.saveBatch(insertList); // 批量插入
-        }
-        if (!updateList.isEmpty()) {
-            staticsService.updateBatchById(updateList); // 批量更新
-        }
+            List<InventoryTrendStatics> insertList = new ArrayList<>();
+            List<InventoryTrendStatics> updateList = new ArrayList<>();
+            LocalDateTime statDateTime = statDate.atStartOfDay();
 
-        // 3. 清空Redis今日统计
-        clearTodayRedisCache();
+            for (String tenantCode : tenantCodes) {
+                try {
+                    Float totalIn = getTrendMeters(REDIS_TODAY_IN, tenantCode, statDate);
+                    Float totalOut = getTrendMeters(REDIS_TODAY_OUT, tenantCode, statDate);
 
-        log.info("===== 【多租户】库存日统计任务全部完成 =====");
+                    InventoryTrendStatics stat = new InventoryTrendStatics();
+                    stat.setStatDate(statDateTime);
+                    stat.setTenantCode(tenantCode);
+                    stat.setDayInMeters(totalIn);
+                    stat.setDayOutMeters(totalOut);
+                    stat.setUpdateTime(LocalDateTime.now());
+
+                    LambdaQueryWrapper<InventoryTrendStatics> queryWrapper = new LambdaQueryWrapper<>();
+                    queryWrapper.eq(InventoryTrendStatics::getStatDate, statDateTime);
+                    queryWrapper.eq(InventoryTrendStatics::getTenantCode, tenantCode);
+                    InventoryTrendStatics exist = staticsMapper.selectOne(queryWrapper);
+
+                    if (exist != null) {
+                        stat.setId(exist.getId());
+                        updateList.add(stat);
+                    } else {
+                        stat.setCreateTime(LocalDateTime.now());
+                        insertList.add(stat);
+                    }
+
+                    log.info("租户 [{}] 统计完成 → 入库：{}，出库：{}", tenantCode, totalIn, totalOut);
+                } catch (Exception e) {
+                    log.error("租户 [{}] 统计异常，已跳过", tenantCode, e);
+                }
+            }
+
+            if (!insertList.isEmpty()) {
+                staticsService.saveBatch(insertList);
+            }
+            if (!updateList.isEmpty()) {
+                staticsService.updateBatchById(updateList);
+            }
+
+            log.info("===== 【多租户】库存日统计任务全部完成 =====");
+        } finally {
+            releaseLock(INVENTORY_STAT_LOCK_KEY, inventoryLockValue);
+        }
     }
 
-    /**
-     * 清空今日Redis统计
-     */
-    private void clearTodayRedisCache() {
+    private Float getTrendMeters(String keyPrefix, String tenantCode, LocalDate statDate) {
         try {
-            redisUtil.deleteHashKey(REDIS_TODAY_IN);
-            redisUtil.deleteHashKey(REDIS_TODAY_OUT);
-            log.info("Redis 今日统计已清空");
+            String value = stringRedisTemplate.opsForValue().get(keyPrefix + tenantCode + ":" + statDate);
+            return value == null ? 0f : Float.parseFloat(value);
         } catch (Exception e) {
-            log.error("清空Redis失败", e);
+            log.error("读取库存日统计缓存失败，tenantCode: {}, statDate: {}", tenantCode, statDate, e);
+            return 0f;
+        }
+    }
+
+    private String tryRunWithLock(String lockKey, long expireSeconds) {
+        String lockValue = UUID.randomUUID().toString();
+        Boolean success = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, expireSeconds, java.util.concurrent.TimeUnit.SECONDS);
+        if (Boolean.TRUE.equals(success)) {
+            return lockValue;
+        }
+        return null;
+    }
+
+    private void releaseLock(String lockKey, String lockValue) {
+        try {
+            String currentValue = stringRedisTemplate.opsForValue().get(lockKey);
+            if (lockValue != null && lockValue.equals(currentValue)) {
+                stringRedisTemplate.delete(lockKey);
+            }
+        } catch (Exception e) {
+            log.warn("释放定时任务锁失败，lockKey: {}", lockKey, e);
         }
     }
 }

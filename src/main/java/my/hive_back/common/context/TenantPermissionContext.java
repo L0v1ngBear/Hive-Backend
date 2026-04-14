@@ -2,6 +2,7 @@ package my.hive_back.common.context;
 
 import org.springframework.util.CollectionUtils;
 
+import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -109,6 +110,16 @@ public class TenantPermissionContext {
     public static Long getUserId() {
         ConcurrentHashMap<String, Object> context = THREAD_LOCAL.get();
         return context == null ? null : (Long) context.get(KEY_USER_ID);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static Set<String> getPermCodes() {
+        ConcurrentHashMap<String, Object> context = THREAD_LOCAL.get();
+        if (context == null) {
+            return Collections.emptySet();
+        }
+        Set<String> permCodes = (Set<String>) context.get(KEY_PERM_CODES);
+        return permCodes == null ? Collections.emptySet() : permCodes;
     }
 
     /**

@@ -59,7 +59,13 @@ public class DocumentService {
     }
 
     public void uploadFile(MultipartFile file) {
-        // TODO 接入阿里云oss
+        // TODO 接入阿里云 OSS：
+        // 1. 校验文件大小、类型、租户上传权限
+        // 2. 生成按 tenantCode/日期 分层的对象存储路径
+        // 3. 上传到 OSS 后保存 fileUrl、fileSize、contentType、originalName
+        // 4. 回写 document 表，目录结构继续复用当前 parentId 体系
+        // 5. 建议同时补签名直传和服务端回调校验，降低大文件占用
+        throw new BusinessException("文件上传功能待接入阿里云OSS");
     }
 
     public void renameDocument(Long documentId, String newName) {

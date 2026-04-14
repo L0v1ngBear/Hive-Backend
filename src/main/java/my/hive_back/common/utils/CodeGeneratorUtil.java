@@ -83,4 +83,8 @@ public class CodeGeneratorUtil {
     public String generateOutboundOrderNo() {
         return generateCode("CK", 6);
     }
+
+    public String generateFinanceApprovalCode() {
+        return generateCode("FA", 6);
+    }
 }

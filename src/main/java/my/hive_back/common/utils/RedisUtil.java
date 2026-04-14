@@ -28,6 +28,17 @@ public class RedisUtil {
         return (tomorrowZero - now) / 1000;
     }
 
+    /**
+     * 计算距离若干天后 0 点的秒数
+     * 例如 daysAfterToday = 2，表示保留到后天 0 点，方便凌晨任务读取昨日数据
+     */
+    public long getSecondsToAfterDays(int daysAfterToday) {
+        LocalDate targetDay = LocalDate.now().plusDays(daysAfterToday);
+        long targetZero = targetDay.atStartOfDay().toEpochSecond(ZoneOffset.ofHours(8)) * 1000;
+        long now = System.currentTimeMillis();
+        return Math.max((targetZero - now) / 1000, 1);
+    }
+
 
     /**
      * 向Redis Hash中存入值（支持任意对象，基于FastJSON序列化）

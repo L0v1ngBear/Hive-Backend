@@ -18,4 +18,6 @@ public class LoginVO {
     private String position;
 
     private String tenantCode;
+
+    private String responseKey;
 }

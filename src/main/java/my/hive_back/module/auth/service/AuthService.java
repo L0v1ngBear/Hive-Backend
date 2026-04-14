@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
 import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.exception.BusinessException;
+import my.hive_back.common.utils.EncryptUtil;
+import my.hive_back.common.utils.ResponseEncryptUtil;
 import my.hive_back.common.utils.TokenUtil;
 import my.hive_back.module.auth.model.dto.LoginRequest;
 import my.hive_back.module.auth.model.vo.LoginVO;
@@ -15,9 +17,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
@@ -37,6 +37,12 @@ public class AuthService {
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private EncryptUtil encryptUtil;
+
+    @Resource
+    private ResponseEncryptUtil responseEncryptUtil;
 
     @Value("${auth.login.max-fail-count:5}")
     private Long maxFailCount;
@@ -72,10 +78,14 @@ public class AuthService {
                 .and(wrapper -> wrapper.eq(User::getLoginName, username).or().eq(User::getPhone, username))
                 .last("LIMIT 1"));
 
-        if (user == null || !Objects.equals(user.getStatus(), 1) || !matchesPassword(request.getPassword(), user.getPassword())) {
+        if (user == null || !Objects.equals(user.getStatus(), 1) || !encryptUtil.matches(request.getPassword(), user.getPassword())) {
             recordLoginFail(accountFailKey);
             recordLoginFail(ipFailKey);
             throw new BusinessException(401, "账号或密码错误");
+        }
+        if (!encryptUtil.isBcryptHash(user.getPassword())) {
+            user.setPassword(encryptUtil.encode(request.getPassword()));
+            userMapper.updateById(user);
         }
 
         stringRedisTemplate.delete(accountFailKey);
@@ -91,6 +101,7 @@ public class AuthService {
         loginVO.setPhone(user.getPhone());
         loginVO.setPosition(user.getPosition());
         loginVO.setTenantCode(tenantCode);
+        loginVO.setResponseKey(responseEncryptUtil.buildResponseKey(token));
         return loginVO;
     }
 
@@ -136,17 +147,6 @@ public class AuthService {
         if (failCount != null && failCount == 1L) {
             stringRedisTemplate.expire(failKey, lockMinutes, TimeUnit.MINUTES);
         }
-    }
-
-    private boolean matchesPassword(String rawPassword, String storedPassword) {
-        if (storedPassword == null || storedPassword.isBlank()) {
-            return false;
-        }
-        if (Objects.equals(rawPassword, storedPassword)) {
-            return true;
-        }
-        String md5Password = DigestUtils.md5DigestAsHex(rawPassword.getBytes(StandardCharsets.UTF_8));
-        return Objects.equals(md5Password, storedPassword);
     }
 
     private String normalizeClientIp(String clientIp) {

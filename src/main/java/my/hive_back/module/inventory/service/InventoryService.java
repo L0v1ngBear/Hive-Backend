@@ -54,8 +54,6 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class InventoryService {
 
-    private static final String INVENTORY_STATICS_IN_KEY_PREFIX = "inventory:in:statics:";
-    private static final String INVENTORY_STATICS_OUT_KEY_PREFIX = "inventory:out:statics:";
     private static final String CLOTH_OUT_LOCK_PREFIX = "lock:cloth:out:";
     private static final String OUTBOUND_ORDER_LOCK_PREFIX = "lock:outbound:order:";
     private static final int OUTBOUND_MAX_RETRY = 3;
@@ -164,7 +162,7 @@ public class InventoryService {
             saveInventoryOutRecord(latestCloth, metersToOut, userId);
             OutboundOrder order = getOrCreatePendingOutboundOrder(tenantCode, businessOrderNo, request.getCustomerName(), userId);
             saveOutboundItem(order.getId(), latestCloth, metersToOut, tenantCode, requestId);
-            asyncRefreshTrendCache(barCode, tenantCode, metersToOut, INVENTORY_STATICS_OUT_KEY_PREFIX);
+            asyncRefreshTrendCache(barCode, tenantCode, metersToOut, REDIS_TODAY_OUT);
 
             ClothInfoVO clothInfoVO = new ClothInfoVO();
             BeanUtils.copyProperties(latestCloth, clothInfoVO);
@@ -315,7 +313,7 @@ public class InventoryService {
         try {
             String key = staticsPrefix + tenantCode + ":" + LocalDate.now();
             stringRedisTemplate.opsForValue().increment(key, meters.doubleValue());
-            stringRedisTemplate.expire(key, redisUtil.getSecondsToNextDay(), TimeUnit.SECONDS);
+            stringRedisTemplate.expire(key, redisUtil.getSecondsToAfterDays(2), TimeUnit.SECONDS);
         } catch (Exception e) {
             log.error("刷新库存趋势缓存失败, barcode: {}", barCode, e);
         }
@@ -354,9 +352,9 @@ public class InventoryService {
         record.setRemainingMeters(inventoryInRequest.getMeters());
         inventoryRecordMapper.insert(record);
 
-        String key = INVENTORY_STATICS_IN_KEY_PREFIX + TenantPermissionContext.getTenantCode() + ":" + LocalDate.now();
+        String key = REDIS_TODAY_IN + TenantPermissionContext.getTenantCode() + ":" + LocalDate.now();
         stringRedisTemplate.opsForValue().increment(key, inventoryInRequest.getMeters().doubleValue());
-        stringRedisTemplate.expire(key, redisUtil.getSecondsToNextDay(), TimeUnit.SECONDS);
+        stringRedisTemplate.expire(key, redisUtil.getSecondsToAfterDays(2), TimeUnit.SECONDS);
     }
 
     public Cloth selectClothByBarCode(String barCode) {
@@ -412,8 +410,9 @@ public class InventoryService {
         wrapper.orderByAsc(InventoryTrendStatics::getStatDate);
         List<InventoryTrendStatics> dbList = staticsMapper.selectList(wrapper);
 
-        Float todayIn = redisUtil.getHashValue(REDIS_TODAY_IN, TenantPermissionContext.getTenantCode(), Float.class);
-        Float todayOut = redisUtil.getHashValue(REDIS_TODAY_OUT, TenantPermissionContext.getTenantCode(), Float.class);
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        Float todayIn = getTrendMeters(REDIS_TODAY_IN, tenantCode, now.toLocalDate());
+        Float todayOut = getTrendMeters(REDIS_TODAY_OUT, tenantCode, now.toLocalDate());
 
         List<String> dateList = new ArrayList<>();
         List<Float> inList = new ArrayList<>();
@@ -440,6 +439,16 @@ public class InventoryService {
         vo.setInMeters(inList);
         vo.setOutMeters(outList);
         return vo;
+    }
+
+    private Float getTrendMeters(String keyPrefix, String tenantCode, LocalDate statDate) {
+        try {
+            String value = stringRedisTemplate.opsForValue().get(keyPrefix + tenantCode + ":" + statDate);
+            return value == null ? 0f : Float.parseFloat(value);
+        } catch (Exception ex) {
+            log.warn("读取库存趋势缓存失败，tenantCode: {}, statDate: {}", tenantCode, statDate, ex);
+            return 0f;
+        }
     }
 
     public void finishOutbound(String orderNo) {

@@ -1,14 +1,14 @@
 server:
   port: 8080
   servlet:
-    context-path: /api  # 全局上下文路径，所有请求都要带 /api 前缀
+    context-path: /api
 
 spring:
   jackson:
     serialization:
       fail-on-empty-beans: false
   profiles:
-    active: dev  # 激活开发环境配置
+    active: dev
 
 mybatis-plus:
   type-aliases-package: my.hive_back.module.*.model.entity
@@ -21,15 +21,16 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
   mapper-locations: classpath:xml/*.xml
+
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
-    # 增加该配置：确保跳转时带上 context-path
     use-root-path: false
     enabled: true
   api-docs:
     path: /v3/api-docs
     enabled: true
+
 auth:
   allow-legacy-header: false
   token:
@@ -38,6 +39,11 @@ auth:
     max-fail-count: 5
     max-ip-fail-count: 20
     lock-minutes: 15
+
+security:
+  response:
+    key: sygav9Iec4kZiRvivnwSVe3iWq66cTCleo8gr3qL2GyXTcQHXJ1E57ZqfhqfIyWp70Imy0rJ7ZkS5SI4T0asRQ==
+
 redis:
   key-prefix:
     barCode:
@@ -46,4 +52,3 @@ redis:
     trend:
       today_in: inventory:today:in
       today_out: inventory:today:out
-

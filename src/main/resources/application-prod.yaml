@@ -41,3 +41,7 @@ auth:
   allow-legacy-header: false
   token:
     secret: ${AUTH_TOKEN_SECRET}
+
+security:
+  response:
+    key: ${RESPONSE_ENCRYPT_KEY}

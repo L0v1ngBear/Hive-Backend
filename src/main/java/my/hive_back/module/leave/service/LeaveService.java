@@ -152,11 +152,11 @@ public class LeaveService {
         if (!approval.getAuditorId().equals(currentUserId)) {
             throw new BusinessException("您不是请假单的审批人，不能审批");
         }
-        if (!LeaveStatusEnum.PENDING.getCode().equals(approval.getStatus())) {
+        if (approval.getStatus() == null || approval.getStatus() != LeaveStatusEnum.PENDING.getCode()) {
             throw new BusinessException("该请假单已处理，请勿重复审批");
         }
 
-        if (auditRequest.getAction().equals(ApprovalActionEnum.APPROVE.getCode())) {
+        if (auditRequest.getAction() == ApprovalActionEnum.APPROVE.getCode()) {
             approval.setAuditComment(auditRequest.getComment());
             long hours = Duration.between(approval.getStartTime(), approval.getEndTime()).toHours();
             double leaveDays = hours / 24.0;
