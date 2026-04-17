@@ -12,8 +12,19 @@ import net.sf.jsqlparser.expression.StringValue;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.Set;
+
 @Configuration
 public class MybatisPlusConfig {
+
+    private static final Set<String> IGNORE_TENANT_TABLES = Set.of(
+            "tenant",
+            "user",
+            "sys_user_role",
+            "sys_role",
+            "sys_role_permission",
+            "sys_permission"
+    );
 
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
@@ -38,7 +49,7 @@ public class MybatisPlusConfig {
                 if (TenantPermissionContext.isIgnoreTenant()) {
                     return true;
                 }
-                return "tenant".equalsIgnoreCase(tableName);
+                return IGNORE_TENANT_TABLES.contains(tableName.toLowerCase());
             }
         }));
         interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
