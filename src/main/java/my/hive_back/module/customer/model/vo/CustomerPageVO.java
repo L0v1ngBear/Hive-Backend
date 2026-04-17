@@ -4,7 +4,9 @@ import lombok.Data;
 import my.hive_back.module.customer.model.entity.Customer;
 
 import java.util.List;
-
+/**
+ * CustomerPageVO 属于小程序后端客户模块，定义出参结构。
+ */
 @Data
 public class CustomerPageVO {
     private Long id;

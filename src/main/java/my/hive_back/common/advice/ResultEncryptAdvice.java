@@ -13,7 +13,9 @@ import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.http.server.ServletServerHttpResponse;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
-
+/**
+ * ResultEncryptAdvice 属于小程序后端通用能力层，承担全局增强处理，例如统一响应或异常拦截。
+ */
 @ControllerAdvice
 public class ResultEncryptAdvice implements ResponseBodyAdvice<Object> {
 

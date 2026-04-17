@@ -7,7 +7,9 @@ import org.springframework.util.DigestUtils;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.regex.Pattern;
-
+/**
+ * EncryptUtil 属于小程序后端通用能力层，提供可复用的工具方法。
+ */
 @Component
 public class EncryptUtil {
 

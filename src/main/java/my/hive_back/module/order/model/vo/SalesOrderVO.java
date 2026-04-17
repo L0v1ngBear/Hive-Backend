@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * 销售订单展示对象 (适配前端主子表结构)
+ * SalesOrderVO 属于小程序后端订单模块，定义出参结构。
  */
 @Data
 public class SalesOrderVO {

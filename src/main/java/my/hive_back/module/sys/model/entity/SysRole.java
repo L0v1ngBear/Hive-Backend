@@ -5,8 +5,9 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 import java.util.List;
-
-@TableName("sys_role")
+/**
+ * SysRole 属于小程序后端系统模块，定义持久化实体结构，用于表字段映射。
+ */
 @Data
 public class SysRole {
 

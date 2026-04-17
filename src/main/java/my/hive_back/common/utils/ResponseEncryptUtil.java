@@ -15,7 +15,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
-
+/**
+ * ResponseEncryptUtil 属于小程序后端通用能力层，提供可复用的工具方法。
+ */
 @Component
 public class ResponseEncryptUtil {
 

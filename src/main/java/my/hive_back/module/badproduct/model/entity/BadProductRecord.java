@@ -9,7 +9,9 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-
+/**
+ * BadProductRecord 属于小程序后端坏品模块，定义持久化实体结构，用于表字段映射。
+ */
 @Data
 @TableName("bad_product_record")
 public class BadProductRecord {

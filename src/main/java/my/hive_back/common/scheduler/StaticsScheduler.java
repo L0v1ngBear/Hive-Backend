@@ -36,8 +36,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 统计数据定时任务
- * 核心逻辑：每日凌晨核算昨日未打卡或打卡异常的情况，结合请假单进行状态校准
+ * StaticsScheduler 属于小程序后端通用能力层，承载定时调度相关逻辑。
  */
 @Slf4j
 @Component

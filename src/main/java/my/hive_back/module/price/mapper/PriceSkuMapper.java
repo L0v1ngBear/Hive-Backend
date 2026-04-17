@@ -5,7 +5,9 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.math.BigDecimal;
-
+/**
+ * PriceSkuMapper 属于小程序后端价格模块，是数据访问类，负责与数据库交互。
+ */
 @Mapper
 public interface PriceSkuMapper {
 

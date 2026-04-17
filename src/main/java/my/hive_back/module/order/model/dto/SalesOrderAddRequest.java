@@ -10,7 +10,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * 新建订单 请求DTO
+ * SalesOrderAddRequest 属于小程序后端订单模块，定义入参结构。
  */
 @Data
 public class SalesOrderAddRequest {
@@ -38,7 +38,6 @@ public class SalesOrderAddRequest {
      * 是否同步创建生产订单 0-否 1-是
      */
     private Integer createProductionOrder;
-
     @Data
     public class OrderItemDTO {
 

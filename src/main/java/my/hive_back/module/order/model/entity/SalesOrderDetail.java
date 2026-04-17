@@ -10,39 +10,55 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * 销售订单 - 明细子表 (Order Line/Detail)
+ * 销售订单明细实体，对应销售订单下的型号、规格和数量等子项数据。
  */
-@TableName("sales_order_detail")
 @Data
+@TableName("sales_order_detail")
 public class SalesOrderDetail {
 
     /**
-     * 明细主键ID
+     * 明细主键。
      */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * 关联的主订单ID (外键逻辑)
+     * 所属销售订单编号。
      */
+    @TableField("order_id")
     private String orderId;
 
     /**
-     * 商品/布匹型号代码 (如: T800-210)
+     * 当前仍按字段隔离租户时，子表也必须保留租户字段。
      */
+    @TableField("tenant_code")
+    private String tenantCode;
+
+    /**
+     * 产品型号编码。
+     */
+    @TableField("model_code")
     private String modelCode;
 
     /**
-     * 规格 (如: 门幅/克重)
+     * 规格描述。
      */
     private String spec;
 
     /**
-     * 需求数量(米)
+     * 数量。
      */
     private BigDecimal quantity;
 
+    /**
+     * 创建时间。
+     */
+    @TableField("create_time")
     private LocalDateTime createTime;
 
+    /**
+     * 更新时间。
+     */
+    @TableField("update_time")
     private LocalDateTime updateTime;
 }

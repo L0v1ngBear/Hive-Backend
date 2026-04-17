@@ -8,7 +8,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * 创建生产订单请求对象
+ * ProductionOrderAddRequest 属于小程序后端订单模块，定义入参结构。
  */
 @Data
 @Schema(description = "创建生产订单请求")

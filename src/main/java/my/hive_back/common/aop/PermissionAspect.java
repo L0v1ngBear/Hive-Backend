@@ -11,8 +11,9 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
-
-@Aspect
+/**
+ * PermissionAspect 属于小程序后端通用能力层，实现 AOP 切面逻辑，用于承载横切关注点。
+ */
 @Component
 public class PermissionAspect {
 

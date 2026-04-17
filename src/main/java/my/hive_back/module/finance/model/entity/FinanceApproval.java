@@ -9,7 +9,9 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-
+/**
+ * FinanceApproval 属于小程序后端财务模块，定义持久化实体结构，用于表字段映射。
+ */
 @Data
 @TableName("finance_approval")
 public class FinanceApproval {

@@ -5,7 +5,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
-
+/**
+ * SalesOrderUpdateRequest 属于小程序后端订单模块，定义入参结构。
+ */
 @Data
 public class SalesOrderUpdateRequest {
 

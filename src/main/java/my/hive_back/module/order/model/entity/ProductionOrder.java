@@ -3,13 +3,8 @@ package my.hive_back.module.order.model.entity;
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/**
- * 生产订单实体类
- */
-@TableName("production_order")
 @Data
 public class ProductionOrder {
 
@@ -28,6 +23,7 @@ public class ProductionOrder {
     @TableField("order_id")
     private String orderId;
 
+    // Link back to the source sales order when a production order is auto-created.
     @TableField("sales_order_id")
     private String salesOrderId;
 
@@ -40,7 +36,8 @@ public class ProductionOrder {
     /**
      * 面料型号（如T800-210）
      */
-    @TableField("model_code")
+    // The current hive.production_order table stores this field as `model`.
+    @TableField("model")
     private String modelCode;
 
 
@@ -53,8 +50,9 @@ public class ProductionOrder {
     /**
      * 幅宽（cm）
      */
-    @TableField("spec")
-    private String spec;
+    // The current hive.production_order table stores width/spec in the `width` column.
+    @TableField("width")
+    private Float spec;
 
 
     /**

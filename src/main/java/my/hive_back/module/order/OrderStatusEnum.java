@@ -5,8 +5,7 @@ import lombok.Getter;
 import lombok.Getter;
 
 /**
- * 生产订单状态枚举
- * 对应 status（字符串）和 statusIndex（数字索引）
+ * OrderStatusEnum 属于小程序后端订单模块，属于该领域的细分实现。
  */
 @Getter
 public enum OrderStatusEnum {

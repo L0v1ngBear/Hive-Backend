@@ -3,7 +3,9 @@ package my.hive_back.module.leave.model.vo;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-
+/**
+ * LeaveDetailVO 属于小程序后端请假模块，定义出参结构。
+ */
 @Data
 public class LeaveDetailVO {
     private String leaveCode;     // 请假编码

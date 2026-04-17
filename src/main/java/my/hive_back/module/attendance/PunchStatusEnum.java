@@ -1,7 +1,9 @@
 package my.hive_back.module.attendance;
 
 import lombok.Getter;
-
+/**
+ * PunchStatusEnum 属于小程序后端考勤模块，属于该领域的细分实现。
+ */
 @Getter
 public enum PunchStatusEnum {
     NORMAL(0, "正常"),

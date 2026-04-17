@@ -15,8 +15,9 @@ import my.hive_back.module.order.service.SalesOrderService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-
-@RestController
+/**
+ * SalesOrderController 是小程序后端订单入口控制类，负责接收请求并调用对应服务。
+ */
 @RequestMapping("/sales")
 @Validated
 public class SalesOrderController {

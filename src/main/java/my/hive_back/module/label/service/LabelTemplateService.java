@@ -24,7 +24,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
+/**
+ * LabelTemplateService 属于小程序后端标签模块，实现核心业务编排与规则逻辑。
+ */
 @Service
 public class LabelTemplateService {
 
@@ -35,9 +37,9 @@ public class LabelTemplateService {
             + "GAP 2 mm,0 mm\r\n"
             + "DIRECTION 1\r\n"
             + "CLS\r\n"
-            + "TEXT 30,30,\"TSS24.BF2\",0,1,1,\"型号: ${modelCode}\"\r\n"
-            + "TEXT 30,70,\"TSS24.BF2\",0,1,1,\"米数: ${meters} m\"\r\n"
-            + "TEXT 30,110,\"TSS24.BF2\",0,1,1,\"规格: ${spec}\"\r\n"
+            + "TEXT 30,30,\"TSS24.BF2\",0,1,1,\"??: ${modelCode}\"\r\n"
+            + "TEXT 30,70,\"TSS24.BF2\",0,1,1,\"??: ${meters} m\"\r\n"
+            + "TEXT 30,110,\"TSS24.BF2\",0,1,1,\"??: ${spec}\"\r\n"
             + "BARCODE 30,160,\"128\",80,1,0,2,2,\"${barcode}\"\r\n"
             + "TEXT 30,250,\"TSS24.BF2\",0,1,1,\"${barcode}\"\r\n"
             + "PRINT 1,1";

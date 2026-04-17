@@ -6,6 +6,9 @@ import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * TenantPermissionContext 属于小程序后端通用能力层，负责请求上下文的读写与传递。
+ */
 public class TenantPermissionContext {
 
     // 线程本地存储：存储租户、用户、权限完整信息

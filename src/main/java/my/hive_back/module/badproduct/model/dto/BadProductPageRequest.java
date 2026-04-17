@@ -1,7 +1,9 @@
 package my.hive_back.module.badproduct.model.dto;
 
 import lombok.Data;
-
+/**
+ * BadProductPageRequest 属于小程序后端坏品模块，定义入参结构。
+ */
 @Data
 public class BadProductPageRequest {
     private Integer pageNum = 1;

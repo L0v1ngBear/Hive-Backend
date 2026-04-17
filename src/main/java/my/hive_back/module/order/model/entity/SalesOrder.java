@@ -9,10 +9,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/**
- * 销售订单 - 主表 (Order Header)
- */
-@TableName("sales_order")
+@TableName
 @Data
 public class SalesOrder {
 

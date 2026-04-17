@@ -10,6 +10,16 @@ spring:
   profiles:
     active: dev
 
+tenant:
+  isolation:
+    # Reserved for future one-tenant-one-database routing. Keep FIELD for now.
+    mode: FIELD
+    default-datasource-key: default
+    registry-table: tenant_database_config
+    # Future database registry is stored in a shared table instead of yaml rows.
+    # Login still stays on the shared database until you later decide how to
+    # resolve tenantCode from phone/openId/user identity before routing.
+
 mybatis-plus:
   type-aliases-package: my.hive_back.module.*.model.entity
   configuration:

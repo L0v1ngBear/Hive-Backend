@@ -18,7 +18,9 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
+/**
+ * DocumentService 属于小程序后端单据模块，实现核心业务编排与规则逻辑。
+ */
 @Slf4j
 @Service
 public class DocumentService {

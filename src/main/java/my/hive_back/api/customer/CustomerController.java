@@ -22,8 +22,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
-
-@RestController
+/**
+ * CustomerController handles customer requests for the mini-program backend and delegates to services.
+ */
 @RequestMapping("/customer")
 @Validated
 public class CustomerController {

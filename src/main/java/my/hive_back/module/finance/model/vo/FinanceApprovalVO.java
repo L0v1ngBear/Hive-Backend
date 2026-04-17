@@ -4,7 +4,9 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-
+/**
+ * FinanceApprovalVO 属于小程序后端财务模块，定义出参结构。
+ */
 @Data
 public class FinanceApprovalVO {
 

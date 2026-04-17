@@ -6,12 +6,9 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 租户实体类
- * 对应数据库表：tenant
- * 功能说明：存储租户（客户/商户）的基础信息，用于多租户系统的租户管理
- *
+ * Tenant 属于小程序后端租户模块，定义持久化实体结构，用于表字段映射。
  */
-@TableName("tenant") // 关联数据库表名：tenant
+@TableName
 @Data
 public class Tenant {
 

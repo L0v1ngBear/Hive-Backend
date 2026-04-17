@@ -27,7 +27,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-
+/**
+ * LeaveService 属于小程序后端请假模块，实现核心业务编排与规则逻辑。
+ */
 @Service
 public class LeaveService {
 

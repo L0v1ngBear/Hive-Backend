@@ -1,7 +1,9 @@
 package my.hive_back.common.auth;
 
 import lombok.Data;
-
+/**
+ * AuthUserInfo 属于小程序后端通用能力层，提供认证或鉴权支撑逻辑。
+ */
 @Data
 public class AuthUserInfo {
 

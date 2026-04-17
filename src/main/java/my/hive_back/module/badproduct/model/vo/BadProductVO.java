@@ -4,7 +4,9 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-
+/**
+ * BadProductVO 属于小程序后端坏品模块，定义出参结构。
+ */
 @Data
 public class BadProductVO {
     private String defectiveId;

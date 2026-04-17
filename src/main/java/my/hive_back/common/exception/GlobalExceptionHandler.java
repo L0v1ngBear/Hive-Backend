@@ -18,9 +18,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 全局异常处理器（适配jakarta.validation的@Valid校验异常）
- * RestControllerAdvice：捕获所有@RestController的异常
- * Slf4j：日志打印
+ * GlobalExceptionHandler 属于小程序后端通用能力层，定义异常语义或异常处理行为。
  */
 @Slf4j
 @RestControllerAdvice

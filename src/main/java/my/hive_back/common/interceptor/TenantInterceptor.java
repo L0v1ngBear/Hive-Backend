@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import my.hive_back.common.auth.AuthUserInfo;
 import my.hive_back.common.context.TenantPermissionContext;
 import my.hive_back.common.dto.Result;
+import my.hive_back.common.tenant.TenantIsolationSupport;
 import my.hive_back.common.utils.TokenUtil;
 import my.hive_back.module.sys.model.mapper.SysUserRoleMapper;
 import my.hive_back.module.tenant.mapper.TenantMapper;
@@ -23,7 +24,9 @@ import org.springframework.beans.factory.annotation.Value;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-
+/**
+ * TenantInterceptor 属于小程序后端通用能力层，是请求拦截器，用于补充上下文、鉴权或租户处理。
+ */
 @Component
 @Slf4j
 public class TenantInterceptor implements HandlerInterceptor {
@@ -39,6 +42,9 @@ public class TenantInterceptor implements HandlerInterceptor {
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private TenantIsolationSupport tenantIsolationSupport;
 
     private static final String PERM_CACHE_KEY_PREFIX = "sys:perms:";
 
@@ -101,6 +107,9 @@ public class TenantInterceptor implements HandlerInterceptor {
 
         Set<String> permCodes = getUserPermCodes(tenantCode, userId);
 
+        // Keep datasource binding close to request entry. FIELD mode is a no-op here,
+        // DATABASE mode will bind the tenant datasource before any mapper is called.
+        tenantIsolationSupport.bindTenantDatasource(tenantCode);
         TenantPermissionContext.init(tenantCode, userId, permCodes);
         return true;
     }
@@ -165,6 +174,8 @@ public class TenantInterceptor implements HandlerInterceptor {
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+        // Always clear routing state to avoid thread reuse leaking another tenant's datasource.
+        tenantIsolationSupport.clearTenantDatasource();
         TenantPermissionContext.clear();
     }
 }

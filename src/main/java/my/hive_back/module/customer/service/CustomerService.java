@@ -21,7 +21,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-
+/**
+ * CustomerService 属于小程序后端客户模块，实现核心业务编排与规则逻辑。
+ */
 @Service
 public class CustomerService {
 

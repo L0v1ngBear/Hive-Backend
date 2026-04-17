@@ -3,7 +3,9 @@ package my.hive_back.module.order.model.vo;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-
+/**
+ * ProductionOrderVO 属于小程序后端订单模块，定义出参结构。
+ */
 @Data
 public class ProductionOrderVO {
 
@@ -19,7 +21,7 @@ public class ProductionOrderVO {
 
     private Float weight;
 
-    private String spec;
+    private Float spec;
 
     private Integer quantity;
 

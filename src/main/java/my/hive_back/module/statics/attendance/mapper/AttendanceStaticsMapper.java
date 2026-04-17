@@ -6,6 +6,9 @@ import org.apache.ibatis.annotations.Insert;
 
 import java.util.List;
 
+/**
+ * AttendanceStaticsMapper 属于小程序后端统计模块，是数据访问类，负责与数据库交互。
+ */
 public interface AttendanceStaticsMapper extends BaseMapper<AttendanceStatics> {
 
     @Insert("<script>" +

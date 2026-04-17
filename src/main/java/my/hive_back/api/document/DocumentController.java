@@ -14,9 +14,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.stream.Collectors;
-
-@RestController
-@RequestMapping("/document")
+/**
+ * DocumentController handles document requests for the mini-program backend and delegates to services.
+ */
 @Validated
 public class DocumentController {
 

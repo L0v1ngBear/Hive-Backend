@@ -7,6 +7,9 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+/**
+ * SysUserRoleMapper 属于小程序后端系统模块，是数据访问类，负责与数据库交互。
+ */
 public interface SysUserRoleMapper extends BaseMapper<SysUserRole> {
 
     @InterceptorIgnore(tenantLine = "true")

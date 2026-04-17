@@ -22,7 +22,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-
+/**
+ * AuthService 属于小程序后端认证模块，实现核心业务编排与规则逻辑。
+ */
 @Service
 public class AuthService {
 

@@ -13,9 +13,13 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
 import java.util.List;
-
-@RestController
+/**
+ * AttendanceController 是小程序后端考勤入口控制类，负责接收请求并调用对应服务。
+ */
 @RequestMapping("/attendance")
+/**
+ * AttendanceController handles attendance requests for the mini-program backend and delegates to services.
+ */
 @Validated
 public class AttendanceController {
 

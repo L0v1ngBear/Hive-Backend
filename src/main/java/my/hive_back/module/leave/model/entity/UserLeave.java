@@ -6,8 +6,10 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-
-@TableName("user_leave")
+/**
+ * UserLeave 属于小程序后端请假模块，定义持久化实体结构，用于表字段映射。
+ */
+@TableName
 @Data
 public class UserLeave {
 

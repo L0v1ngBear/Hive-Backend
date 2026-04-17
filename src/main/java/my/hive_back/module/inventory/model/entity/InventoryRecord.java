@@ -7,9 +7,8 @@ import java.time.LocalDateTime;
 
 
 /**
- * 库存出入记录实体类
+ * InventoryRecord 属于小程序后端库存模块，定义持久化实体结构，用于表字段映射。
  */
-@TableName("inventory_record")
 @Data
 public class InventoryRecord {
 

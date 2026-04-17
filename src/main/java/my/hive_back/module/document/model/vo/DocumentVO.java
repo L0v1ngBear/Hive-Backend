@@ -3,7 +3,9 @@ package my.hive_back.module.document.model.vo;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-
+/**
+ * DocumentVO 属于小程序后端单据模块，定义出参结构。
+ */
 @Data
 public class DocumentVO {
     private Long id;

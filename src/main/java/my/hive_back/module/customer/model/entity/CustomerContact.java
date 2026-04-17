@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
-
-@TableName("customer_contact")
+/**
+ * CustomerContact 属于小程序后端客户模块，定义持久化实体结构，用于表字段映射。
+ */
+@TableName
 @Data
 public class CustomerContact {
 

@@ -22,9 +22,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 生产订单控制器
+ * ProductionOrderController 是小程序后端订单入口控制类，负责接收请求并调用对应服务。
  */
-@RestController
 @RequestMapping("/production")
 @Validated
 public class ProductionOrderController {

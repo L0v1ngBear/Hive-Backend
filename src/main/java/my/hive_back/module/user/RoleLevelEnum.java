@@ -1,7 +1,9 @@
 package my.hive_back.module.user;
 
 import lombok.Getter;
-
+/**
+ * RoleLevelEnum 属于小程序后端用户模块，属于该领域的细分实现。
+ */
 @Getter
 public enum RoleLevelEnum {
     NORMAL(0, "普通员工"),

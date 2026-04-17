@@ -49,7 +49,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-
+/**
+ * InventoryService 属于小程序后端库存模块，实现核心业务编排与规则逻辑。
+ */
 @Slf4j
 @Service
 public class InventoryService {

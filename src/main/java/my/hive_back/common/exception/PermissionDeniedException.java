@@ -1,7 +1,7 @@
 package my.hive_back.common.exception;
 
 /**
- * 自定义权限拒绝异常（替代 Spring Security 的 AccessDeniedException）
+ * PermissionDeniedException 属于小程序后端通用能力层，定义异常语义或异常处理行为。
  */
 public class PermissionDeniedException extends RuntimeException {
 

@@ -23,7 +23,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@RestController
+/**
+ * 审批中心控制器，负责处理请假和财务审批相关的接口请求。
+ */
 @RequestMapping("/approval")
 @Validated
 public class ApprovalController {

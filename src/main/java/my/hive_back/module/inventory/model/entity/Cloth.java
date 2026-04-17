@@ -9,8 +9,10 @@ import com.baomidou.mybatisplus.annotation.Version;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-
-@TableName("cloth")
+/**
+ * Cloth 属于小程序后端库存模块，定义持久化实体结构，用于表字段映射。
+ */
+@TableName
 @Data
 public class Cloth {
 

@@ -1,7 +1,9 @@
 package my.hive_back.module.leave;
 
 import lombok.Getter;
-
+/**
+ * LeaveStatusEnum 属于小程序后端请假模块，属于该领域的细分实现。
+ */
 @Getter
 public enum LeaveStatusEnum {
     PENDING(1, "待审批"),

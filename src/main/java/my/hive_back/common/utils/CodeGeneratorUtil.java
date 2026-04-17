@@ -8,7 +8,9 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.TimeUnit;
-
+/**
+ * CodeGeneratorUtil 属于小程序后端通用能力层，提供可复用的工具方法。
+ */
 @Component
 public class CodeGeneratorUtil {
 

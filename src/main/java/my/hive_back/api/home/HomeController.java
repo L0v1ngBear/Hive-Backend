@@ -7,8 +7,9 @@ import my.hive_back.module.home.service.HomeService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-@RestController
+/**
+ * HomeController handles home requests for the mini-program backend and delegates to services.
+ */
 @RequestMapping("/home")
 public class HomeController {
 

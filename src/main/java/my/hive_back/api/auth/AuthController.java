@@ -13,8 +13,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
+/**
+ * AuthController 是小程序后端认证入口控制类，负责接收请求并调用对应服务。
+ */
 @RestController
+/**
+ * AuthController handles authentication requests for the mini-program backend and delegates to services.
+ */
 @RequestMapping("/auth")
 @Validated
 public class AuthController {

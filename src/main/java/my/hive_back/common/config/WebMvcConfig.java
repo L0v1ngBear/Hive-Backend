@@ -6,7 +6,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-
+/**
+ * WebMvcConfig 属于小程序后端通用能力层，定义框架配置，用于组织基础设施行为。
+ */
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
 

@@ -6,9 +6,8 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 客户主表实体类
+ * Customer 属于小程序后端客户模块，定义持久化实体结构，用于表字段映射。
  */
-@TableName("customer")
 @Data
 public class Customer {
 

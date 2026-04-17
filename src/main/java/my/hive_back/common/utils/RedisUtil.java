@@ -9,7 +9,9 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-
+/**
+ * RedisUtil 属于小程序后端通用能力层，提供可复用的工具方法。
+ */
 @Slf4j
 @Component
 public class RedisUtil {

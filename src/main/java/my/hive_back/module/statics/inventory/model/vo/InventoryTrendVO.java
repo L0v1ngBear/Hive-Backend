@@ -3,7 +3,9 @@ package my.hive_back.module.statics.inventory.model.vo;
 import lombok.Data;
 
 import java.util.List;
-
+/**
+ * InventoryTrendVO 属于小程序后端统计模块，定义出参结构。
+ */
 @Data
 public class InventoryTrendVO {
 

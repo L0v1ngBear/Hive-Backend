@@ -24,7 +24,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
-
+/**
+ * HomeService 属于小程序后端首页模块，实现核心业务编排与规则逻辑。
+ */
 @Service
 public class HomeService {
 

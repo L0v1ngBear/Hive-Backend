@@ -2,7 +2,9 @@ package my.hive_back.common.exception;
 
 import lombok.Getter;
 import lombok.Setter;
-
+/**
+ * BusinessException 属于小程序后端通用能力层，定义异常语义或异常处理行为。
+ */
 @Getter
 @Setter
 public class BusinessException extends RuntimeException {

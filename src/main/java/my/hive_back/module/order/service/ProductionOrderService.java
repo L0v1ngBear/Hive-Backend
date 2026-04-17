@@ -25,7 +25,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-
+/**
+ * ProductionOrderService 属于小程序后端订单模块，实现核心业务编排与规则逻辑。
+ */
 @Service
 public class ProductionOrderService {
 

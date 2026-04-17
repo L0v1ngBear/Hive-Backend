@@ -19,7 +19,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
-
+/**
+ * LabelTemplateController 是小程序后端标签入口控制类，负责接收请求并调用对应服务。
+ */
 @RestController
 @RequestMapping("/label-template")
 @Validated

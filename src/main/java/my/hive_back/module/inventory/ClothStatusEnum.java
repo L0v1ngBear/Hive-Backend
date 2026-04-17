@@ -1,7 +1,9 @@
 package my.hive_back.module.inventory;
 
 import lombok.Getter;
-
+/**
+ * ClothStatusEnum 属于小程序后端库存模块，属于该领域的细分实现。
+ */
 @Getter
 public enum ClothStatusEnum {
     /**

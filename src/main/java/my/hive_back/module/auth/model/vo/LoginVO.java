@@ -1,7 +1,9 @@
 package my.hive_back.module.auth.model.vo;
 
 import lombok.Data;
-
+/**
+ * LoginVO 属于小程序后端认证模块，定义出参结构。
+ */
 @Data
 public class LoginVO {
 

@@ -6,9 +6,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * 考勤月度/日度统计实体类
+ * AttendanceStatics 属于小程序后端统计模块，属于模型定义，用于统一组织输入、实体与输出结构。
  */
-@TableName("attendance_statics")
 @Data
 public class AttendanceStatics {
 

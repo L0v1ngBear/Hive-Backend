@@ -5,7 +5,9 @@ import my.hive_back.module.customer.model.entity.CustomerContact;
 import my.hive_back.module.customer.model.entity.CustomerProject;
 
 import java.util.List;
-
+/**
+ * CustomerDetailVO 属于小程序后端客户模块，定义出参结构。
+ */
 @Data
 public class CustomerDetailVO {
     private Long id;

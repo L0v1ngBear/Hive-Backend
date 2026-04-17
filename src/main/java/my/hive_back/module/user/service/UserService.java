@@ -5,7 +5,9 @@ import jakarta.annotation.Resource;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
 import org.springframework.stereotype.Service;
-
+/**
+ * UserService 属于小程序后端用户模块，实现核心业务编排与规则逻辑。
+ */
 @Service
 public class UserService {
 

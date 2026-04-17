@@ -26,7 +26,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-
+/**
+ * InventoryController 是小程序后端库存入口控制类，负责接收请求并调用对应服务。
+ */
 @RestController
 @RequestMapping("/inventory")
 @Validated

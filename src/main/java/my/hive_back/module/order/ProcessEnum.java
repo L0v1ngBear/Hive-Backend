@@ -1,7 +1,9 @@
 package my.hive_back.module.order;
 
 import lombok.Getter;
-
+/**
+ * ProcessEnum 属于小程序后端订单模块，属于该领域的细分实现。
+ */
 @Getter
 public enum ProcessEnum {
     /**

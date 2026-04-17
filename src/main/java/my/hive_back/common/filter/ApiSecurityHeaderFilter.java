@@ -8,7 +8,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-
+/**
+ * ApiSecurityHeaderFilter 属于小程序后端通用能力层，属于通用基础设施层，用于沉淀跨模块复用能力。
+ */
 @Component
 public class ApiSecurityHeaderFilter extends OncePerRequestFilter {
 

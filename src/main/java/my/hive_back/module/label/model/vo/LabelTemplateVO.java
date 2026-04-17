@@ -4,7 +4,9 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 import java.util.List;
-
+/**
+ * LabelTemplateVO 属于小程序后端标签模块，定义出参结构。
+ */
 @Data
 public class LabelTemplateVO {
 

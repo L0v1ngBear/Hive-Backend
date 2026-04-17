@@ -17,7 +17,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-
+/**
+ * BarCodeUtil 属于小程序后端通用能力层，提供可复用的工具方法。
+ */
 @Component
 public class BarCodeUtil {
 

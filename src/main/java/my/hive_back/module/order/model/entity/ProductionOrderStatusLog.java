@@ -9,7 +9,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 生产订单状态变更日志实体类
+ * ProductionOrderStatusLog 属于小程序后端订单模块，定义持久化实体结构，用于表字段映射。
  */
 @Data
 @TableName("production_order_status_log")

@@ -23,7 +23,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-
+/**
+ * BadProductService 属于小程序后端坏品模块，实现核心业务编排与规则逻辑。
+ */
 @Service
 public class BadProductService {
 

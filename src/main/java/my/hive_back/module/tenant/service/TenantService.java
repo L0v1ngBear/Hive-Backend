@@ -9,7 +9,9 @@ import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.model.dto.TenantLocationAddRequest;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import org.springframework.stereotype.Service;
-
+/**
+ * TenantService 属于小程序后端租户模块，实现核心业务编排与规则逻辑。
+ */
 @Service
 public class TenantService {
 

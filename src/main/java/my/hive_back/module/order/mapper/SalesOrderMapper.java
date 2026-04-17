@@ -6,6 +6,9 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+/**
+ * SalesOrderMapper 属于小程序后端订单模块，是数据访问类，负责与数据库交互。
+ */
 public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
 
     @Update("UPDATE sales_order SET status = #{order.status} " +

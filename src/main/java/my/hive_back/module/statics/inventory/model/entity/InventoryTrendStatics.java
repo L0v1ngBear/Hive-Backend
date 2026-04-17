@@ -6,11 +6,8 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 库存统计实体类
- * 数据来源于每日统计
- * 对应数据库表：inventory_statics
+ * InventoryTrendStatics 属于小程序后端统计模块，定义持久化实体结构，用于表字段映射。
  */
-@TableName("inventory_statics")
 @Data
 public class InventoryTrendStatics {
     /**

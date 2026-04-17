@@ -19,7 +19,9 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-
+/**
+ * AttendanceService 属于小程序后端考勤模块，实现核心业务编排与规则逻辑。
+ */
 @Service
 public class AttendanceService {
 
