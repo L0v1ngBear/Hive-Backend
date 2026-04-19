@@ -2,8 +2,8 @@ package my.hive_back.api.badproduct;
 
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
-import my.hive_back.common.dto.PageResult;
-import my.hive_back.common.dto.Result;
+import my.hive.common.dto.PageResult;
+import my.hive.common.dto.Result;
 import my.hive_back.module.badproduct.model.dto.BadProductPageRequest;
 import my.hive_back.module.badproduct.model.dto.BadProductProcessRequest;
 import my.hive_back.module.badproduct.model.dto.BadProductSaveRequest;

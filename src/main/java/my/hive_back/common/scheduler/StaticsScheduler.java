@@ -3,7 +3,7 @@ package my.hive_back.common.scheduler;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import my.hive_back.common.context.TenantPermissionContext;
+import my.hive.common.context.TenantPermissionContext;
 import my.hive_back.common.utils.RedisUtil;
 import my.hive_back.module.attendance.PunchStatusEnum;
 import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
@@ -91,8 +91,6 @@ public class StaticsScheduler {
         }
 
         // 【关键】：开启忽略多租户插件，让接下来的所有查询在全表进行
-        TenantPermissionContext.setIgnoreTenant(true);
-
         try {
             LocalDate yesterday = LocalDate.now().minusDays(1);
             String dateStr = yesterday.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
@@ -139,7 +137,6 @@ public class StaticsScheduler {
 
         } finally {
             // 【关键】：任务执行完，务必清除标记，防止线程池复用污染其他业务
-            TenantPermissionContext.clearIgnore();
             releaseLock(ATTENDANCE_STAT_LOCK_KEY, attendanceLockValue);
         }
     }

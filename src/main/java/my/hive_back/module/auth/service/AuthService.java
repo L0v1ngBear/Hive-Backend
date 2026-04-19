@@ -2,11 +2,11 @@ package my.hive_back.module.auth.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
-import my.hive_back.common.context.TenantPermissionContext;
-import my.hive_back.common.exception.BusinessException;
-import my.hive_back.common.utils.EncryptUtil;
-import my.hive_back.common.utils.ResponseEncryptUtil;
-import my.hive_back.common.utils.TokenUtil;
+import my.hive.common.context.TenantPermissionContext;
+import my.hive.common.exception.BusinessException;
+import my.hive.common.utils.EncryptUtil;
+import my.hive.common.utils.ResponseEncryptUtil;
+import my.hive.common.utils.TokenUtil;
 import my.hive_back.module.auth.model.dto.LoginRequest;
 import my.hive_back.module.auth.model.vo.LoginVO;
 import my.hive_back.module.tenant.mapper.TenantMapper;

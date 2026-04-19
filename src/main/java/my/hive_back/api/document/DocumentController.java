@@ -1,8 +1,8 @@
 package my.hive_back.api.document;
 
 import jakarta.annotation.Resource;
-import my.hive_back.common.annotation.RequirePermission;
-import my.hive_back.common.dto.Result;
+import my.hive.common.annotation.RequirePermission;
+import my.hive.common.dto.Result;
 import my.hive_back.module.document.model.dto.DocumentAddRequest;
 import my.hive_back.module.document.model.entity.Document;
 import my.hive_back.module.document.model.vo.DocumentVO;

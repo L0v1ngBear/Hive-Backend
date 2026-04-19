@@ -1,7 +1,7 @@
 package my.hive_back.common.utils;
 
 import jakarta.annotation.Resource;
-import my.hive_back.common.context.TenantPermissionContext;
+import my.hive.common.context.TenantPermissionContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 

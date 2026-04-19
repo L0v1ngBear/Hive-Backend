@@ -2,10 +2,10 @@ package my.hive_back.module.attendance.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
-import my.hive_back.common.context.TenantPermissionContext;
-import my.hive_back.common.exception.BusinessException;
+import my.hive.common.context.TenantPermissionContext;
+import my.hive.common.exception.BusinessException;
 import my.hive_back.common.utils.RedisUtil;
-import my.hive_back.common.utils.TimeUtil;
+import my.hive.common.utils.TimeUtil;
 import my.hive_back.module.attendance.PunchStatusEnum;
 import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
 import my.hive_back.module.attendance.model.dto.AttendancePunchRequest;

@@ -2,8 +2,8 @@ package my.hive_back.module.finance.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
-import my.hive_back.common.context.TenantPermissionContext;
-import my.hive_back.common.exception.BusinessException;
+import my.hive.common.context.TenantPermissionContext;
+import my.hive.common.exception.BusinessException;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.module.finance.mapper.FinanceApprovalMapper;
 import my.hive_back.module.finance.model.dto.FinanceAuditRequest;

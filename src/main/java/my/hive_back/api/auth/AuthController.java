@@ -3,7 +3,7 @@ package my.hive_back.api.auth;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import my.hive_back.common.dto.Result;
+import my.hive.common.dto.Result;
 import my.hive_back.module.auth.model.dto.LoginRequest;
 import my.hive_back.module.auth.model.vo.LoginVO;
 import my.hive_back.module.auth.service.AuthService;

@@ -1,7 +1,7 @@
 package my.hive_back.api.home;
 
 import jakarta.annotation.Resource;
-import my.hive_back.common.dto.Result;
+import my.hive.common.dto.Result;
 import my.hive_back.module.home.model.vo.HomeSummaryVO;
 import my.hive_back.module.home.service.HomeService;
 import org.springframework.web.bind.annotation.GetMapping;

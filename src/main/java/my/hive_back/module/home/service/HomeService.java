@@ -2,7 +2,7 @@ package my.hive_back.module.home.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
-import my.hive_back.common.context.TenantPermissionContext;
+import my.hive.common.context.TenantPermissionContext;
 import my.hive_back.module.finance.mapper.FinanceApprovalMapper;
 import my.hive_back.module.finance.model.entity.FinanceApproval;
 import my.hive_back.module.home.model.vo.HomeSummaryVO;

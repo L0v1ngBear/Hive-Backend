@@ -120,6 +120,11 @@
     <!-- 实际引入依赖-->
     <dependencies>
         <dependency>
+            <groupId>my.hive</groupId>
+            <artifactId>hive-backend-common</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
         </dependency>

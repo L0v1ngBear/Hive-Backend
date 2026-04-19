@@ -2,8 +2,8 @@ package my.hive_back.api.label;
 
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
-import my.hive_back.common.annotation.RequirePermission;
-import my.hive_back.common.dto.Result;
+import my.hive.common.annotation.RequirePermission;
+import my.hive.common.dto.Result;
 import my.hive_back.module.label.model.dto.LabelTemplateSaveRequest;
 import my.hive_back.module.label.model.vo.LabelTemplateVO;
 import my.hive_back.module.label.service.LabelTemplateService;

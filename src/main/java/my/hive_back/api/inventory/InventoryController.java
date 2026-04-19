@@ -2,9 +2,9 @@ package my.hive_back.api.inventory;
 
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
-import my.hive_back.common.annotation.RequirePermission;
-import my.hive_back.common.dto.Result;
-import my.hive_back.common.exception.BusinessException;
+import my.hive.common.annotation.RequirePermission;
+import my.hive.common.dto.Result;
+import my.hive.common.exception.BusinessException;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
 import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;

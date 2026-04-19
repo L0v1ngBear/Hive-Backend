@@ -1,8 +1,8 @@
 package my.hive_back.api.attendance;
 
 import jakarta.annotation.Resource;
-import my.hive_back.common.annotation.RequirePermission;
-import my.hive_back.common.dto.Result;
+import my.hive.common.annotation.RequirePermission;
+import my.hive.common.dto.Result;
 import my.hive_back.module.attendance.model.dto.AttendancePunchRequest;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
 import my.hive_back.module.attendance.model.vo.AttendanceRecordVO;

@@ -1,6 +1,6 @@
 //package my.hive_back.api.statics;
 //
-//import my.hive_back.common.dto.ResultDTO;
+//import my.hive.common.dto.ResultDTO;
 //import my.hive_back.module.attendance.model.vo.AttendanceRecordVO;
 //import org.springframework.web.bind.annotation.RequestMapping;
 //import org.springframework.web.bind.annotation.RestController;

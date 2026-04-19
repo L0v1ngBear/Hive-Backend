@@ -2,7 +2,7 @@ package my.hive_back.module.inventory;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
-import my.hive_back.common.exception.BusinessException;
+import my.hive.common.exception.BusinessException;
 /**
  * InventoryInTypeEnum 属于小程序后端库存模块，属于该领域的细分实现。
  */

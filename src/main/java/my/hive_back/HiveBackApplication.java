@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"my.hive.common", "my.hive_back"})
 @MapperScan("my.hive_back.module.**.mapper")
 @EnableAsync
 @EnableScheduling
