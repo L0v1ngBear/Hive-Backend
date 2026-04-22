@@ -1,6 +1,7 @@
 package my.hive_back.module.home.model.vo;
 
 import lombok.Data;
+import my.hive_back.module.todo.model.vo.TodoItemVO;
 
 import java.util.List;
 /**
@@ -17,7 +18,7 @@ public class HomeSummaryVO {
 
     private Integer todoCount;
 
-    private List<TodoItem> todoList;
+    private List<TodoItemVO> todoList;
 
     @Data
     public static class TenantInfo {
@@ -44,13 +45,5 @@ public class HomeSummaryVO {
         private Boolean badProduct;
         private Boolean knowledge;
         private Boolean customer;
-    }
-
-    @Data
-    public static class TodoItem {
-        private String id;
-        private String tag;
-        private String content;
-        private String time;
     }
 }

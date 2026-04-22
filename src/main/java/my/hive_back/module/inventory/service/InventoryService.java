@@ -29,10 +29,13 @@ import my.hive_back.module.inventory.model.entity.OutboundItem;
 import my.hive_back.module.inventory.model.entity.OutboundOrder;
 import my.hive_back.module.inventory.model.vo.ClothInfoVO;
 import my.hive_back.module.inventory.model.vo.InventoryRecordVO;
+import my.hive_back.module.inventory.model.vo.OutboundOrderOptionVO;
 import my.hive_back.module.price.mapper.PriceSkuMapper;
 import my.hive_back.module.statics.inventory.mapper.InventoryTrendStaticsMapper;
 import my.hive_back.module.statics.inventory.model.entity.InventoryTrendStatics;
 import my.hive_back.module.statics.inventory.model.vo.InventoryTrendVO;
+import my.hive_back.module.order.mapper.SalesOrderMapper;
+import my.hive_back.module.order.model.entity.SalesOrder;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
@@ -83,6 +86,8 @@ public class InventoryService {
     private OutboundItemMapper outboundItemMapper;
     @Resource
     private PriceSkuMapper priceSkuMapper;
+    @Resource
+    private SalesOrderMapper salesOrderMapper;
 
     @Value("${redis.key-prefix.trend.today_in}")
     private String REDIS_TODAY_IN;
@@ -367,10 +372,33 @@ public class InventoryService {
 
     public List<ClothModelSpec> searchModelSpec(String keyword) {
         LambdaQueryWrapper<ClothModelSpec> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(ClothModelSpec::getTenantCode, TenantPermissionContext.getTenantCode());
         if (!StringUtils.isBlank(keyword)) {
             queryWrapper.like(ClothModelSpec::getModelCode, keyword);
         }
         return clothModelSpecMapper.selectList(queryWrapper);
+    }
+
+    public List<OutboundOrderOptionVO> searchOutboundBizOrders(String keyword) {
+        String safeKeyword = keyword == null ? "" : keyword.trim();
+        LambdaQueryWrapper<SalesOrder> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
+                .in(SalesOrder::getStatus, List.of("pending_ship", "shipped"))
+                .and(StringUtils.isNotBlank(safeKeyword), wrapper -> wrapper
+                        .like(SalesOrder::getOrderId, safeKeyword)
+                        .or()
+                        .like(SalesOrder::getCustomerName, safeKeyword)
+                        .or()
+                        .like(SalesOrder::getProjectName, safeKeyword))
+                .orderByDesc(SalesOrder::getUpdateTime)
+                .last("limit 10");
+        return salesOrderMapper.selectList(queryWrapper).stream().map(order -> {
+            OutboundOrderOptionVO vo = new OutboundOrderOptionVO();
+            vo.setOrderNo(order.getOrderId());
+            vo.setCustomerName(order.getCustomerName());
+            vo.setProjectName(order.getProjectName());
+            return vo;
+        }).toList();
     }
 
     public List<InventoryRecord> getUserRecentRecord() {

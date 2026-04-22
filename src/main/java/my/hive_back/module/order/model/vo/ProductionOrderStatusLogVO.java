@@ -25,5 +25,7 @@ public class ProductionOrderStatusLogVO {
 
     private String operator;
 
+    private String operatorName;
+
     private LocalDateTime createTime;
 }

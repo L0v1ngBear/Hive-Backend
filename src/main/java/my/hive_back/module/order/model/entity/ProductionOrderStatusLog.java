@@ -60,6 +60,9 @@ public class ProductionOrderStatusLog {
     @TableField("operator")
     private String operator;
 
+    @TableField("operator_name")
+    private String operatorName;
+
     /**
      * 操作时间
      */

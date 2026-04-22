@@ -16,19 +16,27 @@ import my.hive_back.module.order.IsInvoiceEnum;
 import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.mapper.SalesOrderDetailMapper;
 import my.hive_back.module.order.mapper.SalesOrderMapper;
+import my.hive_back.module.order.mapper.SalesOrderStatusLogMapper;
 import my.hive_back.module.order.model.dto.*;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.order.model.entity.SalesOrderDetail;
+import my.hive_back.module.order.model.entity.SalesOrderStatusLog;
+import my.hive_back.module.order.model.vo.SalesOrderStatusLogVO;
 import my.hive_back.module.order.model.vo.SalesOrderVO;
+import my.hive_back.module.user.mapper.UserMapper;
+import my.hive_back.module.user.model.entity.User;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import java.util.ArrayList;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 /**
  * SalesOrderService 属于小程序后端订单模块，实现核心业务编排与规则逻辑。
@@ -45,6 +53,12 @@ public class SalesOrderService {
 
     @Resource
     private SalesOrderDetailMapper salesOrderDetailMapper;
+
+    @Resource
+    private SalesOrderStatusLogMapper salesOrderStatusLogMapper;
+
+    @Resource
+    private UserMapper userMapper;
 
     @Resource
     private CodeGeneratorUtil codeGeneratorUtil;
@@ -155,7 +169,17 @@ public class SalesOrderService {
             orderVO.setItems(new ArrayList<>());
         }
 
+        orderVO.setLogs(selectSalesOrderStatusLog(orderId).stream()
+                .map(this::toSalesLogVO)
+                .collect(Collectors.toList()));
         return orderVO;
+    }
+
+    public List<SalesOrderStatusLog> selectSalesOrderStatusLog(@NotBlank String orderId) {
+        return salesOrderStatusLogMapper.selectList(new LambdaQueryWrapper<SalesOrderStatusLog>()
+                .eq(SalesOrderStatusLog::getTenantCode, TenantPermissionContext.getTenantCode())
+                .eq(SalesOrderStatusLog::getOrderId, orderId)
+                .orderByAsc(SalesOrderStatusLog::getCreateTime));
     }
 
 
@@ -172,7 +196,11 @@ public class SalesOrderService {
         order.setIsInvoice(IsInvoiceEnum.NO.getCode());
         order.setTenantCode(TenantPermissionContext.getTenantCode());
         order.setStatus(OrderStatusEnum.PENDING_CONFIRM.getCode());
+        order.setGoodsDesc(buildGoodsDesc(request.getItems()));
+        order.setTotalAmount(BigDecimal.ZERO);
+        order.setTotalQuantity(sumSalesQuantity(request.getItems()));
         salesOrderMapper.insert(order);
+        insertSalesStatusLog(order, null, order.getStatus(), "create", "创建销售订单");
 
 
         request.getItems().forEach(item -> {
@@ -194,6 +222,27 @@ public class SalesOrderService {
         }
 
 
+    }
+
+    private String buildGoodsDesc(List<SalesOrderAddRequest.OrderItemDTO> items) {
+        return items.stream()
+                .map(item -> item.getModelCode().trim() + " / " + numberText(item.getWeight()) + "克 / " + numberText(item.getSpec()) + "规格 × " + item.getQuantity().stripTrailingZeros().toPlainString())
+                .collect(Collectors.joining("；"));
+    }
+
+    private Integer sumSalesQuantity(List<SalesOrderAddRequest.OrderItemDTO> items) {
+        BigDecimal total = items.stream()
+                .map(SalesOrderAddRequest.OrderItemDTO::getQuantity)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return total.intValue();
+    }
+
+    private String numberText(Number value) {
+        if (value == null) {
+            return "";
+        }
+        return BigDecimal.valueOf(value.doubleValue()).stripTrailingZeros().toPlainString();
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -259,6 +308,45 @@ public class SalesOrderService {
             throw new BusinessException(409, "订单状态已被其他人修改，操作失败，请刷新后重试");
         }
 
+        if (!Objects.equals(oldStatus, order.getStatus())) {
+            insertSalesStatusLog(order, oldStatus, order.getStatus(), "status_change", "小程序更新销售订单状态");
+        }
+
         return order;
+    }
+
+    private void insertSalesStatusLog(SalesOrder order, String oldStatus, String newStatus, String operateType, String remark) {
+        SalesOrderStatusLog log = new SalesOrderStatusLog();
+        log.setTenantCode(order.getTenantCode());
+        log.setOrderId(order.getOrderId());
+        log.setOldStatus(oldStatus);
+        log.setNewStatus(newStatus);
+        log.setOperateType(operateType);
+        log.setRemark(remark);
+        log.setOperator(String.valueOf(TenantPermissionContext.getUserId()));
+        log.setOperatorName(resolveCurrentUserName());
+        log.setCreateTime(LocalDateTime.now());
+        salesOrderStatusLogMapper.insert(log);
+    }
+
+    private SalesOrderStatusLogVO toSalesLogVO(SalesOrderStatusLog log) {
+        SalesOrderStatusLogVO vo = new SalesOrderStatusLogVO();
+        BeanUtils.copyProperties(log, vo);
+        return vo;
+    }
+
+    private String resolveCurrentUserName() {
+        Long userId = TenantPermissionContext.getUserId();
+        if (userId == null) {
+            return "系统";
+        }
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getTenantCode, TenantPermissionContext.getTenantCode())
+                .eq(User::getId, userId)
+                .last("LIMIT 1"));
+        if (user != null && StringUtils.isNotBlank(user.getName())) {
+            return user.getName();
+        }
+        return String.valueOf(userId);
     }
 }

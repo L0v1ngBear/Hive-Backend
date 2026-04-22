@@ -17,6 +17,8 @@ import my.hive_back.module.order.model.entity.ProductionOrder;
 import my.hive_back.module.order.model.entity.ProductionOrderStatusLog;
 import my.hive_back.module.order.mapper.ProductionOrderMapper;
 import my.hive_back.module.order.mapper.ProductionOrderStatusLogMapper;
+import my.hive_back.module.user.mapper.UserMapper;
+import my.hive_back.module.user.model.entity.User;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +46,9 @@ public class ProductionOrderService {
 
     @Resource
     private CodeGeneratorUtil codeGeneratorUtil;
+
+    @Resource
+    private UserMapper userMapper;
 
     @RequirePermission(value = "order:production:list", message = "您没有权限查询生产订单列表")
     public Page<ProductionOrder> selectProductionOrder(ProductionOrderListRequest request) {
@@ -200,6 +205,7 @@ public class ProductionOrderService {
         statusLog.setOperateType(resolveOperateType(oldStatus, newStatus, oldProcess, newProcess, request));
         statusLog.setRemark(StringUtils.isNotBlank(request.getRemark()) ? request.getRemark() : buildDefaultRemark(oldStatus, oldProcess, newStatus, newProcess));
         statusLog.setOperator(String.valueOf(TenantPermissionContext.getUserId()));
+        statusLog.setOperatorName(resolveCurrentUserName());
         statusLog.setCreateTime(LocalDateTime.now());
         statusLogMapper.insert(statusLog);
     }
@@ -223,6 +229,21 @@ public class ProductionOrderService {
 
     private String buildDefaultRemark(String oldStatus, Integer oldProcess, String newStatus, Integer newProcess) {
         return "由「" + buildStatusText(oldStatus, oldProcess) + "」更新为「" + buildStatusText(newStatus, newProcess) + "」";
+    }
+
+    private String resolveCurrentUserName() {
+        Long userId = TenantPermissionContext.getUserId();
+        if (userId == null) {
+            return "系统";
+        }
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getTenantCode, TenantPermissionContext.getTenantCode())
+                .eq(User::getId, userId)
+                .last("LIMIT 1"));
+        if (user != null && StringUtils.isNotBlank(user.getName())) {
+            return user.getName();
+        }
+        return String.valueOf(userId);
     }
 
     private String buildStatusText(String status, Integer process) {

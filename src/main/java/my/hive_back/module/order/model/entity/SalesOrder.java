@@ -9,7 +9,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-@TableName
+@TableName("sales_order")
 @Data
 public class SalesOrder {
 
@@ -40,8 +40,26 @@ public class SalesOrder {
     /**
      * 项目名称
      */
+    @TableField("project_name")
     private String projectName;
 
+    /**
+     * 聚合后的商品说明，方便管理端列表快速展示订单内容。
+     */
+    @TableField("goods_desc")
+    private String goodsDesc;
+
+    /**
+     * 聚合后的订单总金额。
+     */
+    @TableField("total_amount")
+    private BigDecimal totalAmount;
+
+    /**
+     * 聚合后的订单总数量。
+     */
+    @TableField("total_quantity")
+    private Integer totalQuantity;
 
     /**
      * 预计发货日期

@@ -9,14 +9,17 @@ import my.hive_back.module.badproduct.model.dto.BadProductProcessRequest;
 import my.hive_back.module.badproduct.model.dto.BadProductSaveRequest;
 import my.hive_back.module.badproduct.model.vo.BadProductVO;
 import my.hive_back.module.badproduct.service.BadProductService;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 /**
- * BadProductController 是小程序后端坏品入口控制类，负责接收请求并调用对应服务。
+ * 小程序次品管理控制器，负责列表查询、登记和处理。
  */
+@RestController
 @RequestMapping("/bad-product")
-/**
- * BadProductController handles bad product requests for the mini-program backend and delegates to services.
- */
 public class BadProductController {
 
     @Resource

@@ -41,6 +41,11 @@ public class SalesOrderDetail {
     private String modelCode;
 
     /**
+     * 销售明细克重字段，对齐小程序新建销售单页面的录入结构。
+     */
+    private Float weight;
+
+    /**
      * 规格描述。
      */
     private String spec;

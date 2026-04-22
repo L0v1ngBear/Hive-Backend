@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * HomeController handles home requests for the mini-program backend and delegates to services.
  */
+@RestController
 @RequestMapping("/home")
 public class HomeController {
 

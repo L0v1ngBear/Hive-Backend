@@ -51,6 +51,11 @@ public class SalesOrderVO {
     private List<OrderItemVO> items;
 
     /**
+     * 销售订单状态流转记录，详情页用于展示时间轴。
+     */
+    private List<SalesOrderStatusLogVO> logs;
+
+    /**
      * 商品明细内部类
      */
     @Data

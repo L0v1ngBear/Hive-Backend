@@ -14,6 +14,7 @@ import my.hive_back.module.inventory.model.vo.BarCodeSearchVO;
 import my.hive_back.module.inventory.model.vo.ClothInfoVO;
 import my.hive_back.module.inventory.model.vo.InventoryRecordVO;
 import my.hive_back.module.inventory.model.vo.ModelCodeVO;
+import my.hive_back.module.inventory.model.vo.OutboundOrderOptionVO;
 import my.hive_back.module.inventory.service.InventoryService;
 import my.hive_back.module.statics.inventory.model.vo.InventoryTrendVO;
 import org.springframework.beans.BeanUtils;
@@ -71,6 +72,12 @@ public class InventoryController {
             return vo;
         }).toList();
         return Result.success(voList);
+    }
+
+    @GetMapping("/order/search")
+    @RequirePermission(value = "inventory:cloth:out", message = "您没有权限查询出库业务单")
+    public Result<List<OutboundOrderOptionVO>> searchOutboundOrder(@RequestParam String keyword) {
+        return Result.success(inventoryService.searchOutboundBizOrders(keyword));
     }
 
     @GetMapping("/trend")

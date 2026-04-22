@@ -42,9 +42,10 @@ springdoc:
     enabled: true
 
 auth:
-  allow-legacy-header: false
   token:
+    secret: hive-manager-2026-token-secret
     expire-hours: 24
+  allow-legacy-header: false
   login:
     max-fail-count: 5
     max-ip-fail-count: 20
@@ -62,3 +63,12 @@ redis:
     trend:
       today_in: inventory:today:in
       today_out: inventory:today:out
+
+wechat:
+  mini-program:
+    # 测试阶段默认关闭；上线前填入真实 app-id/app-secret/template-id 后改为 true。
+    enabled: false
+    app-id: ${WECHAT_MINI_APP_ID:}
+    app-secret: ${WECHAT_MINI_APP_SECRET:}
+    subscribe:
+      todo-template-id: ${WECHAT_TODO_TEMPLATE_ID:}

@@ -10,6 +10,7 @@ import my.hive_back.module.attendance.service.AttendanceService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
 import java.util.List;
@@ -20,6 +21,7 @@ import java.util.List;
 /**
  * AttendanceController handles attendance requests for the mini-program backend and delegates to services.
  */
+@RestController
 @Validated
 public class AttendanceController {
 

@@ -10,14 +10,19 @@ import my.hive_back.module.order.model.dto.SalesOrderAddRequest;
 import my.hive_back.module.order.model.dto.SalesOrderUpdateRequest;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.order.model.dto.SalesOrderListRequest;
+import my.hive_back.module.order.model.vo.SalesOrderStatusLogVO;
 import my.hive_back.module.order.model.vo.SalesOrderVO;
 import my.hive_back.module.order.service.SalesOrderService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.stream.Collectors;
 /**
  * SalesOrderController 是小程序后端订单入口控制类，负责接收请求并调用对应服务。
  */
+@RestController
 @RequestMapping("/sales")
 @Validated
 public class SalesOrderController {
@@ -72,6 +77,16 @@ public class SalesOrderController {
         SalesOrderVO vo = new SalesOrderVO();
         BeanUtils.copyProperties(order, vo);
         return Result.success(vo);
+    }
+
+    @GetMapping("/orders/status-log/{orderId}")
+    public Result<List<SalesOrderStatusLogVO>> getSalesOrderStatusLog(@NotBlank @PathVariable String orderId) {
+        List<SalesOrderStatusLogVO> logs = salesOrderService.selectSalesOrderStatusLog(orderId).stream().map(log -> {
+            SalesOrderStatusLogVO vo = new SalesOrderStatusLogVO();
+            BeanUtils.copyProperties(log, vo);
+            return vo;
+        }).collect(Collectors.toList());
+        return Result.success(logs);
     }
 
     /**
