@@ -40,7 +40,6 @@ public class BadProductService {
 
     public PageResult<BadProductVO> page(BadProductPageRequest request) {
         LambdaQueryWrapper<BadProductRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(BadProductRecord::getTenantCode, TenantPermissionContext.getTenantCode());
 
         if (request.getStatus() != null && !request.getStatus().isBlank() && !"all".equals(request.getStatus())) {
             wrapper.eq(BadProductRecord::getStatus, request.getStatus());
@@ -76,7 +75,6 @@ public class BadProductService {
         BadProductRecord entity;
         if (request.getDefectiveId() != null && !request.getDefectiveId().isBlank()) {
             entity = badProductMapper.selectOne(new LambdaQueryWrapper<BadProductRecord>()
-                    .eq(BadProductRecord::getTenantCode, tenantCode)
                     .eq(BadProductRecord::getDefectiveId, request.getDefectiveId()));
             if (entity == null) {
                 throw new BusinessException("次品记录不存在");
@@ -107,7 +105,6 @@ public class BadProductService {
     @Transactional(rollbackFor = Exception.class)
     public void process(BadProductProcessRequest request) {
         BadProductRecord entity = badProductMapper.selectOne(new LambdaQueryWrapper<BadProductRecord>()
-                .eq(BadProductRecord::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(BadProductRecord::getDefectiveId, request.getDefectiveId()));
         if (entity == null) {
             throw new BusinessException("次品记录不存在");

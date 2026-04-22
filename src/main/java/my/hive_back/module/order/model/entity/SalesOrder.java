@@ -84,9 +84,9 @@ public class SalesOrder {
     /**
      * 订单创建人
      */
-    private Long creator;
+    private String creator;
 
-    private Long updater;
+    private String updater;
 
     private LocalDateTime createTime;
 

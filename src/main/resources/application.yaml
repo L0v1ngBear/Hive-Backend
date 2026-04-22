@@ -23,7 +23,6 @@ tenant:
 mybatis-plus:
   type-aliases-package: my.hive_back.module.*.model.entity
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
     map-underscore-to-camel-case: true
   global-config:
     db-config:

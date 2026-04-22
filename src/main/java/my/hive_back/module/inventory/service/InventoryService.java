@@ -189,7 +189,6 @@ public class InventoryService {
             return null;
         }
         OutboundItem item = outboundItemMapper.selectOne(new LambdaQueryWrapper<OutboundItem>()
-                .eq(OutboundItem::getTenantCode, tenantCode)
                 .eq(OutboundItem::getRequestId, requestId)
                 .last("limit 1"));
         if (item == null) {
@@ -254,7 +253,6 @@ public class InventoryService {
         }
         try {
             OutboundOrder order = outboundOrderMapper.selectOne(new LambdaQueryWrapper<OutboundOrder>()
-                    .eq(OutboundOrder::getTenantCode, tenantCode)
                     .eq(OutboundOrder::getBizOrderNo, businessOrderNo)
                     .eq(OutboundOrder::getPrintStatus, 0)
                     .last("limit 1"));
@@ -366,13 +364,11 @@ public class InventoryService {
 
     public Cloth selectClothByBarCode(String barCode) {
         return clothMapper.selectOne(new LambdaQueryWrapper<Cloth>()
-                .eq(Cloth::getBarcode, barCode)
-                .eq(Cloth::getTenantCode, TenantPermissionContext.getTenantCode()));
+                .eq(Cloth::getBarcode, barCode));
     }
 
     public List<ClothModelSpec> searchModelSpec(String keyword) {
         LambdaQueryWrapper<ClothModelSpec> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(ClothModelSpec::getTenantCode, TenantPermissionContext.getTenantCode());
         if (!StringUtils.isBlank(keyword)) {
             queryWrapper.like(ClothModelSpec::getModelCode, keyword);
         }
@@ -382,8 +378,7 @@ public class InventoryService {
     public List<OutboundOrderOptionVO> searchOutboundBizOrders(String keyword) {
         String safeKeyword = keyword == null ? "" : keyword.trim();
         LambdaQueryWrapper<SalesOrder> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
-                .in(SalesOrder::getStatus, List.of("pending_ship", "shipped"))
+        queryWrapper.in(SalesOrder::getStatus, List.of("pending_ship", "shipped"))
                 .and(StringUtils.isNotBlank(safeKeyword), wrapper -> wrapper
                         .like(SalesOrder::getOrderId, safeKeyword)
                         .or()
@@ -413,7 +408,6 @@ public class InventoryService {
 
     public List<InventoryRecordVO> warningList() {
         List<Cloth> list = clothMapper.selectList(new LambdaQueryWrapper<Cloth>()
-                .eq(Cloth::getTenantCode, TenantPermissionContext.getTenantCode())
                 .ne(Cloth::getStatus, InventoryOperateTypeEnum.OUT.getCode())
                 .le(Cloth::getRemainingMeters, WARNING_METERS_THRESHOLD)
                 .orderByAsc(Cloth::getRemainingMeters)
@@ -486,9 +480,7 @@ public class InventoryService {
     }
 
     public void submitOutboundToPrint(String orderNo) {
-        String tenantCode = TenantPermissionContext.getTenantCode();
         OutboundOrder order = outboundOrderMapper.selectOne(new LambdaQueryWrapper<OutboundOrder>()
-                .eq(OutboundOrder::getTenantCode, tenantCode)
                 .and(wrapper -> wrapper.eq(OutboundOrder::getOrderNo, orderNo).or().eq(OutboundOrder::getBizOrderNo, orderNo))
                 .eq(OutboundOrder::getPrintStatus, 0)
                 .in(OutboundOrder::getOrderStatus, List.of(0, 1))

@@ -114,14 +114,15 @@ public class SalesOrderService {
             SalesOrderVO vo = new SalesOrderVO();
             BeanUtils.copyProperties(order, vo);
 
-            // 塞入明细
-            SalesOrderVO.OrderItemVO orderItemVO = new SalesOrderVO.OrderItemVO();
-
             // 对应订单id的商品明细列表
             List<SalesOrderDetail> itemList = detailMap.getOrDefault(order.getOrderId(), Collections.emptyList());
-            BeanUtils.copyProperties(itemList, orderItemVO);
+            List<SalesOrderVO.OrderItemVO> itemVOList = itemList.stream().map(detail -> {
+                SalesOrderVO.OrderItemVO itemVO = new SalesOrderVO.OrderItemVO();
+                BeanUtils.copyProperties(detail, itemVO);
+                return itemVO;
+            }).collect(Collectors.toList());
 
-            vo.setItems(Collections.singletonList(orderItemVO));
+            vo.setItems(itemVOList);
             return vo;
         }).collect(Collectors.toList());
 
@@ -177,7 +178,6 @@ public class SalesOrderService {
 
     public List<SalesOrderStatusLog> selectSalesOrderStatusLog(@NotBlank String orderId) {
         return salesOrderStatusLogMapper.selectList(new LambdaQueryWrapper<SalesOrderStatusLog>()
-                .eq(SalesOrderStatusLog::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrderStatusLog::getOrderId, orderId)
                 .orderByAsc(SalesOrderStatusLog::getCreateTime));
     }
@@ -196,6 +196,8 @@ public class SalesOrderService {
         order.setIsInvoice(IsInvoiceEnum.NO.getCode());
         order.setTenantCode(TenantPermissionContext.getTenantCode());
         order.setStatus(OrderStatusEnum.PENDING_CONFIRM.getCode());
+        order.setCreator(resolveCurrentUserIdText());
+        order.setUpdater(resolveCurrentUserIdText());
         order.setGoodsDesc(buildGoodsDesc(request.getItems()));
         order.setTotalAmount(BigDecimal.ZERO);
         order.setTotalQuantity(sumSalesQuantity(request.getItems()));
@@ -262,7 +264,7 @@ public class SalesOrderService {
 
         // 2. 核心业务逻辑：状态与物流信息校验
         // 如果目标状态是“已发货 (shipped)”，强制要求填写完整的物流信息
-        if (OrderStatusEnum.SHIPPED.getName().equals(targetStatus)) {
+        if (OrderStatusEnum.SHIPPED.getCode().equals(targetStatus)) {
             SalesOrderUpdateRequest.ExpressInfo expressInfo = request.getExpressInfo();
             if (expressInfo == null
                     || StringUtils.isBlank(expressInfo.getExpressCompany())
@@ -287,7 +289,7 @@ public class SalesOrderService {
         }
 
         // 记录更新人
-        order.setUpdater(TenantPermissionContext.getUserId());
+        order.setUpdater(resolveCurrentUserIdText());
 
         // 3. 并发安全更新（CAS核心改造点）
         LambdaUpdateWrapper<SalesOrder> updateWrapper = new LambdaUpdateWrapper<SalesOrder>()
@@ -348,5 +350,10 @@ public class SalesOrderService {
             return user.getName();
         }
         return String.valueOf(userId);
+    }
+
+    private String resolveCurrentUserIdText() {
+        Long userId = TenantPermissionContext.getUserId();
+        return userId == null ? "system" : String.valueOf(userId);
     }
 }

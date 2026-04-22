@@ -26,6 +26,7 @@ import java.util.List;
 /**
  * 审批中心控制器，负责处理请假和财务审批相关的接口请求。
  */
+@RestController
 @RequestMapping("/approval")
 @Validated
 public class ApprovalController {

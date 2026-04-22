@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
  * InventoryTrendStatics 属于小程序后端统计模块，定义持久化实体结构，用于表字段映射。
  */
 @Data
+@TableName("inventory_statics")
 public class InventoryTrendStatics {
     /**
      * 主键ID（自增）

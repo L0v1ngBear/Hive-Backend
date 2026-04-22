@@ -53,7 +53,6 @@ public class ProductionOrderService {
     @RequirePermission(value = "order:production:list", message = "您没有权限查询生产订单列表")
     public Page<ProductionOrder> selectProductionOrder(ProductionOrderListRequest request) {
         LambdaQueryWrapper<ProductionOrder> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode());
 
         if (StringUtils.isNotBlank(request.getStatus())) {
             queryWrapper.eq(ProductionOrder::getStatus, request.getStatus());
@@ -78,7 +77,6 @@ public class ProductionOrderService {
     @RequirePermission(value = "order:production:detail", message = "您没有权限查询生产订单详情")
     public ProductionOrder selectProductionOrderDetail(String orderId) {
         ProductionOrder productionOrder = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId));
 
         if (productionOrder == null) {
@@ -91,7 +89,6 @@ public class ProductionOrderService {
     @RequirePermission(value = "order:production:log", message = "您没有权限查询生产订单状态变更日志")
     public List<ProductionOrderStatusLog> selectOrderStausLog(@NotBlank String orderId) {
         LambdaQueryWrapper<ProductionOrderStatusLog> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(ProductionOrderStatusLog::getTenantCode, TenantPermissionContext.getTenantCode());
         queryWrapper.eq(ProductionOrderStatusLog::getOrderId, orderId);
         queryWrapper.orderByAsc(ProductionOrderStatusLog::getCreateTime);
         return statusLogMapper.selectList(queryWrapper);
@@ -110,7 +107,6 @@ public class ProductionOrderService {
     @Transactional(rollbackFor = Exception.class)
     public ProductionOrder updateStatusAndProcess(String orderId, ProductionOrderUpdateRequest request) {
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId));
 
         if (order == null) {
@@ -138,10 +134,9 @@ public class ProductionOrderService {
             order.setProcess(request.getProcess());
         }
 
-        order.setUpdater(TenantPermissionContext.getUserId());
+        order.setUpdater(resolveCurrentUserIdText());
 
         LambdaUpdateWrapper<ProductionOrder> updateWrapper = new LambdaUpdateWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId);
 
         if (oldStatus == null) {
@@ -183,6 +178,9 @@ public class ProductionOrderService {
         ProductionOrder productionOrder = new ProductionOrder();
         BeanUtils.copyProperties(request, productionOrder);
         productionOrder.setOrderId(codeGeneratorUtil.generateProductionOrderCode());
+        productionOrder.setTenantCode(TenantPermissionContext.getTenantCode());
+        productionOrder.setCreator(resolveCurrentUserIdText());
+        productionOrder.setUpdater(resolveCurrentUserIdText());
 
         if (StringUtils.isNotBlank(salesOrderId)) {
             productionOrder.setSalesOrderId(salesOrderId);
@@ -244,6 +242,11 @@ public class ProductionOrderService {
             return user.getName();
         }
         return String.valueOf(userId);
+    }
+
+    private String resolveCurrentUserIdText() {
+        Long userId = TenantPermissionContext.getUserId();
+        return userId == null ? "system" : String.valueOf(userId);
     }
 
     private String buildStatusText(String status, Integer process) {

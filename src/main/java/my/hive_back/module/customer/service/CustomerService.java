@@ -45,8 +45,7 @@ public class CustomerService {
 
         // 2. 防重校验：同一租户下，客户公司名称不能重复
         Long count = customerMapper.selectCount(new LambdaQueryWrapper<Customer>()
-                .eq(Customer::getCustomerName, request.getCustomerName())
-                .eq(Customer::getTenantCode, tenantCode));
+                .eq(Customer::getCustomerName, request.getCustomerName()));
         if (count > 0) {
             throw new BusinessException("该客户已存在，请勿重复添加");
         }
@@ -95,7 +94,6 @@ public class CustomerService {
 
         // 1. 构建主表查询条件
         LambdaQueryWrapper<Customer> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Customer::getTenantCode, TenantPermissionContext.getTenantCode());
 
         // 2. 核心：组装复合搜索条件
         if (StringUtils.isNotBlank(keyword)) {

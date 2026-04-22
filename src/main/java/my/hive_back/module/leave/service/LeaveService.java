@@ -51,7 +51,6 @@ public class LeaveService {
 
         QueryWrapper<UserLeave> queryWrapper = new QueryWrapper<UserLeave>()
                 .eq("user_id", userId)
-                .eq("tenant_code", tenantCode)
                 .eq("leave_status", 0)
                 .le("start_time", punchStartTime)
                 .ge("end_time", punchEndTime);
@@ -76,7 +75,6 @@ public class LeaveService {
         boolean hasOverlap = leaveMapper.exists(
                 new LambdaQueryWrapper<UserLeave>()
                         .eq(UserLeave::getApplyUserId, userId)
-                        .eq(UserLeave::getTenantCode, tenantCode)
                         .ne(UserLeave::getStatus, LeaveStatusEnum.REJECTED.getCode())
                         .and(wrapper -> wrapper
                                 .lt(UserLeave::getStartTime, request.getEndTime())
@@ -115,7 +113,6 @@ public class LeaveService {
 
     public UserLeave getLeaveByCode(@NotBlank String leaveCode) {
         UserLeave userLeave = leaveMapper.selectOne(new LambdaQueryWrapper<UserLeave>()
-                .eq(UserLeave::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(UserLeave::getLeaveCode, leaveCode));
         if (userLeave == null) {
             throw new BusinessException("请假单不存在");
@@ -126,7 +123,6 @@ public class LeaveService {
     public List<LeaveApprovalListVO> listApprovals(String scope, Integer status) {
         Long userId = TenantPermissionContext.getUserId();
         LambdaQueryWrapper<UserLeave> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(UserLeave::getTenantCode, TenantPermissionContext.getTenantCode());
         if (status != null) {
             queryWrapper.eq(UserLeave::getStatus, status);
         }

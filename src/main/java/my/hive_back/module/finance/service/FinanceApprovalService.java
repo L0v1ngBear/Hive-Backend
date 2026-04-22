@@ -62,7 +62,6 @@ public class FinanceApprovalService {
 
     public FinanceApproval getByCode(String approvalCode) {
         FinanceApproval approval = financeApprovalMapper.selectOne(new LambdaQueryWrapper<FinanceApproval>()
-                .eq(FinanceApproval::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(FinanceApproval::getApprovalCode, approvalCode));
         if (approval == null) {
             throw new BusinessException("财务审批单不存在");
@@ -77,7 +76,6 @@ public class FinanceApprovalService {
     public List<FinanceApprovalVO> list(String scope, Integer status) {
         Long userId = TenantPermissionContext.getUserId();
         LambdaQueryWrapper<FinanceApproval> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinanceApproval::getTenantCode, TenantPermissionContext.getTenantCode());
         if (status != null) {
             queryWrapper.eq(FinanceApproval::getStatus, status);
         }

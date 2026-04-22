@@ -80,32 +80,31 @@ public class TodoService {
     }
 
     private List<TodoItemVO> listAll(String type) {
-        String tenantCode = TenantPermissionContext.getTenantCode();
         Long userId = TenantPermissionContext.getUserId();
+        String userIdText = currentUserIdText();
         List<TodoItemVO> todos = new ArrayList<>();
 
         if (matches(type, "approval")) {
-            todos.addAll(buildLeaveTodos(tenantCode, userId));
-            todos.addAll(buildFinanceTodos(tenantCode, userId));
+            todos.addAll(buildLeaveTodos(userId));
+            todos.addAll(buildFinanceTodos(userId));
         }
         if (matches(type, "order")) {
-            todos.addAll(buildProductionTodos(tenantCode, userId));
-            todos.addAll(buildSalesTodos(tenantCode, userId));
+            todos.addAll(buildProductionTodos(userIdText));
+            todos.addAll(buildSalesTodos(userIdText));
         }
         if (matches(type, "print")) {
-            todos.addAll(buildOutboundPrintTodos(tenantCode, userId));
+            todos.addAll(buildOutboundPrintTodos(userId));
         }
         if (matches(type, "quality")) {
-            todos.addAll(buildBadProductTodos(tenantCode, userId));
+            todos.addAll(buildBadProductTodos(userId));
         }
 
         todos.sort(Comparator.comparing(TodoItemVO::getSortTime).reversed());
         return todos;
     }
 
-    private List<TodoItemVO> buildLeaveTodos(String tenantCode, Long userId) {
+    private List<TodoItemVO> buildLeaveTodos(Long userId) {
         List<UserLeave> leaves = leaveMapper.selectList(new LambdaQueryWrapper<UserLeave>()
-                .eq(UserLeave::getTenantCode, tenantCode)
                 .eq(UserLeave::getAuditorId, userId)
                 .eq(UserLeave::getStatus, LeaveStatusEnum.PENDING.getCode())
                 .orderByDesc(UserLeave::getCreateTime));
@@ -122,9 +121,8 @@ public class TodoService {
         )).toList();
     }
 
-    private List<TodoItemVO> buildFinanceTodos(String tenantCode, Long userId) {
+    private List<TodoItemVO> buildFinanceTodos(Long userId) {
         List<FinanceApproval> approvals = financeApprovalMapper.selectList(new LambdaQueryWrapper<FinanceApproval>()
-                .eq(FinanceApproval::getTenantCode, tenantCode)
                 .eq(FinanceApproval::getAuditorId, userId)
                 .eq(FinanceApproval::getStatus, 1)
                 .orderByDesc(FinanceApproval::getCreateTime));
@@ -141,12 +139,11 @@ public class TodoService {
         )).toList();
     }
 
-    private List<TodoItemVO> buildProductionTodos(String tenantCode, Long userId) {
+    private List<TodoItemVO> buildProductionTodos(String userId) {
         if (!hasAnyPermission("production:order:list", "production:order:*", "*")) {
             return List.of();
         }
         List<ProductionOrder> orders = productionOrderMapper.selectList(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, tenantCode)
                 .and(wrapper -> wrapper.eq(ProductionOrder::getCreator, userId)
                         .or()
                         .eq(ProductionOrder::getUpdater, userId))
@@ -165,12 +162,11 @@ public class TodoService {
         )).toList();
     }
 
-    private List<TodoItemVO> buildSalesTodos(String tenantCode, Long userId) {
+    private List<TodoItemVO> buildSalesTodos(String userId) {
         if (!hasAnyPermission("sales:order:list", "sales:order:*", "*")) {
             return List.of();
         }
         List<SalesOrder> orders = salesOrderMapper.selectList(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getTenantCode, tenantCode)
                 .and(wrapper -> wrapper.eq(SalesOrder::getCreator, userId)
                         .or()
                         .eq(SalesOrder::getUpdater, userId))
@@ -189,12 +185,11 @@ public class TodoService {
         )).toList();
     }
 
-    private List<TodoItemVO> buildOutboundPrintTodos(String tenantCode, Long userId) {
+    private List<TodoItemVO> buildOutboundPrintTodos(Long userId) {
         if (!hasAnyPermission("inventory", "inventory:*", "inventory:cloth:out", "*")) {
             return List.of();
         }
         List<OutboundOrder> orders = outboundOrderMapper.selectList(new LambdaQueryWrapper<OutboundOrder>()
-                .eq(OutboundOrder::getTenantCode, tenantCode)
                 .eq(OutboundOrder::getOperatorId, userId)
                 .eq(OutboundOrder::getPrintStatus, 0)
                 .orderByDesc(OutboundOrder::getCreateTime));
@@ -211,12 +206,11 @@ public class TodoService {
         )).toList();
     }
 
-    private List<TodoItemVO> buildBadProductTodos(String tenantCode, Long userId) {
+    private List<TodoItemVO> buildBadProductTodos(Long userId) {
         if (!hasAnyPermission("inventory", "inventory:*", "production:order:*", "sales:order:*", "*")) {
             return List.of();
         }
         List<BadProductRecord> records = badProductMapper.selectList(new LambdaQueryWrapper<BadProductRecord>()
-                .eq(BadProductRecord::getTenantCode, tenantCode)
                 .eq(BadProductRecord::getCreatorId, userId)
                 .eq(BadProductRecord::getStatus, "pending")
                 .orderByDesc(BadProductRecord::getCreateTime));
@@ -260,6 +254,11 @@ public class TodoService {
             }
         }
         return false;
+    }
+
+    private String currentUserIdText() {
+        Long userId = TenantPermissionContext.getUserId();
+        return userId == null ? "system" : String.valueOf(userId);
     }
 
     private LocalDateTime firstNotNull(LocalDateTime first, LocalDateTime second) {

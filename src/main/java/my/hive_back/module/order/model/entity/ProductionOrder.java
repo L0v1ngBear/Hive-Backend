@@ -96,12 +96,12 @@ public class ProductionOrder {
      * 创建人
      */
     @TableField(value = "creator", fill = FieldFill.INSERT)
-    private Long creator;
+    private String creator;
 
     /**
      * 更新人
      */
     @TableField(value = "updater", fill = FieldFill.INSERT_UPDATE)
-    private Long updater;
+    private String updater;
 
 }

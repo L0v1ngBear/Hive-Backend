@@ -17,6 +17,8 @@ import java.util.stream.Collectors;
 /**
  * DocumentController handles document requests for the mini-program backend and delegates to services.
  */
+@RestController
+@RequestMapping("/document")
 @Validated
 public class DocumentController {
 

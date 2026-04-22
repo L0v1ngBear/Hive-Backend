@@ -13,7 +13,8 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
 
     @Update("UPDATE sales_order SET status = #{order.status} " +
             ",express_company = #{order.expressCompany} " +
-            "AND express_no = #{order.expressNo} " +
+            ",express_no = #{order.expressNo} " +
+            ",updater = #{order.updater} " +
             "WHERE order_id = #{order.orderId} " +
             "AND status = #{oldStatus} ")
     int updateStatus(SalesOrder order, String oldStatus);

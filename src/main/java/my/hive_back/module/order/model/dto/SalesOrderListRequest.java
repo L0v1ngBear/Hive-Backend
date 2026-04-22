@@ -1,10 +1,14 @@
 package my.hive_back.module.order.model.dto;
 
 import lombok.Data;
+
 /**
- * SalesOrderListRequest 属于小程序后端订单模块，定义入参结构。
+ * 销售订单列表查询入参。
+ *
+ * <p>当前销售订单列表复用 {@link BaseOrderListRequest} 的通用查询字段，
+ * 类体暂时为空是为了保留销售订单自己的扩展入口，例如后续可以追加客户、
+ * 项目、是否开票、交付日期区间等筛选条件。</p>
  */
 @Data
 public class SalesOrderListRequest extends BaseOrderListRequest {
-
 }

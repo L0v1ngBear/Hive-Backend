@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 /**
  * CustomerController handles customer requests for the mini-program backend and delegates to services.
  */
+@RestController
 @RequestMapping("/customer")
 @Validated
 public class CustomerController {

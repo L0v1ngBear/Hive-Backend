@@ -88,7 +88,6 @@ public class WechatSubscribeService {
                 continue;
             }
             WechatSubscribeUser entity = wechatSubscribeUserMapper.selectOne(new LambdaQueryWrapper<WechatSubscribeUser>()
-                    .eq(WechatSubscribeUser::getTenantCode, tenantCode)
                     .eq(WechatSubscribeUser::getUserId, userId)
                     .eq(WechatSubscribeUser::getTemplateId, item.getTemplateId())
                     .last("limit 1"));
@@ -118,7 +117,6 @@ public class WechatSubscribeService {
             return false;
         }
         WechatSubscribeUser subscribeUser = wechatSubscribeUserMapper.selectOne(new LambdaQueryWrapper<WechatSubscribeUser>()
-                .eq(WechatSubscribeUser::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(WechatSubscribeUser::getUserId, userId)
                 .eq(WechatSubscribeUser::getTemplateId, todoTemplateId)
                 .eq(WechatSubscribeUser::getSubscribeStatus, ACCEPT)

@@ -49,7 +49,6 @@ public class LabelTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public List<LabelTemplateVO> list(String printType) {
         LambdaQueryWrapper<LabelTemplate> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(LabelTemplate::getTenantCode, TenantPermissionContext.getTenantCode());
         queryWrapper.eq(LabelTemplate::getStatus, 1);
         if (StringUtils.isNotBlank(printType)) {
             queryWrapper.eq(LabelTemplate::getPrintType, printType);
@@ -65,7 +64,6 @@ public class LabelTemplateService {
 
     public LabelTemplateVO detail(Long id) {
         LabelTemplate template = labelTemplateMapper.selectOne(new LambdaQueryWrapper<LabelTemplate>()
-                .eq(LabelTemplate::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(LabelTemplate::getId, id));
         if (template == null) {
             throw new BusinessException("标签模板不存在");
@@ -144,7 +142,6 @@ public class LabelTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public void setDefault(Long id) {
         LabelTemplate template = labelTemplateMapper.selectOne(new LambdaQueryWrapper<LabelTemplate>()
-                .eq(LabelTemplate::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(LabelTemplate::getId, id));
         if (template == null) {
             throw new BusinessException("标签模板不存在");
@@ -157,8 +154,7 @@ public class LabelTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public void disable(Long id) {
         LambdaUpdateWrapper<LabelTemplate> updateWrapper = new LambdaUpdateWrapper<>();
-        updateWrapper.eq(LabelTemplate::getTenantCode, TenantPermissionContext.getTenantCode())
-                .eq(LabelTemplate::getId, id)
+        updateWrapper.eq(LabelTemplate::getId, id)
                 .set(LabelTemplate::getStatus, 0);
         labelTemplateMapper.update(null, updateWrapper);
     }
@@ -182,8 +178,7 @@ public class LabelTemplateService {
 
     private void clearOtherDefault(LabelTemplate template) {
         LambdaUpdateWrapper<LabelTemplate> updateWrapper = new LambdaUpdateWrapper<>();
-        updateWrapper.eq(LabelTemplate::getTenantCode, template.getTenantCode())
-                .eq(LabelTemplate::getPrintType, template.getPrintType())
+        updateWrapper.eq(LabelTemplate::getPrintType, template.getPrintType())
                 .ne(LabelTemplate::getId, template.getId())
                 .set(LabelTemplate::getIsDefault, 0);
         labelTemplateMapper.update(null, updateWrapper);
