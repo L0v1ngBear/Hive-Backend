@@ -17,6 +17,8 @@ import my.hive_back.module.leave.model.dto.AuditRequest;
 import my.hive_back.module.leave.model.dto.LeaveSubmitRequest;
 import my.hive_back.module.leave.model.entity.UserLeave;
 import my.hive_back.module.leave.model.vo.LeaveApprovalListVO;
+import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
+import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import my.hive_back.module.user.model.entity.User;
 import my.hive_back.module.user.service.UserService;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -44,6 +47,9 @@ public class LeaveService {
 
     @Resource
     private AttendanceRecordMapper attendanceRecordMapper;
+
+    @Resource
+    private TenantAttendanceRuleMapper tenantAttendanceRuleMapper;
 
     public boolean isInApprovalLeave(LocalDateTime punchStartTime, LocalDateTime punchEndTime) {
         Long userId = TenantPermissionContext.getUserId();
@@ -202,9 +208,21 @@ public class LeaveService {
         Long applyUserId = approval.getApplyUserId();
         String tenantCode = approval.getTenantCode();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
+        TenantAttendanceRule rule = tenantAttendanceRuleMapper.selectOne(new LambdaQueryWrapper<TenantAttendanceRule>()
+                .eq(TenantAttendanceRule::getTenantCode, tenantCode)
+                .last("LIMIT 1"));
 
         LocalDate currentDate = startDate;
         while (!currentDate.isAfter(endDate)) {
+            boolean coverSignIn = isLeaveOverlapTimeRange(currentDate, rule == null ? null : rule.getWorkStartTime(),
+                    rule == null ? null : rule.getWorkEndTime(), approval);
+            boolean coverSignOut = isLeaveOverlapTimeRange(currentDate, rule == null ? null : rule.getOffWorkStartTime(),
+                    rule == null ? null : rule.getOffWorkEndTime(), approval);
+            if (!coverSignIn && !coverSignOut) {
+                currentDate = currentDate.plusDays(1);
+                continue;
+            }
+
             String dateStr = currentDate.format(formatter);
             String punchId = dateStr + "_" + applyUserId;
 
@@ -217,19 +235,23 @@ public class LeaveService {
                 leaveRecord.setPunchId(punchId);
                 leaveRecord.setUserId(applyUserId);
                 leaveRecord.setTenantCode(tenantCode);
-                leaveRecord.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
-                leaveRecord.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
+                if (coverSignIn) {
+                    leaveRecord.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
+                }
+                if (coverSignOut) {
+                    leaveRecord.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
+                }
                 attendanceRecordMapper.insert(leaveRecord);
             } else {
                 boolean needUpdate = false;
-                if (existingRecord.getSignInStatus() == null) {
+                if (coverSignIn && existingRecord.getSignInStatus() == null) {
                     existingRecord.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
                     needUpdate = true;
                 }
-                if (existingRecord.getSignOutStatus() == null
+                if (coverSignOut && (existingRecord.getSignOutStatus() == null
                         || existingRecord.getSignOutStatus().equals(PunchStatusEnum.ABSENT.getCode())
                         || existingRecord.getSignOutStatus().equals(PunchStatusEnum.EARLY.getCode())
-                        || existingRecord.getSignOutStatus().equals(PunchStatusEnum.MISS.getCode())) {
+                        || existingRecord.getSignOutStatus().equals(PunchStatusEnum.MISS.getCode()))) {
                     existingRecord.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
                     needUpdate = true;
                 }
@@ -239,6 +261,19 @@ public class LeaveService {
             }
             currentDate = currentDate.plusDays(1);
         }
+    }
+
+    /**
+     * 判断请假时间是否覆盖指定打卡时间段。
+     * 如果老租户暂未配置考勤规则，则沿用历史策略按全天请假同步。
+     */
+    private boolean isLeaveOverlapTimeRange(LocalDate date, LocalTime rangeStart, LocalTime rangeEnd, UserLeave leave) {
+        if (rangeStart == null || rangeEnd == null) {
+            return true;
+        }
+        LocalDateTime segmentStart = LocalDateTime.of(date, rangeStart);
+        LocalDateTime segmentEnd = LocalDateTime.of(date, rangeEnd);
+        return leave.getStartTime().isBefore(segmentEnd) && leave.getEndTime().isAfter(segmentStart);
     }
 
     private LeaveApprovalListVO toListVO(UserLeave approval) {

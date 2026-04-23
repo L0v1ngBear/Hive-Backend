@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.List;
 /**
  * AttendanceService 属于小程序后端考勤模块，实现核心业务编排与规则逻辑。
@@ -45,11 +46,17 @@ public class AttendanceService {
         String punchId = dateStr + "_" + userId;
 
         TenantAttendanceRule rule = getCompanyAttendanceRule(tenantCode);
+        if (!isWorkDay(rule, LocalDate.now())) {
+            throw new BusinessException("今天不是考勤规则中的工作日，无需打卡");
+        }
 
-        // 基础校验：距离校验
-        Double distance = calculateDistance(rule.getLatitude(), rule.getLongitude(), request.getUserLat(), request.getUserLng());
-        if (distance > rule.getRadius()) {
-            throw new BusinessException("超出打卡范围");
+        Double distance = null;
+        if (rule.getEnableGps() == null || rule.getEnableGps() == 1) {
+            // 基础校验：距离校验。管理端关闭 GPS 围栏后，小程序可不校验位置。
+            distance = calculateDistance(rule.getLatitude(), rule.getLongitude(), request.getUserLat(), request.getUserLng());
+            if (distance > rule.getRadius()) {
+                throw new BusinessException("超出打卡范围");
+            }
         }
 
         AttendanceRecord record = attendanceRecordMapper.selectOne(
@@ -57,6 +64,9 @@ public class AttendanceService {
 
         if (record == null) {
             // 上班打卡
+            if (nowTime.isBefore(rule.getWorkStartTime()) || nowTime.isAfter(rule.getWorkEndTime())) {
+                throw new BusinessException("当前不在上班打卡时间段内");
+            }
             record = new AttendanceRecord();
             record.setPunchId(punchId);
             record.setUserId(userId);
@@ -64,15 +74,24 @@ public class AttendanceService {
             record.setSignInTime(nowTime);
             record.setSignInDistance(distance);
             // 仅做初步判定，最终由统计任务核准
-            record.setSignInStatus(nowTime.isAfter(rule.getWorkStartTime()) ?
+            record.setSignInStatus(nowTime.isAfter(rule.getWorkStartTime().plusMinutes(nonNegative(rule.getLateToleranceMinutes()))) ?
                     PunchStatusEnum.LATE.getCode() : PunchStatusEnum.NORMAL.getCode());
             attendanceRecordMapper.insert(record);
         } else {
             // 下班打卡（覆盖更新，以最后一次为准）
+            boolean inOffWorkWindow = !nowTime.isBefore(rule.getOffWorkStartTime()) && !nowTime.isAfter(rule.getOffWorkEndTime());
+            boolean inOvertimeWindow = inTimeRange(nowTime, rule.getOverTimeStartTime(), rule.getOverTimeEndTime());
+            if (!inOffWorkWindow && !inOvertimeWindow) {
+                throw new BusinessException("当前不在下班或加班打卡时间段内");
+            }
             record.setSignOutTime(nowTime);
             record.setSignOutDistance(distance);
-            record.setSignOutStatus(nowTime.isBefore(rule.getWorkEndTime()) ?
-                    PunchStatusEnum.EARLY.getCode() : PunchStatusEnum.NORMAL.getCode());
+            if (inOvertimeWindow) {
+                record.setSignOutStatus(PunchStatusEnum.OVERTIME.getCode());
+            } else {
+                record.setSignOutStatus(nowTime.isBefore(rule.getOffWorkStartTime().minusMinutes(nonNegative(rule.getEarlyToleranceMinutes()))) ?
+                        PunchStatusEnum.EARLY.getCode() : PunchStatusEnum.NORMAL.getCode());
+            }
             attendanceRecordMapper.updateById(record);
         }
     }
@@ -123,5 +142,27 @@ public class AttendanceService {
                         .eq(AttendanceRecord::getUserId, userId)
                         .orderByDesc(AttendanceRecord::getId)
         );
+    }
+
+    private boolean isWorkDay(TenantAttendanceRule rule, LocalDate date) {
+        if (rule.getWorkDays() == null || rule.getWorkDays().isBlank()) {
+            return true;
+        }
+        int dayValue = date.getDayOfWeek().getValue();
+        return Arrays.stream(rule.getWorkDays().split(","))
+                .map(String::trim)
+                .filter(item -> !item.isBlank())
+                .anyMatch(item -> String.valueOf(dayValue).equals(item));
+    }
+
+    private long nonNegative(Integer value) {
+        return value == null || value < 0 ? 0L : value;
+    }
+
+    private boolean inTimeRange(LocalTime nowTime, LocalTime startTime, LocalTime endTime) {
+        if (startTime == null || endTime == null) {
+            return false;
+        }
+        return !nowTime.isBefore(startTime) && !nowTime.isAfter(endTime);
     }
 }

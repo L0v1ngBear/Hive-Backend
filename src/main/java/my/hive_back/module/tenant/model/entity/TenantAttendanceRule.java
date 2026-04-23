@@ -42,4 +42,34 @@ public class TenantAttendanceRule {
     private LocalTime overTimeStartTime;
 
     private LocalTime overTimeEndTime;
+
+    /**
+     * 迟到容差分钟，由管理端考勤规则维护。
+     */
+    private Integer lateToleranceMinutes;
+
+    /**
+     * 早退容差分钟，由管理端考勤规则维护。
+     */
+    private Integer earlyToleranceMinutes;
+
+    /**
+     * 工作日，1-7 对应周一到周日，多个值用英文逗号分隔。
+     */
+    private String workDays;
+
+    /**
+     * 是否启用 GPS 围栏，1 启用，0 关闭。
+     */
+    private Integer enableGps;
+
+    /**
+     * 是否启用 Wi-Fi 校验，当前作为预留字段。
+     */
+    private Integer enableWifi;
+
+    /**
+     * 允许打卡的 Wi-Fi 名称，当前作为预留字段。
+     */
+    private String wifiSsid;
 }

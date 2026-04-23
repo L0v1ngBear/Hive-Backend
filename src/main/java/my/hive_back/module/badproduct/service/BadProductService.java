@@ -41,14 +41,18 @@ public class BadProductService {
     public PageResult<BadProductVO> page(BadProductPageRequest request) {
         LambdaQueryWrapper<BadProductRecord> wrapper = new LambdaQueryWrapper<>();
 
-        if (request.getStatus() != null && !request.getStatus().isBlank() && !"all".equals(request.getStatus())) {
-            wrapper.eq(BadProductRecord::getStatus, request.getStatus());
+        String status = normalizeQueryValue(request.getStatus());
+        String type = normalizeQueryValue(request.getType());
+        String dateText = normalizeQueryValue(request.getDate());
+
+        if (status != null && !"all".equals(status)) {
+            wrapper.eq(BadProductRecord::getStatus, status);
         }
-        if (request.getType() != null && !request.getType().isBlank() && !"all".equals(request.getType())) {
-            wrapper.eq(BadProductRecord::getType, request.getType());
+        if (type != null && !"all".equals(type)) {
+            wrapper.eq(BadProductRecord::getType, type);
         }
-        if (request.getDate() != null && !request.getDate().isBlank()) {
-            LocalDate date = LocalDate.parse(request.getDate(), DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        if (dateText != null) {
+            LocalDate date = LocalDate.parse(dateText, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
             wrapper.ge(BadProductRecord::getCreateTime, date.atStartOfDay())
                     .lt(BadProductRecord::getCreateTime, date.plusDays(1).atStartOfDay());
         }
@@ -124,5 +128,16 @@ public class BadProductService {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String normalizeQueryValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty() || "undefined".equalsIgnoreCase(trimmed) || "null".equalsIgnoreCase(trimmed)) {
+            return null;
+        }
+        return trimmed;
     }
 }

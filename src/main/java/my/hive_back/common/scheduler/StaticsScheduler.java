@@ -173,14 +173,16 @@ public class StaticsScheduler {
         // --- 2. 下班状态校准 ---
         if (record.getSignOutTime() == null) {
             // 没打卡：检查下班时间点是否被请假覆盖
-            if (isTimeCoveredByLeaves(rule.getWorkEndTime(), yesterday, leaves)) {
+            if (isTimeCoveredByLeaves(rule.getOffWorkStartTime(), yesterday, leaves)
+                    || isTimeCoveredByLeaves(rule.getOffWorkEndTime(), yesterday, leaves)) {
                 record.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
             } else {
                 record.setSignOutStatus(PunchStatusEnum.ABSENT.getCode());
             }
         } else if (PunchStatusEnum.EARLY.getCode().equals(record.getSignOutStatus())) {
             // 早退：检查下班时间点是否在请假范围内
-            if (isTimeCoveredByLeaves(rule.getWorkEndTime(), yesterday, leaves)) {
+            if (isTimeCoveredByLeaves(rule.getOffWorkStartTime(), yesterday, leaves)
+                    || isTimeCoveredByLeaves(rule.getOffWorkEndTime(), yesterday, leaves)) {
                 record.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
             }
         }
