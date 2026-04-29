@@ -1,6 +1,7 @@
 package my.hive_back.module.order.model.dto;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 /**
  * 生产订单列表查询入参。
@@ -10,5 +11,6 @@ import lombok.Data;
  * 后续如果要增加车间、工序、生产负责人等筛选条件，可以直接加在这里。</p>
  */
 @Data
+@EqualsAndHashCode(callSuper = true)
 public class ProductionOrderListRequest extends BaseOrderListRequest {
 }

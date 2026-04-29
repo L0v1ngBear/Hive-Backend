@@ -12,6 +12,8 @@ import my.hive_back.module.attendance.model.dto.AttendancePunchRequest;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
 import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +22,8 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 /**
  * AttendanceService 属于小程序后端考勤模块，实现核心业务编排与规则逻辑。
  */
@@ -27,6 +31,8 @@ import java.util.List;
 public class AttendanceService {
 
     private static final String COMPANY_ATTENDANCE_RULE_KEY = "companyAttendanceRule";
+    private static final String PUNCH_LOCK_PREFIX = "attendance:punch:lock:";
+    private static final DefaultRedisScript<Long> RELEASE_LOCK_SCRIPT = buildReleaseLockScript();
 
     @Resource
     private AttendanceRecordMapper attendanceRecordMapper;
@@ -37,6 +43,9 @@ public class AttendanceService {
     @Resource
     private RedisUtil redisUtil;
 
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
     @Transactional(rollbackFor = Exception.class)
     public void punch(AttendancePunchRequest request) {
         String tenantCode = TenantPermissionContext.getTenantCode();
@@ -45,6 +54,20 @@ public class AttendanceService {
         String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         String punchId = dateStr + "_" + userId;
 
+        String lockKey = PUNCH_LOCK_PREFIX + tenantCode + ":" + punchId;
+        String lockValue = UUID.randomUUID().toString();
+        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, 10, TimeUnit.SECONDS);
+        if (!Boolean.TRUE.equals(locked)) {
+            throw new BusinessException("打卡正在处理中，请稍后再试");
+        }
+        try {
+            doPunch(request, tenantCode, userId, nowTime, punchId);
+        } finally {
+            releaseLock(lockKey, lockValue);
+        }
+    }
+
+    private void doPunch(AttendancePunchRequest request, String tenantCode, Long userId, LocalTime nowTime, String punchId) {
         TenantAttendanceRule rule = getCompanyAttendanceRule(tenantCode);
         if (!isWorkDay(rule, LocalDate.now())) {
             throw new BusinessException("今天不是考勤规则中的工作日，无需打卡");
@@ -96,6 +119,10 @@ public class AttendanceService {
         }
     }
 
+    private void releaseLock(String lockKey, String lockValue) {
+        stringRedisTemplate.execute(RELEASE_LOCK_SCRIPT, List.of(lockKey), lockValue);
+    }
+
     /**
      * 获取公司考勤规则（缓存优先）
      */
@@ -108,7 +135,6 @@ public class AttendanceService {
             if (rule == null) {
                 throw new BusinessException("考勤配置异常：未找到所属公司的考勤规则");
             }
-            // TODO: 查询后记得回写缓存，例如 redisUtil.putHashValue(...)
             redisUtil.pushHashValue(COMPANY_ATTENDANCE_RULE_KEY, tenantCode, rule);
         }
         return rule;
@@ -164,5 +190,17 @@ public class AttendanceService {
             return false;
         }
         return !nowTime.isBefore(startTime) && !nowTime.isAfter(endTime);
+    }
+
+    private static DefaultRedisScript<Long> buildReleaseLockScript() {
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+        script.setResultType(Long.class);
+        script.setScriptText("""
+                if redis.call('get', KEYS[1]) == ARGV[1] then
+                    return redis.call('del', KEYS[1])
+                end
+                return 0
+                """);
+        return script;
     }
 }

@@ -37,6 +37,24 @@ public class BadProductRecord {
 
     private String description;
 
+    /**
+     * 负责跟进本次次品问题的人员。
+     */
+    @TableField("responsible_person")
+    private String responsiblePerson;
+
+    /**
+     * 次品即时处理措施。
+     */
+    @TableField("process_measure")
+    private String processMeasure;
+
+    /**
+     * 同类问题后续改进方案。
+     */
+    @TableField("improvement_plan")
+    private String improvementPlan;
+
     private String status;
 
     private String processMethod;

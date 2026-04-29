@@ -17,6 +17,9 @@ public class BadProductVO {
     private BigDecimal quantity;
     private BigDecimal lossAmount;
     private String description;
+    private String responsiblePerson;
+    private String processMeasure;
+    private String improvementPlan;
     private String status;
     private String processMethod;
     private String processRemark;

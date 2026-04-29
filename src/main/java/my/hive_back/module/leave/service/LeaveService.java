@@ -244,7 +244,10 @@ public class LeaveService {
                 attendanceRecordMapper.insert(leaveRecord);
             } else {
                 boolean needUpdate = false;
-                if (coverSignIn && existingRecord.getSignInStatus() == null) {
+                if (coverSignIn && (existingRecord.getSignInStatus() == null
+                        || existingRecord.getSignInStatus().equals(PunchStatusEnum.ABSENT.getCode())
+                        || existingRecord.getSignInStatus().equals(PunchStatusEnum.LATE.getCode())
+                        || existingRecord.getSignInStatus().equals(PunchStatusEnum.MISS.getCode()))) {
                     existingRecord.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
                     needUpdate = true;
                 }

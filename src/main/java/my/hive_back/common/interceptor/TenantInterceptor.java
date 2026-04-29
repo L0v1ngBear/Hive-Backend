@@ -48,11 +48,15 @@ public class TenantInterceptor implements HandlerInterceptor {
 
     private static final String PERM_CACHE_KEY_PREFIX = "sys:perms:";
 
-    @Value("${auth.allow-legacy-header:true}")
+    @Value("${auth.allow-legacy-header:false}")
     private boolean allowLegacyHeader;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+
         String tenantCode;
         Long userId;
         String authHeader = request.getHeader("Authorization");
@@ -105,11 +109,9 @@ public class TenantInterceptor implements HandlerInterceptor {
             return false;
         }
 
-        Set<String> permCodes = getUserPermCodes(tenantCode, userId);
-
-        // Keep datasource binding close to request entry. FIELD mode is a no-op here,
-        // DATABASE mode will bind the tenant datasource before any mapper is called.
+        // FIELD 模式下这里是空操作；未来切换 DATABASE 模式时，需要在查询租户内权限前先绑定对应数据源。
         tenantIsolationSupport.bindTenantDatasource(tenantCode);
+        Set<String> permCodes = getUserPermCodes(tenantCode, userId);
         TenantPermissionContext.init(tenantCode, userId, permCodes);
         return true;
     }

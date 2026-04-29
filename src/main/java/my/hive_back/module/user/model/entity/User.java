@@ -45,6 +45,16 @@ public class User {
     private String phone;
 
     /**
+     * 手机号不可逆哈希，用于手机号登录和查重。
+     */
+    private String phoneHash;
+
+    /**
+     * 手机号脱敏值，用于接口展示，避免返回完整手机号。
+     */
+    private String phoneMask;
+
+    /**
      * 部门名称
      * (注：如果是规范的数据库设计，这里也可以加一个 departmentId 关联部门表)
      */

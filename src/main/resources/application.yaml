@@ -42,8 +42,8 @@ springdoc:
 
 auth:
   token:
-    secret: hive-manager-2026-token-secret
-    expire-hours: 24
+    secret: ${AUTH_TOKEN_SECRET:hive-mini-dev-token-secret}
+    expire-hours: ${AUTH_TOKEN_EXPIRE_HOURS:24}
   allow-legacy-header: false
   login:
     max-fail-count: 5
@@ -52,7 +52,10 @@ auth:
 
 security:
   response:
-    key: sygav9Iec4kZiRvivnwSVe3iWq66cTCleo8gr3qL2GyXTcQHXJ1E57ZqfhqfIyWp70Imy0rJ7ZkS5SI4T0asRQ==
+    key: ${RESPONSE_ENCRYPT_KEY:sygav9Iec4kZiRvivnwSVe3iWq66cTCleo8gr3qL2GyXTcQHXJ1E57ZqfhqfIyWp70Imy0rJ7ZkS5SI4T0asRQ==}
+  privacy:
+    # 手机号等隐私字段的一致性哈希密钥；生产环境必须通过环境变量提供并妥善保管。
+    hash-secret: ${PRIVACY_HASH_SECRET:${AUTH_TOKEN_SECRET:hive-mini-dev-privacy-secret}}
 
 redis:
   key-prefix:
@@ -66,7 +69,7 @@ redis:
 wechat:
   mini-program:
     # 测试阶段默认关闭；上线前填入真实 app-id/app-secret/template-id 后改为 true。
-    enabled: false
+    enabled: ${WECHAT_MINI_ENABLED:false}
     app-id: ${WECHAT_MINI_APP_ID:}
     app-secret: ${WECHAT_MINI_APP_SECRET:}
     subscribe:

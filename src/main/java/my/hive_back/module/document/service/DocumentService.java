@@ -61,7 +61,7 @@ public class DocumentService {
     }
 
     public void uploadFile(MultipartFile file) {
-        // TODO 接入阿里云 OSS：
+        // 预留阿里云 OSS 接入：
         // 1. 校验文件大小、类型、租户上传权限
         // 2. 生成按 tenantCode/日期 分层的对象存储路径
         // 3. 上传到 OSS 后保存 fileUrl、fileSize、contentType、originalName

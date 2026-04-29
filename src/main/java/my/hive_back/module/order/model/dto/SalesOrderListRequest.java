@@ -1,6 +1,7 @@
 package my.hive_back.module.order.model.dto;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 /**
  * 销售订单列表查询入参。
@@ -10,5 +11,6 @@ import lombok.Data;
  * 项目、是否开票、交付日期区间等筛选条件。</p>
  */
 @Data
+@EqualsAndHashCode(callSuper = true)
 public class SalesOrderListRequest extends BaseOrderListRequest {
 }

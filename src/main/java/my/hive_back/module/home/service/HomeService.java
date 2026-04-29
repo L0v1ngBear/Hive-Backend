@@ -76,7 +76,7 @@ public class HomeService {
         functionEnable.setApproval(hasAnyPermission("approval", "approval:*", "approval:leave", "approval:finance", "approval:leave:submit", "approval:finance:submit"));
         functionEnable.setNotice(false);
         functionEnable.setFile(hasAnyPermission("document", "document:*", "document:list", "document:folder:create"));
-        functionEnable.setBadProduct(hasAnyPermission("*", "inventory:*", "inventory", "production:order:*", "sales:order:*"));
+        functionEnable.setBadProduct(hasAnyPermission("*", "badproduct:*", "badproduct:list", "badproduct:save", "badproduct:process"));
         functionEnable.setKnowledge(false);
         functionEnable.setCustomer(hasAnyPermission("customer", "customer:*", "customer:page", "customer:detail", "customer:add"));
         return functionEnable;

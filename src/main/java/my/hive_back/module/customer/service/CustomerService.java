@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
-import jakarta.validation.Valid;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
 import my.hive_back.module.customer.mapper.CustomerContactMapper;
@@ -21,11 +20,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+
 /**
- * CustomerService 属于小程序后端客户模块，实现核心业务编排与规则逻辑。
+ * 小程序客户服务，复用管理端同一套客户、联系人和合作项目数据。
  */
 @Service
 public class CustomerService {
+
+    private static final int DEFAULT_PAGE_NUM = 1;
+    private static final int DEFAULT_PAGE_SIZE = 10;
+    private static final int MAX_PAGE_SIZE = 200;
 
     @Resource
     private CustomerMapper customerMapper;
@@ -38,31 +42,22 @@ public class CustomerService {
 
     @Transactional(rollbackFor = Exception.class)
     public void addCustomer(CustomerAddRequest request) {
-
-
-        // 获取当前操作的租户编码
         String tenantCode = TenantPermissionContext.getTenantCode();
 
-        // 2. 防重校验：同一租户下，客户公司名称不能重复
         Long count = customerMapper.selectCount(new LambdaQueryWrapper<Customer>()
                 .eq(Customer::getCustomerName, request.getCustomerName()));
         if (count > 0) {
             throw new BusinessException("该客户已存在，请勿重复添加");
         }
 
-        // 3. 保存客户主表信息
         Customer customer = new Customer();
-        // 注意：你的 DTO 叫 customerName，但 Entity 叫 companyName，这里做手动映射
         customer.setCustomerName(request.getCustomerName());
         customer.setCustomerType(request.getCustomerType());
         customer.setConstructionArea(request.getConstructionArea());
         customer.setTenantCode(tenantCode);
-
         customerMapper.insert(customer);
 
         Long customerId = customer.getId();
-
-        // 4. 保存客户联系人列表 (1对多)
         if (request.getContacts() != null && !request.getContacts().isEmpty()) {
             for (CustomerContact contactDto : request.getContacts()) {
                 CustomerContact contact = new CustomerContact();
@@ -70,53 +65,37 @@ public class CustomerService {
                 contact.setCustomerId(customerId);
                 contact.setContactName(contactDto.getContactName());
                 contact.setContactPhone(contactDto.getContactPhone());
-
                 customerContactMapper.insert(contact);
             }
         }
 
-        // 5. 保存客户合作项目列表 (1对多)
         if (request.getProjects() != null && !request.getProjects().isEmpty()) {
             for (CustomerProject projectDto : request.getProjects()) {
                 CustomerProject project = new CustomerProject();
                 project.setTenantCode(tenantCode);
                 project.setCustomerId(customerId);
                 project.setProjectName(projectDto.getProjectName());
-
                 customerProjectMapper.insert(project);
             }
         }
     }
 
     public Page<Customer> pageSearchCustomer(CustomerPageRequest request) {
-
         String keyword = request.getKeyword();
-
-        // 1. 构建主表查询条件
+        String tenantCode = TenantPermissionContext.getTenantCode();
         LambdaQueryWrapper<Customer> wrapper = new LambdaQueryWrapper<>();
 
-        // 2. 核心：组装复合搜索条件
         if (StringUtils.isNotBlank(keyword)) {
-            // 防止 SQL 注入，将关键字中的单引号转xing义（基础防范）
-            String safeKeyword = keyword.replace("'", "''");
-
+            String safeKeyword = keyword.trim();
             wrapper.and(w -> w
-                    // 匹配 ①：客户公司名称
                     .like(Customer::getCustomerName, safeKeyword)
-                    // 匹配 ②：项目名称 (利用 inSql 生成 EXISTS/IN 子查询)
-                    .or().inSql(Customer::getId,
-                            "SELECT customer_id FROM customer_project WHERE project_name LIKE '%" + safeKeyword + "%'")
-                    // 匹配 ③：联系人姓名或电话
-                    .or().inSql(Customer::getId,
-                            "SELECT customer_id FROM customer_contact WHERE (contact_name LIKE '%" + safeKeyword + "%' OR contact_phone LIKE '%" + safeKeyword + "%')")
+                    .or().apply("id IN (SELECT customer_id FROM customer_project WHERE tenant_code = {0} AND project_name LIKE CONCAT('%', {1}, '%'))", tenantCode, safeKeyword)
+                    .or().apply("id IN (SELECT customer_id FROM customer_contact WHERE tenant_code = {0} AND (contact_name LIKE CONCAT('%', {1}, '%') OR contact_phone LIKE CONCAT('%', {1}, '%')))", tenantCode, safeKeyword)
             );
         }
 
-        // 按创建时间倒序（或者按需调整）
         wrapper.orderByDesc(Customer::getCreateTime);
-
-        // 3. 执行主表的分页查询
-        Page<Customer> page = new Page<>(request.getPageNum(), request.getPageSize());
+        Page<Customer> page = new Page<>(safePageNum(request.getPageNum()), safePageSize(request.getPageSize()));
         return customerMapper.selectPage(page, wrapper);
     }
 
@@ -136,5 +115,16 @@ public class CustomerService {
         customerDetailVO.setContacts(customerContactList);
         customerDetailVO.setProjects(customerProjectList);
         return customerDetailVO;
+    }
+
+    private int safePageNum(Integer pageNum) {
+        return pageNum == null || pageNum <= 0 ? DEFAULT_PAGE_NUM : pageNum;
+    }
+
+    private int safePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize <= 0) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize, MAX_PAGE_SIZE);
     }
 }

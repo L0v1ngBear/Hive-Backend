@@ -29,6 +29,10 @@ import java.util.List;
 @Service
 public class BadProductService {
 
+    private static final int DEFAULT_PAGE_NUM = 1;
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 100;
+
     @Resource
     private BadProductMapper badProductMapper;
 
@@ -58,7 +62,10 @@ public class BadProductService {
         }
 
         wrapper.orderByDesc(BadProductRecord::getCreateTime);
-        Page<BadProductRecord> page = badProductMapper.selectPage(new Page<>(request.getPageNum(), request.getPageSize()), wrapper);
+        Page<BadProductRecord> page = badProductMapper.selectPage(
+                new Page<>(safePageNum(request.getPageNum()), safePageSize(request.getPageSize())),
+                wrapper
+        );
 
         List<BadProductVO> records = page.getRecords().stream().map(this::toVO).toList();
         PageResult<BadProductVO> result = new PageResult<>();
@@ -98,6 +105,9 @@ public class BadProductService {
         entity.setQuantity(request.getQuantity());
         entity.setLossAmount(request.getLossAmount());
         entity.setDescription(blankToNull(request.getDescription()));
+        entity.setResponsiblePerson(blankToNull(request.getResponsiblePerson()));
+        entity.setProcessMeasure(blankToNull(request.getProcessMeasure()));
+        entity.setImprovementPlan(blankToNull(request.getImprovementPlan()));
 
         if (entity.getId() == null) {
             badProductMapper.insert(entity);
@@ -139,5 +149,16 @@ public class BadProductService {
             return null;
         }
         return trimmed;
+    }
+
+    private int safePageNum(Integer pageNum) {
+        return pageNum == null || pageNum <= 0 ? DEFAULT_PAGE_NUM : pageNum;
+    }
+
+    private int safePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize <= 0) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize, MAX_PAGE_SIZE);
     }
 }

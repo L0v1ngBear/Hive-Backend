@@ -24,7 +24,7 @@ public class TenantService {
     public TenantAttendanceRule addTenantLocation(TenantLocationAddRequest tenantLocationAddRequest) {
         TenantAttendanceRule tenantLocation = new TenantAttendanceRule();
 
-        //TODO 对接高德api，获取经纬度
+        // 预留地图服务扩展点：后续接入高德 API 后，可由地址解析经纬度。
 
         // 0表示未校准
         tenantLocation.setStatus(0);

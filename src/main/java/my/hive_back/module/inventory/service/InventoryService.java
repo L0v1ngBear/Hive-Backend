@@ -7,9 +7,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import my.hive.common.annotation.CollectLog;
 import my.hive.common.annotation.RequirePermission;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
+import my.hive.common.print.PrintTaskService;
+import my.hive.common.utils.RedisCacheHelper;
 import my.hive_back.common.utils.BarCodeUtil;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.common.utils.RedisUtil;
@@ -63,6 +66,9 @@ public class InventoryService {
     private static final String OUTBOUND_ORDER_LOCK_PREFIX = "lock:outbound:order:";
     private static final int OUTBOUND_MAX_RETRY = 3;
     private static final float WARNING_METERS_THRESHOLD = 5F;
+    private static final float METERS_EPSILON = 0.0001F;
+    private static final String DASHBOARD_OVERVIEW_CACHE_PREFIX = "management:dashboard:overview:";
+    private static final String DASHBOARD_AI_CACHE_PREFIX = "management:dashboard:ai-advice:";
 
     @Resource
     private InventoryTrendStaticsMapper staticsMapper;
@@ -77,6 +83,8 @@ public class InventoryService {
     @Resource
     private StringRedisTemplate stringRedisTemplate;
     @Resource
+    private RedisCacheHelper redisCacheHelper;
+    @Resource
     private RedisUtil redisUtil;
     @Resource
     private OutboundOrderMapper outboundOrderMapper;
@@ -88,6 +96,8 @@ public class InventoryService {
     private PriceSkuMapper priceSkuMapper;
     @Resource
     private SalesOrderMapper salesOrderMapper;
+    @Resource
+    private PrintTaskService printTaskService;
 
     @Value("${redis.key-prefix.trend.today_in}")
     private String REDIS_TODAY_IN;
@@ -95,7 +105,8 @@ public class InventoryService {
     private String REDIS_TODAY_OUT;
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = "inventory:in", message = "您没有权限执行布匹入库")
+    @CollectLog(module = "inventory", action = "cloth_in", bizType = "cloth", bizNo = "#p0.barcode", description = "小程序布匹入库")
+    @RequirePermission(value = "inventory:cloth:in", message = "您没有权限执行布匹入库")
     public ClothInfoVO inCloth(@Valid InventoryInRequest inventoryInRequest) {
         InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.getCode(inventoryInRequest.getInType());
         String barcode;
@@ -115,11 +126,16 @@ public class InventoryService {
         ClothInfoVO clothInfoVO = new ClothInfoVO();
         BeanUtils.copyProperties(inventoryInRequest, clothInfoVO);
         clothInfoVO.setBarcode(barcode);
+        clothInfoVO.setStatus(InventoryOperateTypeEnum.IN.getCode());
+        clothInfoVO.setNeedPrintLabel(true);
+        clothInfoVO.setPrintReason("首次入库，请打印并粘贴布匹标签");
+        clothInfoVO.setPrintTaskNo(printTaskService.createLabelTask(barcode, clothInfoVO, null, null, clothInfoVO.getPrintReason()));
         return clothInfoVO;
     }
 
-    @RequirePermission(value = "inventory:out", message = "您没有权限执行布匹出库")
+    @RequirePermission(value = "inventory:cloth:out", message = "您没有权限执行布匹出库")
     @Transactional(rollbackFor = Exception.class)
+    @CollectLog(module = "inventory", action = "cloth_out", bizType = "cloth", bizNo = "#p0.barcode", description = "小程序扫码出库")
     public ClothInfoVO outCloth(@Valid InventoryOutRequest request) {
         String tenantCode = TenantPermissionContext.getTenantCode();
         Long userId = TenantPermissionContext.getUserId();
@@ -165,6 +181,7 @@ public class InventoryService {
                 throw new BusinessException("出库米数必须大于0");
             }
 
+            Float beforeMeters = cloth.getRemainingMeters();
             Cloth latestCloth = deductClothMeters(cloth, metersToOut, userId);
             saveInventoryOutRecord(latestCloth, metersToOut, userId);
             OutboundOrder order = getOrCreatePendingOutboundOrder(tenantCode, businessOrderNo, request.getCustomerName(), userId);
@@ -174,6 +191,16 @@ public class InventoryService {
             ClothInfoVO clothInfoVO = new ClothInfoVO();
             BeanUtils.copyProperties(latestCloth, clothInfoVO);
             clothInfoVO.setMeters(latestCloth.getRemainingMeters());
+            clothInfoVO.setBeforeMeters(beforeMeters);
+            clothInfoVO.setOutMeters(metersToOut);
+            clothInfoVO.setNeedPrintLabel(latestCloth.getRemainingMeters() != null && latestCloth.getRemainingMeters() > 0);
+            clothInfoVO.setPrintReason(Boolean.TRUE.equals(clothInfoVO.getNeedPrintLabel())
+                    ? "部分出库，请重新打印剩余布匹标签"
+                    : "整匹出库，无需重新打印布匹标签");
+            if (Boolean.TRUE.equals(clothInfoVO.getNeedPrintLabel())) {
+                clothInfoVO.setPrintTaskNo(printTaskService.createLabelTask(latestCloth.getBarcode(), clothInfoVO, null, null, clothInfoVO.getPrintReason()));
+            }
+            invalidateManagementDashboardCache(tenantCode);
             return clothInfoVO;
         } finally {
             safeReleaseLock(lockKey, lockValue);
@@ -214,15 +241,18 @@ public class InventoryService {
             if (currentRemaining == null || currentRemaining <= 0) {
                 throw new BusinessException("该布匹已全部出库");
             }
-            if (currentRemaining < metersToOut) {
+            if (currentRemaining + METERS_EPSILON < metersToOut) {
                 throw new BusinessException("剩余米数不足，无法完成本次出库");
             }
 
             float newRemaining = currentRemaining - metersToOut;
+            if (Math.abs(newRemaining) < METERS_EPSILON) {
+                newRemaining = 0F;
+            }
             current.setRemainingMeters(newRemaining);
             current.setOutTime(LocalDateTime.now());
             current.setOutOperatorId(userId);
-            current.setStatus(newRemaining == 0F ? InventoryOperateTypeEnum.OUT.getCode() : InventoryOperateTypeEnum.PART_OUT.getCode());
+            current.setStatus(newRemaining <= 0F ? InventoryOperateTypeEnum.OUT.getCode() : InventoryOperateTypeEnum.PART_OUT.getCode());
 
             int updatedRows = clothMapper.updateById(current);
             if (updatedRows > 0) {
@@ -360,6 +390,7 @@ public class InventoryService {
         String key = REDIS_TODAY_IN + TenantPermissionContext.getTenantCode() + ":" + LocalDate.now();
         stringRedisTemplate.opsForValue().increment(key, inventoryInRequest.getMeters().doubleValue());
         stringRedisTemplate.expire(key, redisUtil.getSecondsToAfterDays(2), TimeUnit.SECONDS);
+        invalidateManagementDashboardCache(TenantPermissionContext.getTenantCode());
     }
 
     public Cloth selectClothByBarCode(String barCode) {
@@ -479,6 +510,7 @@ public class InventoryService {
         submitOutboundToPrint(orderNo);
     }
 
+    @CollectLog(module = "inventory", action = "submit_outbound_print", bizType = "outbound_order", bizNo = "#p0", description = "提交出库单打印")
     public void submitOutboundToPrint(String orderNo) {
         OutboundOrder order = outboundOrderMapper.selectOne(new LambdaQueryWrapper<OutboundOrder>()
                 .and(wrapper -> wrapper.eq(OutboundOrder::getOrderNo, orderNo).or().eq(OutboundOrder::getBizOrderNo, orderNo))
@@ -500,5 +532,15 @@ public class InventoryService {
         if (rows == 0) {
             throw new BusinessException("出库单不存在或已打印");
         }
+        invalidateManagementDashboardCache(TenantPermissionContext.getTenantCode());
+    }
+
+    private void invalidateManagementDashboardCache(String tenantCode) {
+        deleteCacheByPattern(DASHBOARD_OVERVIEW_CACHE_PREFIX + tenantCode + ":*");
+        deleteCacheByPattern(DASHBOARD_AI_CACHE_PREFIX + tenantCode + ":*");
+    }
+
+    private void deleteCacheByPattern(String pattern) {
+        redisCacheHelper.deleteByPattern(pattern);
     }
 }

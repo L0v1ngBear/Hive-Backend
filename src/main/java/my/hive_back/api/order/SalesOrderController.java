@@ -100,7 +100,7 @@ public class SalesOrderController {
         if (order == null) {
             return Result.fail(404, "订单不存在");
         }
-        // TODO 对接物流信息接口
+        // 物流接口暂不外联，当前返回订单内已维护的物流公司和单号。
         SalesOrderVO statusVO = new SalesOrderVO();
         BeanUtils.copyProperties(order, statusVO);
         return Result.success(statusVO);

@@ -28,4 +28,19 @@ public class BadProductSaveRequest {
     private BigDecimal lossAmount;
 
     private String description;
+
+    /**
+     * 负责跟进本次次品问题的人员。
+     */
+    private String responsiblePerson;
+
+    /**
+     * 本次次品的即时处理措施。
+     */
+    private String processMeasure;
+
+    /**
+     * 针对同类问题的后续改进方案。
+     */
+    private String improvementPlan;
 }

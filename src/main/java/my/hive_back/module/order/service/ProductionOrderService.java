@@ -33,6 +33,9 @@ import java.util.Set;
 @Service
 public class ProductionOrderService {
 
+    private static final long DEFAULT_PAGE_NUM = 1L;
+    private static final long DEFAULT_PAGE_SIZE = 20L;
+    private static final long MAX_PAGE_SIZE = 200L;
     private static final String STATUS_PRODUCING = "producing";
     private static final Set<String> VALID_STATUS = Set.of(
             "pending_confirm", "pending_material", "producing", "pending_ship", "shipped", "completed"
@@ -50,7 +53,7 @@ public class ProductionOrderService {
     @Resource
     private UserMapper userMapper;
 
-    @RequirePermission(value = "order:production:list", message = "您没有权限查询生产订单列表")
+    @RequirePermission(value = "production:order:list", message = "您没有权限查询生产订单列表")
     public Page<ProductionOrder> selectProductionOrder(ProductionOrderListRequest request) {
         LambdaQueryWrapper<ProductionOrder> queryWrapper = new LambdaQueryWrapper<>();
 
@@ -71,10 +74,24 @@ public class ProductionOrderService {
         }
 
         queryWrapper.orderByDesc(ProductionOrder::getOrderId);
-        return productionOrderMapper.selectPage(new Page<>(request.getPageNum(), request.getPageSize()), queryWrapper);
+        return productionOrderMapper.selectPage(
+                new Page<>(safePageNum(request.getPageNum()), safePageSize(request.getPageSize())),
+                queryWrapper
+        );
     }
 
-    @RequirePermission(value = "order:production:detail", message = "您没有权限查询生产订单详情")
+    private long safePageNum(Integer pageNum) {
+        return pageNum == null || pageNum <= 0 ? DEFAULT_PAGE_NUM : pageNum;
+    }
+
+    private long safePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize <= 0) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize, MAX_PAGE_SIZE);
+    }
+
+    @RequirePermission(value = "production:order:detail", message = "您没有权限查询生产订单详情")
     public ProductionOrder selectProductionOrderDetail(String orderId) {
         ProductionOrder productionOrder = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
                 .eq(ProductionOrder::getOrderId, orderId));
@@ -86,7 +103,7 @@ public class ProductionOrderService {
         return productionOrder;
     }
 
-    @RequirePermission(value = "order:production:log", message = "您没有权限查询生产订单状态变更日志")
+    @RequirePermission(value = "production:order:log", message = "您没有权限查询生产订单状态变更日志")
     public List<ProductionOrderStatusLog> selectOrderStausLog(@NotBlank String orderId) {
         LambdaQueryWrapper<ProductionOrderStatusLog> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(ProductionOrderStatusLog::getOrderId, orderId);
@@ -94,7 +111,7 @@ public class ProductionOrderService {
         return statusLogMapper.selectList(queryWrapper);
     }
 
-    @RequirePermission(value = "order:production:process", message = "您没有权限处理生产订单")
+    @RequirePermission(value = "production:order:status", message = "您没有权限处理生产订单")
     @Transactional(rollbackFor = Exception.class)
     public ProductionOrder processProductionOrder(String orderId, Integer process) {
         ProductionOrderUpdateRequest request = new ProductionOrderUpdateRequest();
@@ -105,6 +122,7 @@ public class ProductionOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = "production:order:status", message = "您没有权限更新生产订单状态")
     public ProductionOrder updateStatusAndProcess(String orderId, ProductionOrderUpdateRequest request) {
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
                 .eq(ProductionOrder::getOrderId, orderId));
@@ -169,6 +187,7 @@ public class ProductionOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = "production:order:status", message = "您没有权限添加生产订单")
     public void addProductionOrder(ProductionOrderAddRequest request) {
         this.addProductionOrder(request, null);
     }

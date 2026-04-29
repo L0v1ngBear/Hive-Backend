@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import my.hive.common.dto.Result;
 import my.hive_back.module.auth.model.dto.LoginRequest;
+import my.hive_back.module.auth.model.dto.WechatLoginRequest;
 import my.hive_back.module.auth.model.vo.LoginVO;
 import my.hive_back.module.auth.service.AuthService;
 import org.springframework.validation.annotation.Validated;
@@ -30,6 +31,11 @@ public class AuthController {
     @PostMapping("/login")
     public Result<LoginVO> login(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
         return Result.success(authService.login(request, getClientIp(servletRequest)));
+    }
+
+    @PostMapping("/wechat-login")
+    public Result<LoginVO> wechatLogin(@Valid @RequestBody WechatLoginRequest request) {
+        return Result.success(authService.wechatLogin(request));
     }
 
     @GetMapping("/me")

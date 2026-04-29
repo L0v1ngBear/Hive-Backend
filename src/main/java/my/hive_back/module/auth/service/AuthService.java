@@ -4,15 +4,19 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
+import my.hive.common.privacy.PrivacyProtectionUtil;
 import my.hive.common.utils.EncryptUtil;
 import my.hive.common.utils.ResponseEncryptUtil;
 import my.hive.common.utils.TokenUtil;
 import my.hive_back.module.auth.model.dto.LoginRequest;
+import my.hive_back.module.auth.model.dto.WechatLoginRequest;
 import my.hive_back.module.auth.model.vo.LoginVO;
 import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.model.entity.Tenant;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
+import my.hive_back.module.wechat.model.vo.WechatPhoneInfoVO;
+import my.hive_back.module.wechat.service.WechatMiniProgramClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -20,6 +24,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 /**
@@ -46,6 +51,12 @@ public class AuthService {
     @Resource
     private ResponseEncryptUtil responseEncryptUtil;
 
+    @Resource
+    private PrivacyProtectionUtil privacyProtectionUtil;
+
+    @Resource
+    private WechatMiniProgramClient wechatMiniProgramClient;
+
     @Value("${auth.login.max-fail-count:5}")
     private Long maxFailCount;
 
@@ -61,8 +72,9 @@ public class AuthService {
     public LoginVO login(LoginRequest request, String clientIp) {
         String tenantCode = request.getTenantCode().trim();
         String username = request.getUsername().trim();
+        String phoneHash = privacyProtectionUtil.mayBePhoneKeyword(username) ? privacyProtectionUtil.hashPhone(username) : null;
         String safeClientIp = normalizeClientIp(clientIp);
-        String accountFailKey = LOGIN_FAIL_ACCOUNT_KEY_PREFIX + tenantCode + ":" + username;
+        String accountFailKey = LOGIN_FAIL_ACCOUNT_KEY_PREFIX + tenantCode + ":" + accountFailKeySegment(username, phoneHash);
         String ipFailKey = LOGIN_FAIL_IP_KEY_PREFIX + tenantCode + ":" + safeClientIp;
 
         ensureLoginNotLocked(accountFailKey, maxFailCount, "登录失败次数过多，请稍后再试");
@@ -77,7 +89,14 @@ public class AuthService {
 
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getTenantCode, tenantCode)
-                .and(wrapper -> wrapper.eq(User::getLoginName, username).or().eq(User::getPhone, username))
+                .and(wrapper -> {
+                    wrapper.eq(User::getLoginName, username);
+                    if (phoneHash != null && !phoneHash.isBlank()) {
+                        wrapper.or().eq(User::getPhoneHash, phoneHash);
+                    }
+                    // 历史数据迁移期保留明文手机号兜底，待 phone_hash 回填完成后可移除。
+                    wrapper.or().eq(User::getPhone, username);
+                })
                 .last("LIMIT 1"));
 
         if (user == null || !Objects.equals(user.getStatus(), 1) || !encryptUtil.matches(request.getPassword(), user.getPassword())) {
@@ -94,17 +113,33 @@ public class AuthService {
         stringRedisTemplate.delete(ipFailKey);
 
         String token = TokenUtil.createToken(user.getId(), tenantCode);
+        return buildLoginVO(user, token, tenantCode);
+    }
 
-        LoginVO loginVO = new LoginVO();
-        loginVO.setToken(token);
-        loginVO.setExpireAt(Instant.now().plus(Duration.ofHours(tokenExpireHours)).getEpochSecond());
-        loginVO.setUserId(user.getId());
-        loginVO.setUserName(user.getName());
-        loginVO.setPhone(user.getPhone());
-        loginVO.setPosition(user.getPosition());
-        loginVO.setTenantCode(tenantCode);
-        loginVO.setResponseKey(responseEncryptUtil.buildResponseKey(token));
-        return loginVO;
+    /**
+     * 微信手机号一键登录。
+     *
+     * 这里没有短信验证码：小程序端经用户授权拿到 phoneCode，后端调微信官方接口换取手机号，
+     * 再使用不可逆手机号哈希匹配系统中已存在的员工账号。
+     */
+    public LoginVO wechatLogin(WechatLoginRequest request) {
+        WechatPhoneInfoVO phoneInfo = wechatMiniProgramClient.getPhoneNumber(request.getPhoneCode());
+        String normalizedPhone = privacyProtectionUtil.normalizePhone(
+                phoneInfo.getPurePhoneNumber() != null && !phoneInfo.getPurePhoneNumber().isBlank()
+                        ? phoneInfo.getPurePhoneNumber()
+                        : phoneInfo.getPhoneNumber());
+        if (normalizedPhone == null) {
+            throw new BusinessException("微信手机号格式异常");
+        }
+        String phoneHash = privacyProtectionUtil.hashPhone(normalizedPhone);
+        String tenantCode = request.getTenantCode() == null ? null : request.getTenantCode().trim();
+        User user = resolveWechatLoginUser(phoneHash, normalizedPhone, tenantCode);
+        Tenant tenant = tenantMapper.selectByTenantCode(user.getTenantCode());
+        if (tenant == null || !Objects.equals(tenant.getStatus(), 1)) {
+            throw new BusinessException(403, "租户不可用");
+        }
+        String token = TokenUtil.createToken(user.getId(), user.getTenantCode());
+        return buildLoginVO(user, token, user.getTenantCode());
     }
 
     public LoginVO currentUser() {
@@ -127,6 +162,40 @@ public class AuthService {
         loginVO.setUserId(user.getId());
         loginVO.setUserName(user.getName());
         loginVO.setTenantCode(tenantCode);
+        loginVO.setPhone(privacyProtectionUtil.displayPhone(user.getPhone(), user.getPhoneMask()));
+        return loginVO;
+    }
+
+    private User resolveWechatLoginUser(String phoneHash, String normalizedPhone, String tenantCode) {
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<User>()
+                .eq(User::getStatus, 1)
+                .and(query -> query.eq(User::getPhoneHash, phoneHash)
+                        // 历史数据迁移期保留明文手机号兜底，待 phone_hash 回填完成后可移除。
+                        .or()
+                        .eq(User::getPhone, normalizedPhone));
+        if (tenantCode != null && !tenantCode.isBlank()) {
+            wrapper.eq(User::getTenantCode, tenantCode);
+        }
+        List<User> users = userMapper.selectList(wrapper.last("LIMIT 2"));
+        if (users == null || users.isEmpty()) {
+            throw new BusinessException(401, "该微信手机号未绑定系统账号，请先联系管理员添加员工手机号");
+        }
+        if (users.size() > 1) {
+            throw new BusinessException(409, "该手机号关联多个租户，请先输入租户码后再使用微信一键登录");
+        }
+        return users.get(0);
+    }
+
+    private LoginVO buildLoginVO(User user, String token, String tenantCode) {
+        LoginVO loginVO = new LoginVO();
+        loginVO.setToken(token);
+        loginVO.setExpireAt(Instant.now().plus(Duration.ofHours(tokenExpireHours)).getEpochSecond());
+        loginVO.setUserId(user.getId());
+        loginVO.setUserName(user.getName());
+        loginVO.setPhone(privacyProtectionUtil.displayPhone(user.getPhone(), user.getPhoneMask()));
+        loginVO.setPosition(user.getPosition());
+        loginVO.setTenantCode(tenantCode);
+        loginVO.setResponseKey(responseEncryptUtil.buildResponseKey(token));
         return loginVO;
     }
 
@@ -156,5 +225,12 @@ public class AuthService {
             return "unknown";
         }
         return clientIp.replace(":", "_").replace(".", "_");
+    }
+
+    private String accountFailKeySegment(String username, String phoneHash) {
+        if (phoneHash != null && !phoneHash.isBlank()) {
+            return "phone:" + phoneHash;
+        }
+        return username;
     }
 }

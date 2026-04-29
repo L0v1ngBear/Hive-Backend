@@ -11,8 +11,7 @@ import java.time.LocalDateTime;
 @Data
 public class AttendanceStatics {
 
-    // TODO 增加唯一索引ALTER TABLE attendance_statics
-    //ADD UNIQUE INDEX uk_user_tenant_date (tenant_code, user_id, statistics_date);
+    // 生产库建议执行：ALTER TABLE attendance_statics ADD UNIQUE INDEX uk_user_tenant_date (tenant_code, user_id, statistics_date);
 
     @TableId(type = IdType.AUTO)
     private Long id;

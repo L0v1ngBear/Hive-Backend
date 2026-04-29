@@ -16,11 +16,11 @@ public class InventoryInRequest {
     private String modelCode;
 
     @NotNull
-    @DecimalMin(value = "0.0", message = "米数不能小于等于0")
+    @DecimalMin(value = "0.0", inclusive = false, message = "米数必须大于0")
     private Float meters;
 
     @NotNull
-    @DecimalMin(value = "0.0", message = "规格不能小于等于0")
+    @DecimalMin(value = "0.0", inclusive = false, message = "规格必须大于0")
     private Float spec;
 
     // 入库类型

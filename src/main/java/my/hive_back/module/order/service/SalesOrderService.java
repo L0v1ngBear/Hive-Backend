@@ -45,6 +45,10 @@ import java.util.stream.Collectors;
 @Service
 public class SalesOrderService {
 
+    private static final long DEFAULT_PAGE_NUM = 1L;
+    private static final long DEFAULT_PAGE_SIZE = 20L;
+    private static final long MAX_PAGE_SIZE = 200L;
+
     @Resource
     private SalesOrderMapper salesOrderMapper;
 
@@ -63,11 +67,11 @@ public class SalesOrderService {
     @Resource
     private CodeGeneratorUtil codeGeneratorUtil;
 
-    @RequirePermission(value = "order:sales:list", message = "您没有权限查询销售订单列表")
+    @RequirePermission(value = "sales:order:list", message = "您没有权限查询销售订单列表")
     public Page<SalesOrderVO> selectSalesOrder(SalesOrderListRequest request) {
         // 1. 分页参数默认值处理（防御性编程）
-        long pageNum = request.getPageNum() <= 0 ? 1 : request.getPageNum();
-        long pageSize = request.getPageSize() <= 0 ? 10 : request.getPageSize();
+        long pageNum = safePageNum(request.getPageNum());
+        long pageSize = safePageSize(request.getPageSize());
         Page<SalesOrder> page = new Page<>(pageNum, pageSize);
 
         // 2. 构建查询条件（核心：空值判断 + OR 模糊查询）
@@ -132,9 +136,21 @@ public class SalesOrderService {
         return resultPage;
     }
 
+    private long safePageNum(Integer pageNum) {
+        return pageNum == null || pageNum <= 0 ? DEFAULT_PAGE_NUM : pageNum;
+    }
+
+    private long safePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize <= 0) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize, MAX_PAGE_SIZE);
+    }
+
     /**
      * 根据订单ID查询订单详情 (返回 VO 对象)
      */
+    @RequirePermission(value = "sales:order:detail", message = "您没有权限查询销售订单详情")
     public SalesOrderVO getByIdandTenantId(String orderId) {
         // 1. 查询主表订单信息
         SalesOrder order = salesOrderMapper.selectByOrderId(orderId);
@@ -176,6 +192,7 @@ public class SalesOrderService {
         return orderVO;
     }
 
+    @RequirePermission(value = "sales:order:detail", message = "您没有权限查询销售订单状态变更日志")
     public List<SalesOrderStatusLog> selectSalesOrderStatusLog(@NotBlank String orderId) {
         return salesOrderStatusLogMapper.selectList(new LambdaQueryWrapper<SalesOrderStatusLog>()
                 .eq(SalesOrderStatusLog::getOrderId, orderId)
@@ -184,7 +201,7 @@ public class SalesOrderService {
 
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = "order:sales:add", message = "您没有权限添加销售订单")
+    @RequirePermission(value = "sales:order:status", message = "您没有权限添加销售订单")
     public void addSalesOrder(@Valid SalesOrderAddRequest request) {
         SalesOrder order = new SalesOrder();
 
@@ -248,6 +265,7 @@ public class SalesOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = "sales:order:status", message = "您没有权限更新销售订单状态")
     public SalesOrder updateStatusAndProcess(@NotBlank String orderId, @Valid SalesOrderUpdateRequest request) {
         // 1. 查询当前销售订单
         SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()

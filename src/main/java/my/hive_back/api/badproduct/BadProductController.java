@@ -2,6 +2,7 @@ package my.hive_back.api.badproduct;
 
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
+import my.hive.common.annotation.RequirePermission;
 import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
 import my.hive_back.module.badproduct.model.dto.BadProductPageRequest;
@@ -26,17 +27,20 @@ public class BadProductController {
     private BadProductService badProductService;
 
     @GetMapping("/list")
+    @RequirePermission(value = "badproduct:list", message = "您没有权限查看次品列表")
     public Result<PageResult<BadProductVO>> list(BadProductPageRequest request) {
         return Result.success(badProductService.page(request));
     }
 
     @PostMapping("/save")
+    @RequirePermission(value = "badproduct:save", message = "您没有权限登记次品")
     public Result<Void> save(@Valid @RequestBody BadProductSaveRequest request) {
         badProductService.save(request);
         return Result.success(null);
     }
 
     @PostMapping("/process")
+    @RequirePermission(value = "badproduct:process", message = "您没有权限处理次品")
     public Result<Void> process(@Valid @RequestBody BadProductProcessRequest request) {
         badProductService.process(request);
         return Result.success(null);
