@@ -6,7 +6,9 @@ import jakarta.annotation.Resource;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.dto.PageResult;
 import my.hive.common.exception.BusinessException;
+import my.hive_back.common.enums.QueryScopeEnum;
 import my.hive_back.common.utils.CodeGeneratorUtil;
+import my.hive_back.module.badproduct.BadProductStatusEnum;
 import my.hive_back.module.badproduct.mapper.BadProductMapper;
 import my.hive_back.module.badproduct.model.dto.BadProductPageRequest;
 import my.hive_back.module.badproduct.model.dto.BadProductProcessRequest;
@@ -15,6 +17,7 @@ import my.hive_back.module.badproduct.model.entity.BadProductRecord;
 import my.hive_back.module.badproduct.model.vo.BadProductVO;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
+import my.hive_back.module.wechat.service.WechatSubscribeNotificationService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +45,9 @@ public class BadProductService {
     @Resource
     private UserMapper userMapper;
 
+    @Resource
+    private WechatSubscribeNotificationService wechatSubscribeNotificationService;
+
     public PageResult<BadProductVO> page(BadProductPageRequest request) {
         LambdaQueryWrapper<BadProductRecord> wrapper = new LambdaQueryWrapper<>();
 
@@ -49,10 +55,10 @@ public class BadProductService {
         String type = normalizeQueryValue(request.getType());
         String dateText = normalizeQueryValue(request.getDate());
 
-        if (status != null && !"all".equals(status)) {
+        if (status != null && !QueryScopeEnum.ALL.matches(status)) {
             wrapper.eq(BadProductRecord::getStatus, status);
         }
-        if (type != null && !"all".equals(type)) {
+        if (type != null && !QueryScopeEnum.ALL.matches(type)) {
             wrapper.eq(BadProductRecord::getType, type);
         }
         if (dateText != null) {
@@ -96,7 +102,7 @@ public class BadProductService {
             entity.setDefectiveId(codeGeneratorUtil.generateCode("DC", 4));
             entity.setCreatorId(userId);
             entity.setCreatorName(user == null ? "未知用户" : user.getName());
-            entity.setStatus("pending");
+            entity.setStatus(BadProductStatusEnum.PENDING.getCode());
             entity.setCreateTime(LocalDateTime.now());
         }
 
@@ -123,10 +129,24 @@ public class BadProductService {
         if (entity == null) {
             throw new BusinessException("次品记录不存在");
         }
-        entity.setStatus("processed");
+        entity.setStatus(BadProductStatusEnum.PROCESSED.getCode());
         entity.setProcessMethod(request.getMethod());
         entity.setProcessRemark(blankToNull(request.getRemark()));
         badProductMapper.updateById(entity);
+        notifyBadProductProcessed(entity);
+    }
+
+    private void notifyBadProductProcessed(BadProductRecord entity) {
+        Long currentUserId = TenantPermissionContext.getUserId();
+        if (entity.getCreatorId() == null || entity.getCreatorId().equals(currentUserId)) {
+            return;
+        }
+        wechatSubscribeNotificationService.sendTodoAfterCommit(
+                entity.getCreatorId(),
+                "次品处理结果",
+                "次品记录 " + entity.getDefectiveId() + " 已处理",
+                "/pages/badProduct/badProduct"
+        );
     }
 
     private BadProductVO toVO(BadProductRecord entity) {

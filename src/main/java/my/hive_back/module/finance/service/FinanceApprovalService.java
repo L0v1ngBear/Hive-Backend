@@ -13,6 +13,7 @@ import my.hive_back.module.finance.model.vo.FinanceApprovalVO;
 import my.hive_back.module.leave.ApprovalActionEnum;
 import my.hive_back.module.user.model.entity.User;
 import my.hive_back.module.user.service.UserService;
+import my.hive_back.module.wechat.service.WechatSubscribeNotificationService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +38,9 @@ public class FinanceApprovalService {
     @Resource
     private CodeGeneratorUtil codeGeneratorUtil;
 
+    @Resource
+    private WechatSubscribeNotificationService wechatSubscribeNotificationService;
+
     @Transactional(rollbackFor = Exception.class)
     public String submit(FinanceSubmitRequest request) {
         Long userId = TenantPermissionContext.getUserId();
@@ -57,11 +61,14 @@ public class FinanceApprovalService {
         approval.setStatus(STATUS_PENDING);
         approval.setAuditorId(managerId);
         financeApprovalMapper.insert(approval);
+        notifyFinancePendingApprover(approval);
         return approval.getApprovalCode();
     }
 
     public FinanceApproval getByCode(String approvalCode) {
+        String tenantCode = TenantPermissionContext.getTenantCode();
         FinanceApproval approval = financeApprovalMapper.selectOne(new LambdaQueryWrapper<FinanceApproval>()
+                .eq(tenantCode != null, FinanceApproval::getTenantCode, tenantCode)
                 .eq(FinanceApproval::getApprovalCode, approvalCode));
         if (approval == null) {
             throw new BusinessException("财务审批单不存在");
@@ -75,7 +82,12 @@ public class FinanceApprovalService {
 
     public List<FinanceApprovalVO> list(String scope, Integer status) {
         Long userId = TenantPermissionContext.getUserId();
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        if (tenantCode == null || tenantCode.isBlank()) {
+            return List.of();
+        }
         LambdaQueryWrapper<FinanceApproval> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(FinanceApproval::getTenantCode, tenantCode);
         if (status != null) {
             queryWrapper.eq(FinanceApproval::getStatus, status);
         }
@@ -100,13 +112,14 @@ public class FinanceApprovalService {
     public void audit(FinanceAuditRequest request) {
         Long currentUserId = TenantPermissionContext.getUserId();
         FinanceApproval approval = getByCode(request.getApprovalCode());
-        if (!currentUserId.equals(approval.getAuditorId())) {
+        if (currentUserId == null || !currentUserId.equals(approval.getAuditorId())) {
             throw new BusinessException("您不是该财务审批单当前审批人");
         }
         if (approval.getStatus() != STATUS_PENDING) {
             throw new BusinessException("该财务审批单已处理，请勿重复审批");
         }
 
+        Long previousAuditorId = approval.getAuditorId();
         approval.setAuditComment(request.getComment());
         if (ApprovalActionEnum.APPROVE.getCode() == request.getAction()) {
             Long nextManagerId = userService.getManagerId(currentUserId);
@@ -120,6 +133,40 @@ public class FinanceApprovalService {
             approval.setStatus(STATUS_REJECTED);
         }
         financeApprovalMapper.updateById(approval);
+        notifyFinanceAuditChange(approval, previousAuditorId);
+    }
+
+    private void notifyFinancePendingApprover(FinanceApproval approval) {
+        wechatSubscribeNotificationService.sendTodoAfterCommit(
+                approval.getAuditorId(),
+                "财务审批待处理",
+                buildApplicantName(approval.getApplyUserId()) + " 提交了财务单 " + approval.getApprovalCode(),
+                "/pages/approval/approval"
+        );
+    }
+
+    private void notifyFinanceAuditChange(FinanceApproval approval, Long previousAuditorId) {
+        if (approval.getStatus() != null && approval.getStatus() == STATUS_PENDING
+                && approval.getAuditorId() != null && !approval.getAuditorId().equals(previousAuditorId)) {
+            notifyFinancePendingApprover(approval);
+            return;
+        }
+        if (approval.getStatus() != null && (approval.getStatus() == STATUS_APPROVED || approval.getStatus() == STATUS_REJECTED)) {
+            wechatSubscribeNotificationService.sendTodoAfterCommit(
+                    approval.getApplyUserId(),
+                    "财务审批结果",
+                    "财务单 " + approval.getApprovalCode() + " " + statusText(approval.getStatus()),
+                    "/pages/approval/approval"
+            );
+        }
+    }
+
+    private String buildApplicantName(Long userId) {
+        User user = userService.getUserById(userId);
+        if (user == null || user.getName() == null || user.getName().isBlank()) {
+            return "员工";
+        }
+        return user.getName();
     }
 
     private FinanceApprovalVO toVO(FinanceApproval approval) {

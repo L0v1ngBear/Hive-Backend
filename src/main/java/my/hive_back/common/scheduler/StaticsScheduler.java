@@ -1,13 +1,18 @@
 package my.hive_back.common.scheduler;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.xxl.job.core.context.XxlJobHelper;
+import com.xxl.job.core.handler.annotation.XxlJob;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import my.hive.common.context.TenantPermissionContext;
-import my.hive_back.common.utils.RedisUtil;
+import my.hive.common.event.SystemEvent;
+import my.hive.common.event.SystemEventPublisher;
 import my.hive_back.module.attendance.PunchStatusEnum;
 import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
+import my.hive_back.module.inventory.InventoryRecordOperateTypeEnum;
+import my.hive_back.module.inventory.mapper.InventoryRecordMapper;
+import my.hive_back.module.inventory.model.vo.InventoryDailyMetersVO;
 import my.hive_back.module.leave.LeaveStatusEnum;
 import my.hive_back.module.leave.mapper.LeaveMapper;
 import my.hive_back.module.leave.model.entity.UserLeave;
@@ -16,28 +21,25 @@ import my.hive_back.module.statics.inventory.model.entity.InventoryTrendStatics;
 import my.hive_back.module.statics.inventory.service.InventoryTrendStaticsService;
 import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
 import my.hive_back.module.tenant.mapper.TenantMapper;
+import my.hive_back.module.tenant.model.entity.Tenant;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
-import my.hive_back.module.tenant.model.entity.Tenant;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.UUID;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-/**
- * StaticsScheduler 属于小程序后端通用能力层，承载定时调度相关逻辑。
- */
 @Slf4j
 @Component
 public class StaticsScheduler {
@@ -57,17 +59,11 @@ public class StaticsScheduler {
     @Resource
     private TenantAttendanceRuleMapper ruleMapper;
 
-    @Value("${redis.key-prefix.trend.today_in}")
-    private String REDIS_TODAY_IN;
-
-    @Value("${redis.key-prefix.trend.today_out}")
-    private String REDIS_TODAY_OUT;
+    @Resource
+    private InventoryRecordMapper inventoryRecordMapper;
 
     @Resource
     private TenantMapper tenantMapper;
-
-    @Resource
-    private RedisUtil redisUtil;
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
@@ -78,76 +74,101 @@ public class StaticsScheduler {
     @Resource
     private InventoryTrendStaticsService staticsService;
 
-    /**
-     * 每天凌晨2点核算昨日考勤
-     * 补充逻辑：处理那些完全没打卡（表中无记录）或打卡后状态仍为异常的用户
-     */
-    @Scheduled(cron = "${scheduler.attendance.daily-cron:0 0 2 * * ?}")
+    @Resource
+    private SystemEventPublisher systemEventPublisher;
+
+    @XxlJob("attendanceDailyStatJob")
     public void statisticsYesterday() {
-        String attendanceLockValue = tryRunWithLock(ATTENDANCE_STAT_LOCK_KEY, 30 * 60);
-        if (attendanceLockValue == null) {
-            log.info("昨日考勤核算任务已在其他节点执行，本次跳过");
+        String lockValue = tryRunWithLock(ATTENDANCE_STAT_LOCK_KEY, 30 * 60);
+        if (lockValue == null) {
+            log.info("attendance daily stat skipped: another node is running");
+            XxlJobHelper.log("attendance daily stat skipped: lock busy");
             return;
         }
 
-        // 【关键】：开启忽略多租户插件，让接下来的所有查询在全表进行
         try {
             LocalDate yesterday = LocalDate.now().minusDays(1);
             String dateStr = yesterday.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-            log.info("开始核算所有租户昨日 ({}) 考勤数据...", dateStr);
+            log.info("attendance daily stat started, date={}", dateStr);
+            XxlJobHelper.log("attendance daily stat started, date={}", dateStr);
 
-            // 1. 获取所有在职用户 (此时 selectList 不会自动拼接 AND tenant_code = ?)
             List<User> userList = userMapper.selectList(new LambdaQueryWrapper<User>()
                     .eq(User::getStatus, 1));
-
-            // 2. 获取所有租户的考勤规则
-            List<TenantAttendanceRule> allRules = ruleMapper.selectList(new LambdaQueryWrapper<TenantAttendanceRule>()
-                    .eq(TenantAttendanceRule::getStatus, 1));
-            Map<String, TenantAttendanceRule> ruleMap = allRules.stream()
-                    .collect(Collectors.toMap(TenantAttendanceRule::getTenantCode, r -> r));
-
-            // 3. 获取昨日所有已通过的请假单
-            List<UserLeave> allLeaves = leaveMapper.selectList(new LambdaQueryWrapper<UserLeave>()
-                    .eq(UserLeave::getStatus, LeaveStatusEnum.APPROVED.getCode())
-                    .gt(UserLeave::getEndTime, yesterday.atStartOfDay()));
-            Map<Long, List<UserLeave>> userLeaveMap = allLeaves.stream()
-                    .collect(Collectors.groupingBy(UserLeave::getApplyUserId));
-
-            // 4. 获取昨日已有的打卡记录
-            List<AttendanceRecord> existingRecords = recordMapper.selectList(new LambdaQueryWrapper<AttendanceRecord>()
-                    .likeRight(AttendanceRecord::getPunchId, dateStr));
-            Map<Long, AttendanceRecord> userRecordMap = existingRecords.stream()
-                    .collect(Collectors.toMap(AttendanceRecord::getUserId, r -> r));
-
-            // 5. 遍历用户进行判定
-            for (User user : userList) {
-                TenantAttendanceRule rule = ruleMap.get(user.getTenantCode());
-                if (rule == null) continue;
-
-                AttendanceRecord record = userRecordMap.get(user.getId());
-                List<UserLeave> userLeaves = userLeaveMap.getOrDefault(user.getId(), List.of());
-
-                processUserDayStatus(user, yesterday, dateStr, record, userLeaves, rule);
+            if (userList == null || userList.isEmpty()) {
+                XxlJobHelper.log("attendance daily stat finished: no active users");
+                systemEventPublisher.info("ATTENDANCE_DAILY_STAT", "考勤日统计完成", "没有需要统计的在职员工",
+                        Map.of("date", dateStr, "processed", 0));
+                return;
             }
 
-            log.info("昨日所有租户考勤核算完成。");
+            List<TenantAttendanceRule> allRules = ruleMapper.selectList(new LambdaQueryWrapper<TenantAttendanceRule>()
+                    .eq(TenantAttendanceRule::getStatus, 1));
+            Map<String, TenantAttendanceRule> ruleMap = (allRules == null ? List.<TenantAttendanceRule>of() : allRules)
+                    .stream()
+                    .filter(rule -> rule != null && rule.getTenantCode() != null)
+                    .collect(Collectors.toMap(TenantAttendanceRule::getTenantCode, rule -> rule, (left, right) -> left));
 
+            LocalDateTime dayStart = yesterday.atStartOfDay();
+            LocalDateTime dayEnd = yesterday.plusDays(1).atStartOfDay();
+            List<UserLeave> allLeaves = leaveMapper.selectList(new LambdaQueryWrapper<UserLeave>()
+                    .eq(UserLeave::getStatus, LeaveStatusEnum.APPROVED.getCode())
+                    .gt(UserLeave::getEndTime, dayStart)
+                    .lt(UserLeave::getStartTime, dayEnd));
+            Map<Long, List<UserLeave>> userLeaveMap = (allLeaves == null ? List.<UserLeave>of() : allLeaves)
+                    .stream()
+                    .filter(leave -> leave != null && leave.getApplyUserId() != null)
+                    .collect(Collectors.groupingBy(UserLeave::getApplyUserId));
+
+            List<AttendanceRecord> existingRecords = recordMapper.selectList(new LambdaQueryWrapper<AttendanceRecord>()
+                    .likeRight(AttendanceRecord::getPunchId, dateStr));
+            Map<Long, AttendanceRecord> userRecordMap = (existingRecords == null ? List.<AttendanceRecord>of() : existingRecords)
+                    .stream()
+                    .filter(record -> record != null && record.getUserId() != null)
+                    .collect(Collectors.toMap(AttendanceRecord::getUserId, record -> record, (left, right) -> left));
+
+            int processed = 0;
+            for (User user : userList) {
+                if (user == null || user.getId() == null || user.getTenantCode() == null) {
+                    continue;
+                }
+                TenantAttendanceRule rule = ruleMap.get(user.getTenantCode());
+                if (rule == null) {
+                    continue;
+                }
+                AttendanceRecord record = userRecordMap.get(user.getId());
+                List<UserLeave> userLeaves = userLeaveMap.getOrDefault(user.getId(), List.of());
+                processUserDayStatus(user, yesterday, dateStr, record, userLeaves, rule);
+                processed++;
+            }
+
+            log.info("attendance daily stat finished, date={}, processed={}", dateStr, processed);
+            XxlJobHelper.log("attendance daily stat finished, date={}, processed={}", dateStr, processed);
+            systemEventPublisher.publish(SystemEvent.builder()
+                    .eventType("ATTENDANCE_DAILY_STAT")
+                    .level("INFO")
+                    .module("attendance")
+                    .title("考勤日统计完成")
+                    .content("统计日期: " + dateStr + ", 处理员工数: " + processed)
+                    .bizType("xxl-job")
+                    .bizNo("attendanceDailyStatJob")
+                    .detail(Map.of("date", dateStr, "processed", processed))
+                    .build());
         } catch (Exception ex) {
-            log.error("昨日考勤核算任务执行失败", ex);
-
+            log.error("attendance daily stat failed", ex);
+            XxlJobHelper.log("attendance daily stat failed: {}", ex.getMessage());
+            systemEventPublisher.error("ATTENDANCE_DAILY_STAT_FAILED", "考勤日统计失败", ex,
+                    Map.of("job", "attendanceDailyStatJob"));
+            XxlJobHelper.handleFail(ex.getMessage());
         } finally {
-            // 【关键】：任务执行完，务必清除标记，防止线程池复用污染其他业务
-            releaseLock(ATTENDANCE_STAT_LOCK_KEY, attendanceLockValue);
+            releaseLock(ATTENDANCE_STAT_LOCK_KEY, lockValue);
         }
     }
 
     private void processUserDayStatus(User user, LocalDate yesterday, String dateStr,
                                       AttendanceRecord record, List<UserLeave> leaves,
                                       TenantAttendanceRule rule) {
-
         boolean isNewRecord = false;
         if (record == null) {
-            // A. 场景：用户昨日完全没打卡，需创建初始记录判定为“缺勤”或“请假”
             record = new AttendanceRecord();
             record.setPunchId(dateStr + "_" + user.getId());
             record.setUserId(user.getId());
@@ -155,39 +176,30 @@ public class StaticsScheduler {
             isNewRecord = true;
         }
 
-        // --- 1. 上班状态校准 ---
         if (record.getSignInTime() == null) {
-            // 没打卡：检查上班时间点是否被请假覆盖
             if (isTimeCoveredByLeaves(rule.getWorkStartTime(), yesterday, leaves)) {
                 record.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
             } else {
-                record.setSignInStatus(PunchStatusEnum.ABSENT.getCode()); // 设为缺勤/缺卡
+                record.setSignInStatus(PunchStatusEnum.ABSENT.getCode());
             }
-        } else if (PunchStatusEnum.LATE.getCode().equals(record.getSignInStatus())) {
-            // 迟到：检查规定的上班时间点是否在请假范围内（例如请假半天）
-            if (isTimeCoveredByLeaves(rule.getWorkStartTime(), yesterday, leaves)) {
-                record.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
-            }
+        } else if (PunchStatusEnum.LATE.getCode().equals(record.getSignInStatus())
+                && isTimeCoveredByLeaves(rule.getWorkStartTime(), yesterday, leaves)) {
+            record.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
         }
 
-        // --- 2. 下班状态校准 ---
         if (record.getSignOutTime() == null) {
-            // 没打卡：检查下班时间点是否被请假覆盖
             if (isTimeCoveredByLeaves(rule.getOffWorkStartTime(), yesterday, leaves)
                     || isTimeCoveredByLeaves(rule.getOffWorkEndTime(), yesterday, leaves)) {
                 record.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
             } else {
                 record.setSignOutStatus(PunchStatusEnum.ABSENT.getCode());
             }
-        } else if (PunchStatusEnum.EARLY.getCode().equals(record.getSignOutStatus())) {
-            // 早退：检查下班时间点是否在请假范围内
-            if (isTimeCoveredByLeaves(rule.getOffWorkStartTime(), yesterday, leaves)
-                    || isTimeCoveredByLeaves(rule.getOffWorkEndTime(), yesterday, leaves)) {
-                record.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
-            }
+        } else if (PunchStatusEnum.EARLY.getCode().equals(record.getSignOutStatus())
+                && (isTimeCoveredByLeaves(rule.getOffWorkStartTime(), yesterday, leaves)
+                || isTimeCoveredByLeaves(rule.getOffWorkEndTime(), yesterday, leaves))) {
+            record.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
         }
 
-        // --- 3. 持久化 ---
         if (isNewRecord) {
             recordMapper.insert(record);
         } else {
@@ -195,33 +207,31 @@ public class StaticsScheduler {
         }
     }
 
-    /**
-     * 判定特定时间点是否被请假单覆盖
-     */
     private boolean isTimeCoveredByLeaves(LocalTime checkTime, LocalDate date, List<UserLeave> leaves) {
-        if (checkTime == null) return false;
+        if (checkTime == null || leaves == null || leaves.isEmpty()) {
+            return false;
+        }
         LocalDateTime checkDateTime = LocalDateTime.of(date, checkTime);
         return leaves.stream().anyMatch(leave ->
-                !checkDateTime.isBefore(leave.getStartTime()) && !checkDateTime.isAfter(leave.getEndTime()));
+                leave != null
+                        && leave.getStartTime() != null
+                        && leave.getEndTime() != null
+                        && !checkDateTime.isBefore(leave.getStartTime())
+                        && !checkDateTime.isAfter(leave.getEndTime()));
     }
 
-
-    /**
-     * 每天凌晨 01:00 执行：Redis 统计数据 → 持久化到 DB
-     */
-    @Scheduled(cron = "${scheduler.inventory.daily-cron:0 5 0 * * ?}")
+    @XxlJob("inventoryDailyStatJob")
     public void inventoryDailyStatTask() {
-        String inventoryLockValue = tryRunWithLock(INVENTORY_STAT_LOCK_KEY, 20 * 60);
-        if (inventoryLockValue == null) {
-            log.info("库存日统计任务已在其他节点执行，本次跳过");
+        String lockValue = tryRunWithLock(INVENTORY_STAT_LOCK_KEY, 20 * 60);
+        if (lockValue == null) {
+            log.info("inventory daily stat skipped: another node is running");
+            XxlJobHelper.log("inventory daily stat skipped: lock busy");
             return;
         }
 
-        log.info("===== 【多租户】库存日统计定时任务开始 =====");
-
         try {
             LocalDate statDate = LocalDate.now().minusDays(1);
-            log.info("统计日期：{}", statDate);
+            XxlJobHelper.log("inventory daily stat started, date={}", statDate);
 
             List<String> tenantCodes = tenantMapper.selectList(new LambdaQueryWrapper<Tenant>()
                             .eq(Tenant::getDeleted, 0)
@@ -229,21 +239,43 @@ public class StaticsScheduler {
                             .select(Tenant::getTenantCode))
                     .stream()
                     .map(Tenant::getTenantCode)
+                    .filter(tenantCode -> tenantCode != null && !tenantCode.isBlank())
                     .toList();
 
             if (tenantCodes.isEmpty()) {
-                log.info("无可用租户，任务结束");
+                log.info("inventory daily stat finished: no enabled tenant");
+                XxlJobHelper.log("inventory daily stat finished: no enabled tenant");
+                systemEventPublisher.info("INVENTORY_DAILY_STAT", "库存日统计完成", "没有启用中的租户",
+                        Map.of("date", statDate.toString(), "tenantCount", 0));
                 return;
             }
 
             List<InventoryTrendStatics> insertList = new ArrayList<>();
             List<InventoryTrendStatics> updateList = new ArrayList<>();
             LocalDateTime statDateTime = statDate.atStartOfDay();
+            List<InventoryTrendStatics> existingStats = staticsMapper.selectList(new LambdaQueryWrapper<InventoryTrendStatics>()
+                    .eq(InventoryTrendStatics::getStatDate, statDateTime)
+                    .in(InventoryTrendStatics::getTenantCode, tenantCodes));
+            Map<String, InventoryTrendStatics> existingStatMap = (existingStats == null ? List.<InventoryTrendStatics>of() : existingStats)
+                    .stream()
+                    .filter(stat -> stat != null && stat.getTenantCode() != null)
+                    .collect(Collectors.toMap(InventoryTrendStatics::getTenantCode, stat -> stat, (left, right) -> left));
+            int failedTenantCount = 0;
+            LocalDateTime dayStart = statDate.atStartOfDay();
+            LocalDateTime dayEnd = statDate.plusDays(1).atStartOfDay();
 
             for (String tenantCode : tenantCodes) {
                 try {
-                    Float totalIn = getTrendMeters(REDIS_TODAY_IN, tenantCode, statDate);
-                    Float totalOut = getTrendMeters(REDIS_TODAY_OUT, tenantCode, statDate);
+                    InventoryDailyMetersVO dailyMeters = inventoryRecordMapper.sumDailyMeters(
+                            tenantCode,
+                            InventoryRecordOperateTypeEnum.IN.getCode(),
+                            InventoryRecordOperateTypeEnum.EXTERNAL_IMPORT.getCode(),
+                            InventoryRecordOperateTypeEnum.OUT.getCode(),
+                            dayStart,
+                            dayEnd
+                    );
+                    Float totalIn = toMetersFloat(dailyMeters == null ? null : dailyMeters.getInMeters());
+                    Float totalOut = toMetersFloat(dailyMeters == null ? null : dailyMeters.getOutMeters());
 
                     InventoryTrendStatics stat = new InventoryTrendStatics();
                     stat.setStatDate(statDateTime);
@@ -252,11 +284,7 @@ public class StaticsScheduler {
                     stat.setDayOutMeters(totalOut);
                     stat.setUpdateTime(LocalDateTime.now());
 
-                    LambdaQueryWrapper<InventoryTrendStatics> queryWrapper = new LambdaQueryWrapper<>();
-                    queryWrapper.eq(InventoryTrendStatics::getStatDate, statDateTime);
-                    queryWrapper.eq(InventoryTrendStatics::getTenantCode, tenantCode);
-                    InventoryTrendStatics exist = staticsMapper.selectOne(queryWrapper);
-
+                    InventoryTrendStatics exist = existingStatMap.get(tenantCode);
                     if (exist != null) {
                         stat.setId(exist.getId());
                         updateList.add(stat);
@@ -264,10 +292,11 @@ public class StaticsScheduler {
                         stat.setCreateTime(LocalDateTime.now());
                         insertList.add(stat);
                     }
-
-                    log.info("租户 [{}] 统计完成 → 入库：{}，出库：{}", tenantCode, totalIn, totalOut);
-                } catch (Exception e) {
-                    log.error("租户 [{}] 统计异常，已跳过", tenantCode, e);
+                    log.info("inventory daily stat tenant finished, tenantCode={}, in={}, out={}", tenantCode, totalIn, totalOut);
+                } catch (Exception ex) {
+                    failedTenantCount++;
+                    log.error("inventory daily stat tenant failed, tenantCode={}", tenantCode, ex);
+                    XxlJobHelper.log("inventory daily stat tenant failed, tenantCode={}, error={}", tenantCode, ex.getMessage());
                 }
             }
 
@@ -278,29 +307,44 @@ public class StaticsScheduler {
                 staticsService.updateBatchById(updateList);
             }
 
-            log.info("===== 【多租户】库存日统计任务全部完成 =====");
+            log.info("inventory daily stat finished, date={}, tenantCount={}", statDate, tenantCodes.size());
+            XxlJobHelper.log("inventory daily stat finished, date={}, tenantCount={}, failedTenantCount={}",
+                    statDate, tenantCodes.size(), failedTenantCount);
+            systemEventPublisher.publish(SystemEvent.builder()
+                    .eventType("INVENTORY_DAILY_STAT")
+                    .level(failedTenantCount > 0 ? "WARN" : "INFO")
+                    .module("inventory")
+                    .title(failedTenantCount > 0 ? "库存日统计存在失败租户" : "库存日统计完成")
+                    .content("统计日期: " + statDate + ", 租户数: " + tenantCodes.size() + ", 失败租户数: " + failedTenantCount)
+                    .bizType("xxl-job")
+                    .bizNo("inventoryDailyStatJob")
+                    .detail(Map.of(
+                            "date", statDate.toString(),
+                            "tenantCount", tenantCodes.size(),
+                            "failedTenantCount", failedTenantCount,
+                            "insertCount", insertList.size(),
+                            "updateCount", updateList.size()
+                    ))
+                    .build());
+        } catch (Exception ex) {
+            log.error("inventory daily stat failed", ex);
+            XxlJobHelper.log("inventory daily stat failed: {}", ex.getMessage());
+            systemEventPublisher.error("INVENTORY_DAILY_STAT_FAILED", "库存日统计失败", ex,
+                    Map.of("job", "inventoryDailyStatJob"));
+            XxlJobHelper.handleFail(ex.getMessage());
         } finally {
-            releaseLock(INVENTORY_STAT_LOCK_KEY, inventoryLockValue);
+            releaseLock(INVENTORY_STAT_LOCK_KEY, lockValue);
         }
     }
 
-    private Float getTrendMeters(String keyPrefix, String tenantCode, LocalDate statDate) {
-        try {
-            String value = stringRedisTemplate.opsForValue().get(keyPrefix + tenantCode + ":" + statDate);
-            return value == null ? 0f : Float.parseFloat(value);
-        } catch (Exception e) {
-            log.error("读取库存日统计缓存失败，tenantCode: {}, statDate: {}", tenantCode, statDate, e);
-            return 0f;
-        }
+    private Float toMetersFloat(BigDecimal value) {
+        return value == null ? 0f : value.floatValue();
     }
 
     private String tryRunWithLock(String lockKey, long expireSeconds) {
         String lockValue = UUID.randomUUID().toString();
-        Boolean success = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, expireSeconds, java.util.concurrent.TimeUnit.SECONDS);
-        if (Boolean.TRUE.equals(success)) {
-            return lockValue;
-        }
-        return null;
+        Boolean success = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, expireSeconds, TimeUnit.SECONDS);
+        return Boolean.TRUE.equals(success) ? lockValue : null;
     }
 
     private void releaseLock(String lockKey, String lockValue) {
@@ -309,8 +353,8 @@ public class StaticsScheduler {
             if (lockValue != null && lockValue.equals(currentValue)) {
                 stringRedisTemplate.delete(lockKey);
             }
-        } catch (Exception e) {
-            log.warn("释放定时任务锁失败，lockKey: {}", lockKey, e);
+        } catch (Exception ex) {
+            log.warn("release scheduler lock failed, lockKey={}", lockKey, ex);
         }
     }
 }

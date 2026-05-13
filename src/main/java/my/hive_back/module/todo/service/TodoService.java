@@ -4,8 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.dto.PageResult;
+import my.hive_back.common.enums.BinaryFlagEnum;
+import my.hive_back.module.badproduct.BadProductStatusEnum;
 import my.hive_back.module.badproduct.mapper.BadProductMapper;
 import my.hive_back.module.badproduct.model.entity.BadProductRecord;
+import my.hive_back.module.finance.FinanceApprovalStatusEnum;
 import my.hive_back.module.finance.mapper.FinanceApprovalMapper;
 import my.hive_back.module.finance.model.entity.FinanceApproval;
 import my.hive_back.module.inventory.mapper.OutboundOrderMapper;
@@ -15,8 +18,10 @@ import my.hive_back.module.leave.mapper.LeaveMapper;
 import my.hive_back.module.leave.model.entity.UserLeave;
 import my.hive_back.module.order.mapper.ProductionOrderMapper;
 import my.hive_back.module.order.mapper.SalesOrderMapper;
+import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.model.entity.ProductionOrder;
 import my.hive_back.module.order.model.entity.SalesOrder;
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import my.hive_back.module.todo.model.dto.TodoPageRequest;
 import my.hive_back.module.todo.model.vo.TodoItemVO;
 import org.springframework.stereotype.Service;
@@ -80,39 +85,49 @@ public class TodoService {
 
     public int countAll() {
         Long userId = TenantPermissionContext.getUserId();
+        String tenantCode = currentTenantCode();
+        if (tenantCode == null) {
+            return 0;
+        }
         String userIdText = currentUserIdText();
         long total = 0L;
         if (userId != null) {
             total += leaveMapper.selectCount(new LambdaQueryWrapper<UserLeave>()
+                    .eq(UserLeave::getTenantCode, tenantCode)
                     .eq(UserLeave::getAuditorId, userId)
                     .eq(UserLeave::getStatus, LeaveStatusEnum.PENDING.getCode()));
             total += financeApprovalMapper.selectCount(new LambdaQueryWrapper<FinanceApproval>()
+                    .eq(FinanceApproval::getTenantCode, tenantCode)
                     .eq(FinanceApproval::getAuditorId, userId)
-                    .eq(FinanceApproval::getStatus, 1));
+                    .eq(FinanceApproval::getStatus, FinanceApprovalStatusEnum.PENDING.getCode()));
         }
-        if (hasAnyPermission("production:order:list", "production:order:*", "*")) {
+        if (hasAnyPermission(PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, PermissionCodeEnum.CODE_PRODUCTION_ORDER_ALL, PermissionCodeEnum.CODE_ALL)) {
             total += productionOrderMapper.selectCount(new LambdaQueryWrapper<ProductionOrder>()
+                    .eq(ProductionOrder::getTenantCode, tenantCode)
                     .and(wrapper -> wrapper.eq(ProductionOrder::getCreator, userIdText)
                             .or()
                             .eq(ProductionOrder::getUpdater, userIdText))
-                    .in(ProductionOrder::getStatus, List.of("pending_confirm", "pending_material", "pending_ship")));
+                    .in(ProductionOrder::getStatus, List.of(OrderStatusEnum.PENDING_CONFIRM.getCode(), OrderStatusEnum.PENDING_MATERIAL.getCode(), OrderStatusEnum.PENDING_SHIP.getCode())));
         }
-        if (hasAnyPermission("sales:order:list", "sales:order:*", "*")) {
+        if (hasAnyPermission(PermissionCodeEnum.CODE_SALES_ORDER_LIST, PermissionCodeEnum.CODE_SALES_ORDER_ALL, PermissionCodeEnum.CODE_ALL)) {
             total += salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+                    .eq(SalesOrder::getTenantCode, tenantCode)
                     .and(wrapper -> wrapper.eq(SalesOrder::getCreator, userIdText)
                             .or()
                             .eq(SalesOrder::getUpdater, userIdText))
-                    .in(SalesOrder::getStatus, List.of("pending_confirm", "pending_ship")));
+                    .in(SalesOrder::getStatus, List.of(OrderStatusEnum.PENDING_CONFIRM.getCode(), OrderStatusEnum.PENDING_SHIP.getCode())));
         }
-        if (hasAnyPermission("inventory", "inventory:*", "inventory:cloth:out", "*") && userId != null) {
+        if (hasAnyPermission(PermissionCodeEnum.CODE_INVENTORY, PermissionCodeEnum.CODE_INVENTORY_ALL, PermissionCodeEnum.CODE_INVENTORY_CLOTH_OUT, PermissionCodeEnum.CODE_ALL) && userId != null) {
             total += outboundOrderMapper.selectCount(new LambdaQueryWrapper<OutboundOrder>()
+                    .eq(OutboundOrder::getTenantCode, tenantCode)
                     .eq(OutboundOrder::getOperatorId, userId)
-                    .eq(OutboundOrder::getPrintStatus, 0));
+                    .eq(OutboundOrder::getPrintStatus, BinaryFlagEnum.NO.getCode()));
         }
-        if (hasAnyPermission("badproduct:*", "badproduct:list", "badproduct:process", "*") && userId != null) {
+        if (hasAnyPermission(PermissionCodeEnum.CODE_BADPRODUCT_ALL, PermissionCodeEnum.CODE_BADPRODUCT_LIST, PermissionCodeEnum.CODE_BADPRODUCT_PROCESS, PermissionCodeEnum.CODE_ALL) && userId != null) {
             total += badProductMapper.selectCount(new LambdaQueryWrapper<BadProductRecord>()
+                    .eq(BadProductRecord::getTenantCode, tenantCode)
                     .eq(BadProductRecord::getCreatorId, userId)
-                    .eq(BadProductRecord::getStatus, "pending"));
+                    .eq(BadProductRecord::getStatus, BadProductStatusEnum.PENDING.getCode()));
         }
         return Math.toIntExact(Math.min(total, Integer.MAX_VALUE));
     }
@@ -123,30 +138,35 @@ public class TodoService {
 
     private List<TodoItemVO> listAll(String type, Integer limitPerCategory) {
         Long userId = TenantPermissionContext.getUserId();
+        String tenantCode = currentTenantCode();
+        if (tenantCode == null) {
+            return List.of();
+        }
         String userIdText = currentUserIdText();
         List<TodoItemVO> todos = new ArrayList<>();
 
         if (matches(type, "approval") && userId != null) {
-            todos.addAll(buildLeaveTodos(userId, limitPerCategory));
-            todos.addAll(buildFinanceTodos(userId, limitPerCategory));
+            todos.addAll(buildLeaveTodos(tenantCode, userId, limitPerCategory));
+            todos.addAll(buildFinanceTodos(tenantCode, userId, limitPerCategory));
         }
         if (matches(type, "order")) {
-            todos.addAll(buildProductionTodos(userIdText, limitPerCategory));
-            todos.addAll(buildSalesTodos(userIdText, limitPerCategory));
+            todos.addAll(buildProductionTodos(tenantCode, userIdText, limitPerCategory));
+            todos.addAll(buildSalesTodos(tenantCode, userIdText, limitPerCategory));
         }
         if (matches(type, "print") && userId != null) {
-            todos.addAll(buildOutboundPrintTodos(userId, limitPerCategory));
+            todos.addAll(buildOutboundPrintTodos(tenantCode, userId, limitPerCategory));
         }
         if (matches(type, "quality") && userId != null) {
-            todos.addAll(buildBadProductTodos(userId, limitPerCategory));
+            todos.addAll(buildBadProductTodos(tenantCode, userId, limitPerCategory));
         }
 
         todos.sort(Comparator.comparing(TodoItemVO::getSortTime).reversed());
         return todos;
     }
 
-    private List<TodoItemVO> buildLeaveTodos(Long userId, Integer limit) {
+    private List<TodoItemVO> buildLeaveTodos(String tenantCode, Long userId, Integer limit) {
         List<UserLeave> leaves = leaveMapper.selectList(withLimit(new LambdaQueryWrapper<UserLeave>()
+                .eq(UserLeave::getTenantCode, tenantCode)
                 .eq(UserLeave::getAuditorId, userId)
                 .eq(UserLeave::getStatus, LeaveStatusEnum.PENDING.getCode())
                 .orderByDesc(UserLeave::getCreateTime), limit));
@@ -163,10 +183,11 @@ public class TodoService {
         )).toList();
     }
 
-    private List<TodoItemVO> buildFinanceTodos(Long userId, Integer limit) {
+    private List<TodoItemVO> buildFinanceTodos(String tenantCode, Long userId, Integer limit) {
         List<FinanceApproval> approvals = financeApprovalMapper.selectList(withLimit(new LambdaQueryWrapper<FinanceApproval>()
+                .eq(FinanceApproval::getTenantCode, tenantCode)
                 .eq(FinanceApproval::getAuditorId, userId)
-                .eq(FinanceApproval::getStatus, 1)
+                .eq(FinanceApproval::getStatus, FinanceApprovalStatusEnum.PENDING.getCode())
                 .orderByDesc(FinanceApproval::getCreateTime), limit));
 
         return approvals.stream().map(item -> buildTodo(
@@ -181,15 +202,16 @@ public class TodoService {
         )).toList();
     }
 
-    private List<TodoItemVO> buildProductionTodos(String userId, Integer limit) {
-        if (!hasAnyPermission("production:order:list", "production:order:*", "*")) {
+    private List<TodoItemVO> buildProductionTodos(String tenantCode, String userId, Integer limit) {
+        if (!hasAnyPermission(PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, PermissionCodeEnum.CODE_PRODUCTION_ORDER_ALL, PermissionCodeEnum.CODE_ALL)) {
             return List.of();
         }
         List<ProductionOrder> orders = productionOrderMapper.selectList(withLimit(new LambdaQueryWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getTenantCode, tenantCode)
                 .and(wrapper -> wrapper.eq(ProductionOrder::getCreator, userId)
                         .or()
                         .eq(ProductionOrder::getUpdater, userId))
-                .in(ProductionOrder::getStatus, List.of("pending_confirm", "pending_material", "pending_ship"))
+                .in(ProductionOrder::getStatus, List.of(OrderStatusEnum.PENDING_CONFIRM.getCode(), OrderStatusEnum.PENDING_MATERIAL.getCode(), OrderStatusEnum.PENDING_SHIP.getCode()))
                 .orderByDesc(ProductionOrder::getUpdateTime), limit));
 
         return orders.stream().map(item -> buildTodo(
@@ -204,15 +226,16 @@ public class TodoService {
         )).toList();
     }
 
-    private List<TodoItemVO> buildSalesTodos(String userId, Integer limit) {
-        if (!hasAnyPermission("sales:order:list", "sales:order:*", "*")) {
+    private List<TodoItemVO> buildSalesTodos(String tenantCode, String userId, Integer limit) {
+        if (!hasAnyPermission(PermissionCodeEnum.CODE_SALES_ORDER_LIST, PermissionCodeEnum.CODE_SALES_ORDER_ALL, PermissionCodeEnum.CODE_ALL)) {
             return List.of();
         }
         List<SalesOrder> orders = salesOrderMapper.selectList(withLimit(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getTenantCode, tenantCode)
                 .and(wrapper -> wrapper.eq(SalesOrder::getCreator, userId)
                         .or()
                         .eq(SalesOrder::getUpdater, userId))
-                .in(SalesOrder::getStatus, List.of("pending_confirm", "pending_ship"))
+                .in(SalesOrder::getStatus, List.of(OrderStatusEnum.PENDING_CONFIRM.getCode(), OrderStatusEnum.PENDING_SHIP.getCode()))
                 .orderByDesc(SalesOrder::getUpdateTime), limit));
 
         return orders.stream().map(item -> buildTodo(
@@ -227,13 +250,14 @@ public class TodoService {
         )).toList();
     }
 
-    private List<TodoItemVO> buildOutboundPrintTodos(Long userId, Integer limit) {
-        if (!hasAnyPermission("inventory", "inventory:*", "inventory:cloth:out", "*")) {
+    private List<TodoItemVO> buildOutboundPrintTodos(String tenantCode, Long userId, Integer limit) {
+        if (!hasAnyPermission(PermissionCodeEnum.CODE_INVENTORY, PermissionCodeEnum.CODE_INVENTORY_ALL, PermissionCodeEnum.CODE_INVENTORY_CLOTH_OUT, PermissionCodeEnum.CODE_ALL)) {
             return List.of();
         }
         List<OutboundOrder> orders = outboundOrderMapper.selectList(withLimit(new LambdaQueryWrapper<OutboundOrder>()
+                .eq(OutboundOrder::getTenantCode, tenantCode)
                 .eq(OutboundOrder::getOperatorId, userId)
-                .eq(OutboundOrder::getPrintStatus, 0)
+                .eq(OutboundOrder::getPrintStatus, BinaryFlagEnum.NO.getCode())
                 .orderByDesc(OutboundOrder::getCreateTime), limit));
 
         return orders.stream().map(item -> buildTodo(
@@ -248,13 +272,14 @@ public class TodoService {
         )).toList();
     }
 
-    private List<TodoItemVO> buildBadProductTodos(Long userId, Integer limit) {
-        if (!hasAnyPermission("badproduct:*", "badproduct:list", "badproduct:process", "*")) {
+    private List<TodoItemVO> buildBadProductTodos(String tenantCode, Long userId, Integer limit) {
+        if (!hasAnyPermission(PermissionCodeEnum.CODE_BADPRODUCT_ALL, PermissionCodeEnum.CODE_BADPRODUCT_LIST, PermissionCodeEnum.CODE_BADPRODUCT_PROCESS, PermissionCodeEnum.CODE_ALL)) {
             return List.of();
         }
         List<BadProductRecord> records = badProductMapper.selectList(withLimit(new LambdaQueryWrapper<BadProductRecord>()
+                .eq(BadProductRecord::getTenantCode, tenantCode)
                 .eq(BadProductRecord::getCreatorId, userId)
-                .eq(BadProductRecord::getStatus, "pending")
+                .eq(BadProductRecord::getStatus, BadProductStatusEnum.PENDING.getCode())
                 .orderByDesc(BadProductRecord::getCreateTime), limit));
 
         return records.stream().map(item -> buildTodo(
@@ -303,6 +328,11 @@ public class TodoService {
         return userId == null ? "system" : String.valueOf(userId);
     }
 
+    private String currentTenantCode() {
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        return tenantCode == null || tenantCode.isBlank() ? null : tenantCode;
+    }
+
     private LocalDateTime firstNotNull(LocalDateTime first, LocalDateTime second) {
         return first != null ? first : second;
     }
@@ -324,14 +354,14 @@ public class TodoService {
     }
 
     private String statusText(String status) {
-        return switch (status == null ? "" : status) {
-            case "pending_confirm" -> "待确认";
-            case "pending_material" -> "备料中";
-            case "producing" -> "生产中";
-            case "pending_ship" -> "待发货";
-            case "shipped" -> "已发货";
-            case "completed" -> "已完成";
-            default -> status == null ? "未设置" : status;
-        };
+        if (status == null || status.isBlank()) {
+            return "\u672a\u8bbe\u7f6e";
+        }
+        try {
+            return OrderStatusEnum.getByCode(status).getName();
+        } catch (IllegalArgumentException ex) {
+            return status;
+        }
     }
+
 }

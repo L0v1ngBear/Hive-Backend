@@ -10,32 +10,49 @@ import lombok.extern.slf4j.Slf4j;
 import my.hive.common.auth.AuthUserInfo;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.dto.Result;
+import my.hive.common.redis.HiveRedisKeyBuilder;
 import my.hive.common.tenant.TenantIsolationSupport;
+import my.hive.common.utils.ResponseEncryptUtil;
 import my.hive.common.utils.TokenUtil;
 import my.hive_back.module.sys.model.mapper.SysUserRoleMapper;
 import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.model.entity.Tenant;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.servlet.HandlerInterceptor;
-import org.springframework.beans.factory.annotation.Value;
 
-import java.util.*;
+import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+
 /**
- * TenantInterceptor 属于小程序后端通用能力层，是请求拦截器，用于补充上下文、鉴权或租户处理。
+ * 小程序租户与权限上下文拦截器。
  */
 @Component
 @Slf4j
 public class TenantInterceptor implements HandlerInterceptor {
 
+    private static final long TENANT_STATUS_CACHE_MINUTES = 10L;
+    private static final long TENANT_STATUS_NEGATIVE_CACHE_SECONDS = 60L;
+    private static final long USER_PERMISSION_CACHE_MINUTES = 30L;
+    private static final Set<String> NO_TENANT_ALLOWED_PATHS = Set.of(
+            "/auth/me",
+            "/user/join-organization"
+    );
+
     @Resource
     private TenantMapper tenantMapper;
 
     @Resource
-    private SysUserRoleMapper sysUserRoleMapper; // 只需要保留这一个 Mapper 即可
+    private SysUserRoleMapper sysUserRoleMapper;
 
     @Resource
     private ObjectMapper objectMapper;
@@ -46,10 +63,20 @@ public class TenantInterceptor implements HandlerInterceptor {
     @Resource
     private TenantIsolationSupport tenantIsolationSupport;
 
-    private static final String PERM_CACHE_KEY_PREFIX = "sys:perms:";
+    @Resource
+    private HiveRedisKeyBuilder redisKeyBuilder;
+
+    @Resource
+    private ResponseEncryptUtil responseEncryptUtil;
 
     @Value("${auth.allow-legacy-header:false}")
     private boolean allowLegacyHeader;
+
+    @Value("${auth.token.renew-enabled:true}")
+    private boolean tokenRenewEnabled;
+
+    @Value("${auth.token.renew-before-minutes:120}")
+    private long tokenRenewBeforeMinutes;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
@@ -60,29 +87,36 @@ public class TenantInterceptor implements HandlerInterceptor {
         String tenantCode;
         Long userId;
         String authHeader = request.getHeader("Authorization");
+        AuthUserInfo authUserInfo = null;
 
         if (StringUtils.isNotBlank(authHeader)) {
-            AuthUserInfo authUserInfo = resolveAuthUser(authHeader);
-            if (authUserInfo == null || StringUtils.isBlank(authUserInfo.getTenantCode()) || authUserInfo.getUserId() == null) {
+            authUserInfo = resolveAuthUser(authHeader);
+            if (authUserInfo == null || authUserInfo.getUserId() == null) {
                 writeErrorResponse(response, HttpStatus.UNAUTHORIZED, 401, "登录已失效");
                 return false;
             }
-            tenantCode = authUserInfo.getTenantCode();
+            tenantCode = normalizeTenantCode(authUserInfo.getTenantCode());
             userId = authUserInfo.getUserId();
+
+            if (tenantCode == null) {
+                if (!isNoTenantAllowedPath(request)) {
+                    writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "请先加入组织后再使用功能");
+                    return false;
+                }
+                TenantPermissionContext.init(null, userId, Collections.emptySet());
+                maybeRenewToken(response, authUserInfo);
+                return true;
+            }
         } else if (allowLegacyHeader) {
-            tenantCode = request.getHeader("Tenant-Code");
+            tenantCode = normalizeTenantCode(request.getHeader("Tenant-Code"));
             String userIdStr = request.getHeader("User-Id");
 
-            if (StringUtils.isBlank(tenantCode) || StringUtils.isBlank(userIdStr)) {
+            if (tenantCode == null || StringUtils.isBlank(userIdStr)) {
                 writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
                 return false;
             }
 
             try {
-                if (!tenantCode.matches("^[a-zA-Z0-9_]+$")) {
-                    writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
-                    return false;
-                }
                 userId = Long.parseLong(userIdStr);
             } catch (NumberFormatException e) {
                 writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
@@ -93,26 +127,20 @@ public class TenantInterceptor implements HandlerInterceptor {
             return false;
         }
 
-        try {
-            if (!tenantCode.matches("^[a-zA-Z0-9_]+$")) {
-                writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
-                return false;
-            }
-        } catch (Exception e) {
+        if (!isValidTenantCode(tenantCode)) {
             writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
             return false;
         }
 
-        Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
-        if (tenant == null || !Objects.equals(tenant.getStatus(), 1)) {
-            writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "无权限");
+        if (!isTenantEnabled(tenantCode)) {
+            writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "租户不可用");
             return false;
         }
 
-        // FIELD 模式下这里是空操作；未来切换 DATABASE 模式时，需要在查询租户内权限前先绑定对应数据源。
         tenantIsolationSupport.bindTenantDatasource(tenantCode);
         Set<String> permCodes = getUserPermCodes(tenantCode, userId);
         TenantPermissionContext.init(tenantCode, userId, permCodes);
+        maybeRenewToken(response, authUserInfo);
         return true;
     }
 
@@ -124,43 +152,94 @@ public class TenantInterceptor implements HandlerInterceptor {
         return TokenUtil.parseToken(token);
     }
 
-    /**
-     * 终极版：查询用户权限（一条 SQL 搞定多表联合查询 + Redis 缓存）
-     */
-    private Set<String> getUserPermCodes(String tenantCode, Long userId) {
-        String cacheKey = PERM_CACHE_KEY_PREFIX + tenantCode + ":" + userId;
+    private void maybeRenewToken(HttpServletResponse response, AuthUserInfo authUserInfo) {
+        if (!tokenRenewEnabled || response.isCommitted() || !TokenUtil.shouldRenew(authUserInfo, tokenRenewBeforeMinutes)) {
+            return;
+        }
+        String renewedToken = TokenUtil.createToken(authUserInfo.getUserId(), normalizeTenantCode(authUserInfo.getTenantCode()));
+        AuthUserInfo renewedUserInfo = TokenUtil.parseToken(renewedToken);
+        if (renewedUserInfo == null || renewedUserInfo.getExpireAt() == null) {
+            return;
+        }
+        response.setHeader(TokenUtil.HEADER_RENEWED_TOKEN, renewedToken);
+        response.setHeader(TokenUtil.HEADER_RENEWED_EXPIRE_AT, String.valueOf(renewedUserInfo.getExpireAt()));
+        response.setHeader(TokenUtil.HEADER_RENEWED_RESPONSE_KEY, responseEncryptUtil.buildResponseKey(renewedToken));
+    }
 
-        // 1. 尝试从 Redis 读取
+    private Set<String> getUserPermCodes(String tenantCode, Long userId) {
+        String cacheKey = redisKeyBuilder.cache("mini", "perm", tenantCode, String.valueOf(userId));
+
         String cachedPermsStr = stringRedisTemplate.opsForValue().get(cacheKey);
         if (StringUtils.isNotBlank(cachedPermsStr)) {
             try {
                 return objectMapper.readValue(cachedPermsStr, new TypeReference<Set<String>>() {});
             } catch (Exception e) {
-                log.error("解析用户权限缓存异常，回退到DB查询。CacheKey: {}", cacheKey, e);
+                log.error("parse mini user permission cache failed, cacheKey={}", cacheKey, e);
             }
         }
 
-        // 2. 缓存未命中，调用 Mapper 执行一条连表 SQL 直接拿结果！
         Set<String> permCodes = new HashSet<>();
         List<String> permCodeList = sysUserRoleMapper.selectPermCodesByUserIdAndTenantCode(userId, tenantCode);
-
         if (!CollectionUtils.isEmpty(permCodeList)) {
-            permCodes.addAll(permCodeList); // 转换为 Set，天然去除重复项
+            permCodes.addAll(permCodeList);
         }
 
-        // 3. 写入 Redis 缓存防穿透
         try {
             stringRedisTemplate.opsForValue().set(
                     cacheKey,
                     objectMapper.writeValueAsString(permCodes),
-                    2,
-                    TimeUnit.HOURS
+                    USER_PERMISSION_CACHE_MINUTES,
+                    TimeUnit.MINUTES
             );
         } catch (Exception e) {
-            log.error("缓存用户权限数据异常。CacheKey: {}", cacheKey, e);
+            log.error("write mini user permission cache failed, cacheKey={}", cacheKey, e);
         }
 
         return permCodes;
+    }
+
+    private boolean isTenantEnabled(String tenantCode) {
+        String cacheKey = redisKeyBuilder.cache("tenant", "status", tenantCode);
+        try {
+            String cached = stringRedisTemplate.opsForValue().get(cacheKey);
+            if ("1".equals(cached)) {
+                return true;
+            }
+            if ("0".equals(cached)) {
+                return false;
+            }
+        } catch (Exception e) {
+            log.warn("read tenant status cache failed, tenantCode={}", tenantCode, e);
+        }
+
+        Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
+        boolean enabled = isTenantUsable(tenant);
+        try {
+            stringRedisTemplate.opsForValue().set(
+                    cacheKey,
+                    enabled ? "1" : "0",
+                    enabled ? TENANT_STATUS_CACHE_MINUTES : TENANT_STATUS_NEGATIVE_CACHE_SECONDS,
+                    enabled ? TimeUnit.MINUTES : TimeUnit.SECONDS
+            );
+        } catch (Exception e) {
+            log.warn("write tenant status cache failed, tenantCode={}", tenantCode, e);
+        }
+        return enabled;
+    }
+
+    private boolean isTenantUsable(Tenant tenant) {
+        if (tenant == null || Objects.equals(tenant.getDeleted(), 1) || !Objects.equals(tenant.getStatus(), 1)) {
+            return false;
+        }
+        String subscriptionStatus = tenant.getSubscriptionStatus();
+        if (StringUtils.isNotBlank(subscriptionStatus)) {
+            String normalized = subscriptionStatus.trim().toUpperCase(Locale.ROOT);
+            if ("EXPIRED".equals(normalized) || "SUSPENDED".equals(normalized)) {
+                return false;
+            }
+        }
+        LocalDateTime endTime = tenant.getSubscriptionEndTime();
+        return endTime == null || !endTime.isBefore(LocalDateTime.now());
     }
 
     private void writeErrorResponse(HttpServletResponse response, HttpStatus httpStatus,
@@ -174,9 +253,24 @@ public class TenantInterceptor implements HandlerInterceptor {
         }
     }
 
+    private boolean isNoTenantAllowedPath(HttpServletRequest request) {
+        String path = request.getServletPath();
+        return NO_TENANT_ALLOWED_PATHS.contains(path);
+    }
+
+    private String normalizeTenantCode(String tenantCode) {
+        if (tenantCode == null || tenantCode.trim().isEmpty()) {
+            return null;
+        }
+        return tenantCode.trim();
+    }
+
+    private boolean isValidTenantCode(String tenantCode) {
+        return tenantCode != null && tenantCode.matches("^[a-zA-Z0-9_]+$");
+    }
+
     @Override
-    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
-        // Always clear routing state to avoid thread reuse leaking another tenant's datasource.
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
         tenantIsolationSupport.clearTenantDatasource();
         TenantPermissionContext.clear();
     }

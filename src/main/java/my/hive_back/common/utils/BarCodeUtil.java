@@ -6,7 +6,7 @@ import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.oned.Code128Writer;
 import jakarta.annotation.Resource;
-import org.springframework.beans.factory.annotation.Value;
+import my.hive.common.redis.HiveRedisKeyBuilder;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -23,9 +23,6 @@ import java.util.Map;
 @Component
 public class BarCodeUtil {
 
-    @Value("${redis.key-prefix.barCode.prefix}")
-    private static String BARCODE_DAILY_NUMBER_KEY_PREFIX;
-
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyMMdd");
     private static final String BARCODE_PREFIX = "CL";
 
@@ -34,6 +31,9 @@ public class BarCodeUtil {
 
     @Resource
     private RedisUtil redisUtil;
+
+    @Resource
+    private HiveRedisKeyBuilder redisKeyBuilder;
 
     /**
      * 生成条码（核心方法：线程安全且保证 Redis 计数原子性）
@@ -45,7 +45,7 @@ public class BarCodeUtil {
 
         String tenantPart = normalizeTenantCode(tenantCode.trim());
         String datePart = LocalDate.now().format(DATE_FORMATTER);
-        String redisKey = BARCODE_DAILY_NUMBER_KEY_PREFIX + tenantPart + ":" + datePart;
+        String redisKey = redisKeyBuilder.sequence(tenantCode, "barcode", datePart);
 
         // 使用 Lua 脚本保证自增和设置过期时间的原子性，防止 Key 永久存在
         Long currentSeq = incrementAndExpire(redisKey);

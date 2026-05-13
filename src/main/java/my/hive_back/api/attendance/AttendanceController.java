@@ -1,8 +1,11 @@
 package my.hive_back.api.attendance;
 
+import my.hive_back.module.tenant.TenantFeatureEnum;
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import jakarta.annotation.Resource;
 import my.hive.common.annotation.RequirePermission;
 import my.hive.common.dto.Result;
+import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.attendance.model.dto.AttendancePunchRequest;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
 import my.hive_back.module.attendance.model.vo.AttendanceRecordVO;
@@ -22,6 +25,7 @@ import java.util.List;
  * AttendanceController handles attendance requests for the mini-program backend and delegates to services.
  */
 @RestController
+@RequireTenantFeature(TenantFeatureEnum.CODE_MODULE_ATTENDANCE)
 @Validated
 public class AttendanceController {
 
@@ -29,14 +33,14 @@ public class AttendanceController {
     private AttendanceService attendanceService;
 
     @PostMapping("/punch")
-    @RequirePermission(value = "attendance:punch", message = "您没有权限执行打卡")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ATTENDANCE_PUNCH, message = "您没有权限执行打卡")
     public Result<String> punch(@RequestBody AttendancePunchRequest attendancePunchRequest) {
         attendanceService.punch(attendancePunchRequest);
         return Result.success("打卡成功");
     }
 
     @GetMapping("/select/record/{userId}")
-    @RequirePermission(value = "attendance:record:list", message = "您没有权限查看打卡记录")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ATTENDANCE_RECORD_LIST, message = "您没有权限查看打卡记录")
     public Result<List<AttendanceRecordVO>> selectRecord(@PathVariable Long userId) {
         List<AttendanceRecord> attendanceRecords = attendanceService.selectRecord(userId);
         // 空值处理

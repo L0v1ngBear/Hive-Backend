@@ -21,6 +21,7 @@ import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import my.hive_back.module.user.model.entity.User;
 import my.hive_back.module.user.service.UserService;
+import my.hive_back.module.wechat.service.WechatSubscribeNotificationService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,13 +52,21 @@ public class LeaveService {
     @Resource
     private TenantAttendanceRuleMapper tenantAttendanceRuleMapper;
 
+    @Resource
+    private WechatSubscribeNotificationService wechatSubscribeNotificationService;
+
     public boolean isInApprovalLeave(LocalDateTime punchStartTime, LocalDateTime punchEndTime) {
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = TenantPermissionContext.getTenantCode();
+        if (userId == null || tenantCode == null || punchStartTime == null || punchEndTime == null
+                || !punchStartTime.isBefore(punchEndTime)) {
+            return false;
+        }
 
         QueryWrapper<UserLeave> queryWrapper = new QueryWrapper<UserLeave>()
-                .eq("user_id", userId)
-                .eq("leave_status", 0)
+                .eq("tenant_code", tenantCode)
+                .eq("apply_user_id", userId)
+                .eq("status", LeaveStatusEnum.APPROVED.getCode())
                 .le("start_time", punchStartTime)
                 .ge("end_time", punchEndTime);
 
@@ -80,6 +89,7 @@ public class LeaveService {
 
         boolean hasOverlap = leaveMapper.exists(
                 new LambdaQueryWrapper<UserLeave>()
+                        .eq(UserLeave::getTenantCode, tenantCode)
                         .eq(UserLeave::getApplyUserId, userId)
                         .ne(UserLeave::getStatus, LeaveStatusEnum.REJECTED.getCode())
                         .and(wrapper -> wrapper
@@ -105,6 +115,7 @@ public class LeaveService {
         leaveMapper.insert(approval);
 
         triggerApprovalFlow(approval);
+        notifyLeavePendingApprover(approval);
         return leaveCode;
     }
 
@@ -118,7 +129,9 @@ public class LeaveService {
     }
 
     public UserLeave getLeaveByCode(@NotBlank String leaveCode) {
+        String tenantCode = TenantPermissionContext.getTenantCode();
         UserLeave userLeave = leaveMapper.selectOne(new LambdaQueryWrapper<UserLeave>()
+                .eq(tenantCode != null, UserLeave::getTenantCode, tenantCode)
                 .eq(UserLeave::getLeaveCode, leaveCode));
         if (userLeave == null) {
             throw new BusinessException("请假单不存在");
@@ -128,7 +141,12 @@ public class LeaveService {
 
     public List<LeaveApprovalListVO> listApprovals(String scope, Integer status) {
         Long userId = TenantPermissionContext.getUserId();
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        if (tenantCode == null || tenantCode.isBlank()) {
+            return List.of();
+        }
         LambdaQueryWrapper<UserLeave> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(UserLeave::getTenantCode, tenantCode);
         if (status != null) {
             queryWrapper.eq(UserLeave::getStatus, status);
         }
@@ -153,13 +171,14 @@ public class LeaveService {
     public void auditLeaveApproval(AuditRequest auditRequest) {
         Long currentUserId = TenantPermissionContext.getUserId();
         UserLeave approval = getLeaveByCode(auditRequest.getLeaveCode());
-        if (!approval.getAuditorId().equals(currentUserId)) {
+        if (currentUserId == null || !currentUserId.equals(approval.getAuditorId())) {
             throw new BusinessException("您不是请假单的审批人，不能审批");
         }
         if (approval.getStatus() == null || approval.getStatus() != LeaveStatusEnum.PENDING.getCode()) {
             throw new BusinessException("该请假单已处理，请勿重复审批");
         }
 
+        Long previousAuditorId = approval.getAuditorId();
         if (auditRequest.getAction() == ApprovalActionEnum.APPROVE.getCode()) {
             approval.setAuditComment(auditRequest.getComment());
             long hours = Duration.between(approval.getStartTime(), approval.getEndTime()).toHours();
@@ -183,6 +202,42 @@ public class LeaveService {
             approval.setAuditComment(auditRequest.getComment());
         }
         leaveMapper.updateById(approval);
+        notifyLeaveAuditChange(approval, previousAuditorId);
+    }
+
+    private void notifyLeavePendingApprover(UserLeave approval) {
+        wechatSubscribeNotificationService.sendTodoAfterCommit(
+                approval.getAuditorId(),
+                "请假审批待处理",
+                buildApplicantName(approval.getApplyUserId()) + " 提交了请假单 " + approval.getLeaveCode(),
+                "/pages/approval/approval"
+        );
+    }
+
+    private void notifyLeaveAuditChange(UserLeave approval, Long previousAuditorId) {
+        if (approval.getStatus() != null && approval.getStatus() == LeaveStatusEnum.PENDING.getCode()
+                && approval.getAuditorId() != null && !approval.getAuditorId().equals(previousAuditorId)) {
+            notifyLeavePendingApprover(approval);
+            return;
+        }
+        if (approval.getStatus() != null
+                && (approval.getStatus() == LeaveStatusEnum.APPROVED.getCode()
+                || approval.getStatus() == LeaveStatusEnum.REJECTED.getCode())) {
+            wechatSubscribeNotificationService.sendTodoAfterCommit(
+                    approval.getApplyUserId(),
+                    "请假审批结果",
+                    "请假单 " + approval.getLeaveCode() + " " + statusText(approval.getStatus()),
+                    "/pages/approval/approval"
+            );
+        }
+    }
+
+    private String buildApplicantName(Long userId) {
+        User user = userService.getUserById(userId);
+        if (user == null || user.getName() == null || user.getName().isBlank()) {
+            return "员工";
+        }
+        return user.getName();
     }
 
     private boolean checkIsFinalApprover(Long currentApproverId, double leaveDays) {

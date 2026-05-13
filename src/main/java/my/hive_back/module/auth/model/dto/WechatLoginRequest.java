@@ -1,6 +1,5 @@
 package my.hive_back.module.auth.model.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 /**
@@ -15,7 +14,6 @@ public class WechatLoginRequest {
     /**
      * 微信手机号授权 code，对应 getPhoneNumber 事件里的 e.detail.code。
      */
-    @NotBlank(message = "微信手机号授权码不能为空")
     private String phoneCode;
 
     /**

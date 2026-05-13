@@ -1,6 +1,7 @@
 package my.hive_back.module.leave.model.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 /**
  * AuditRequest 属于小程序后端请假模块，定义入参结构。
@@ -19,7 +20,7 @@ public class AuditRequest {
      * 1 - 同意
      * 2 - 拒绝
      */
-    @NotBlank
+    @NotNull
     private Integer action;
 
     /**

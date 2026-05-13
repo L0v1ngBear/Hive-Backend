@@ -60,7 +60,28 @@ security:
   response:
     key: ${RESPONSE_ENCRYPT_KEY}
 
+logging:
+  file:
+    name: ${LOGGING_FILE_NAME:}
+  logback:
+    rollingpolicy:
+      max-file-size: ${LOGGING_FILE_MAX_SIZE:20MB}
+      max-history: ${LOGGING_FILE_MAX_HISTORY:14}
+      total-size-cap: ${LOGGING_FILE_TOTAL_SIZE_CAP:512MB}
+  level:
+    root: ${LOGGING_LEVEL_ROOT:INFO}
+    my.hive_back: ${LOGGING_LEVEL_MY_HIVE_BACK:INFO}
+    my.hive.common: ${LOGGING_LEVEL_MY_HIVE_COMMON:INFO}
+    com.xxl.job: ${LOGGING_LEVEL_XXL_JOB:INFO}
+    org.springframework: ${LOGGING_LEVEL_SPRING:WARN}
+    com.baomidou.mybatisplus: ${LOGGING_LEVEL_MYBATIS_PLUS:WARN}
+    org.mybatis: ${LOGGING_LEVEL_MYBATIS:WARN}
+    java.sql: ${LOGGING_LEVEL_SQL:WARN}
+
 hive:
+  redis:
+    namespace: ${HIVE_REDIS_NAMESPACE:hive}
+    environment: ${HIVE_REDIS_ENV:${SPRING_PROFILES_ACTIVE:prod}}
   operation-log:
     enabled: ${OPERATION_LOG_ENABLED:true}
     collect-to-db: ${OPERATION_LOG_COLLECT_TO_DB:true}
@@ -70,7 +91,13 @@ hive:
     rabbit-exchange: ${OPERATION_LOG_EXCHANGE:hive.operation.log.exchange}
     rabbit-routing-key: ${OPERATION_LOG_ROUTING_KEY:hive.operation.log}
     rabbit-queue: ${OPERATION_LOG_QUEUE:hive.operation.log.queue}
-    cleanup-enabled: ${OPERATION_LOG_CLEANUP_ENABLED:true}
+    cleanup-enabled: ${OPERATION_LOG_CLEANUP_ENABLED:false}
     retention-days: ${OPERATION_LOG_RETENTION_DAYS:90}
     cleanup-batch-size: ${OPERATION_LOG_CLEANUP_BATCH_SIZE:5000}
     cleanup-cron: "${OPERATION_LOG_CLEANUP_CRON:0 20 3 * * ?}"
+  system-event:
+    enabled: ${SYSTEM_EVENT_ENABLED:true}
+    source-app: ${SYSTEM_EVENT_SOURCE_APP:hive-mini}
+    max-title-length: ${SYSTEM_EVENT_MAX_TITLE_LENGTH:180}
+    max-content-length: ${SYSTEM_EVENT_MAX_CONTENT_LENGTH:1000}
+    max-json-length: ${SYSTEM_EVENT_MAX_JSON_LENGTH:4000}

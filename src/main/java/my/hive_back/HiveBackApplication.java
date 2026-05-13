@@ -6,13 +6,11 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Import;
 import org.springframework.scheduling.annotation.EnableAsync;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(scanBasePackages = "my.hive_back")
 @MapperScan("my.hive_back.module.**.mapper")
 @Import(HiveCommonAutoConfiguration.class)
 @EnableAsync
-@EnableScheduling
 public class HiveBackApplication {
 
 	public static void main(String[] args) {

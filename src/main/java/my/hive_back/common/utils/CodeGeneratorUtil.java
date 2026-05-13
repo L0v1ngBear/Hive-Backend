@@ -2,6 +2,7 @@ package my.hive_back.common.utils;
 
 import jakarta.annotation.Resource;
 import my.hive.common.context.TenantPermissionContext;
+import my.hive.common.redis.HiveRedisKeyBuilder;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -16,6 +17,9 @@ public class CodeGeneratorUtil {
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private HiveRedisKeyBuilder redisKeyBuilder;
 
     // 日期格式化器（精确到天，意味着流水号每天重置）
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
@@ -39,8 +43,8 @@ public class CodeGeneratorUtil {
         String dateStr = LocalDateTime.now().format(DATE_FORMATTER);
 
         // 3. 构建 Redis Key (按 租户 + 业务 + 日期 隔离)
-        // 例如：sys:seq:108:LQ:20260401
-        String redisKey = String.format("sys:seq:%s:%s:%s", tenantCode, prefix, dateStr);
+        // example: hive:prod:seq:108:LQ:20260401
+        String redisKey = redisKeyBuilder.sequence(tenantCode, prefix, dateStr);
 
         // 4. 利用 Redis 的原子递增特性生成流水号
         Long increment = stringRedisTemplate.opsForValue().increment(redisKey);

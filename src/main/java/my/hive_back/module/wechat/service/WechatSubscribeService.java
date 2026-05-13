@@ -7,6 +7,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
+import my.hive.common.redis.HiveRedisKeyBuilder;
 import my.hive_back.module.wechat.mapper.WechatSubscribeUserMapper;
 import my.hive_back.module.wechat.model.dto.WechatSubscribeRegisterRequest;
 import my.hive_back.module.wechat.model.entity.WechatSubscribeUser;
@@ -37,8 +38,9 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class WechatSubscribeService {
 
-    private static final String ACCESS_TOKEN_KEY = "wechat:mini:access_token";
     private static final String ACCEPT = "accept";
+    private static final String REJECT = "reject";
+    private static final String USED = "used";
 
     @Value("${wechat.mini-program.enabled:false}")
     private Boolean enabled;
@@ -57,6 +59,9 @@ public class WechatSubscribeService {
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private HiveRedisKeyBuilder redisKeyBuilder;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
@@ -130,7 +135,17 @@ public class WechatSubscribeService {
         payload.put("template_id", todoTemplateId);
         payload.put("page", hasText(pagePath) ? pagePath : "pages/todo/todo");
         payload.put("data", buildTodoTemplateData(title, content));
-        return sendSubscribeMessage(payload);
+        JSONObject response = sendSubscribeMessage(payload);
+        Integer errCode = response.getInteger("errcode");
+        if (errCode != null && errCode == 0) {
+            markSubscriptionStatus(subscribeUser, USED);
+            return true;
+        }
+        if (errCode != null && errCode == 43101) {
+            markSubscriptionStatus(subscribeUser, REJECT);
+        }
+        log.warn("微信订阅消息发送失败：{}", response);
+        return false;
     }
 
     private Map<String, Object> buildTodoTemplateData(String title, String content) {
@@ -141,20 +156,26 @@ public class WechatSubscribeService {
         return data;
     }
 
-    private boolean sendSubscribeMessage(Map<String, Object> payload) {
+    private JSONObject sendSubscribeMessage(Map<String, Object> payload) {
         String accessToken = getAccessToken();
         String url = "https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=" + accessToken;
-        JSONObject response = postJson(url, payload);
-        Integer errCode = response.getInteger("errcode");
-        if (errCode != null && errCode == 0) {
-            return true;
+        return postJson(url, payload);
+    }
+
+    private void markSubscriptionStatus(WechatSubscribeUser subscribeUser, String status) {
+        try {
+            subscribeUser.setSubscribeStatus(status);
+            wechatSubscribeUserMapper.updateById(subscribeUser);
+        } catch (Exception e) {
+            log.warn("更新微信订阅授权状态失败 userId={} templateId={} status={}",
+                    subscribeUser.getUserId(), subscribeUser.getTemplateId(), status, e);
         }
-        log.warn("微信订阅消息发送失败：{}", response);
-        return false;
     }
 
     private String getAccessToken() {
-        String cached = stringRedisTemplate.opsForValue().get(ACCESS_TOKEN_KEY);
+        requireWechatCredential();
+        String accessTokenKey = accessTokenKey();
+        String cached = stringRedisTemplate.opsForValue().get(accessTokenKey);
         if (hasText(cached)) {
             return cached;
         }
@@ -168,7 +189,7 @@ public class WechatSubscribeService {
         }
         Integer expiresIn = response.getInteger("expires_in");
         long ttl = expiresIn == null ? 7000L : Math.max(expiresIn - 200L, 60L);
-        stringRedisTemplate.opsForValue().set(ACCESS_TOKEN_KEY, accessToken, ttl, TimeUnit.SECONDS);
+        stringRedisTemplate.opsForValue().set(accessTokenKey, accessToken, ttl, TimeUnit.SECONDS);
         return accessToken;
     }
 
@@ -214,6 +235,16 @@ public class WechatSubscribeService {
         } catch (Exception e) {
             throw new BusinessException("发送微信订阅消息失败：" + e.getMessage());
         }
+    }
+
+    private void requireWechatCredential() {
+        if (!hasText(appId) || !hasText(appSecret)) {
+            throw new BusinessException("微信小程序 appId/appSecret 未配置");
+        }
+    }
+
+    private String accessTokenKey() {
+        return redisKeyBuilder.cache("wechat", "mini", "access-token", appId);
     }
 
     private String encode(String value) {

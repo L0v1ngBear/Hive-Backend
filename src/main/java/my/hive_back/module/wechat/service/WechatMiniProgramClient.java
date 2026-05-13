@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import jakarta.annotation.Resource;
 import my.hive.common.exception.BusinessException;
+import my.hive.common.redis.HiveRedisKeyBuilder;
 import my.hive_back.module.wechat.model.vo.WechatPhoneInfoVO;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -27,8 +28,6 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class WechatMiniProgramClient {
 
-    private static final String ACCESS_TOKEN_KEY = "wechat:mini:access_token";
-
     @Value("${wechat.mini-program.enabled:false}")
     private Boolean enabled;
 
@@ -40,6 +39,9 @@ public class WechatMiniProgramClient {
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private HiveRedisKeyBuilder redisKeyBuilder;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
@@ -63,6 +65,10 @@ public class WechatMiniProgramClient {
                 + "&js_code=" + encode(code)
                 + "&grant_type=authorization_code";
         JSONObject response = getJson(url);
+        Integer errCode = response.getInteger("errcode");
+        if (errCode != null && errCode != 0) {
+            throw new BusinessException("获取微信 openid 失败：" + response.getString("errmsg"));
+        }
         String openid = response.getString("openid");
         if (!hasText(openid)) {
             throw new BusinessException("获取微信 openid 失败：" + response.getString("errmsg"));
@@ -78,16 +84,29 @@ public class WechatMiniProgramClient {
         if (!hasText(phoneCode)) {
             throw new BusinessException("缺少微信手机号授权码");
         }
-        String url = "https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=" + getAccessToken();
-        JSONObject response = postJson(url, Map.of("code", phoneCode));
+        JSONObject response = requestPhoneNumberByCode(phoneCode, getAccessToken());
         Integer errCode = response.getInteger("errcode");
+        if (Integer.valueOf(40001).equals(errCode) || Integer.valueOf(42001).equals(errCode)) {
+            clearAccessToken();
+            response = requestPhoneNumberByCode(phoneCode, getAccessToken());
+            errCode = response.getInteger("errcode");
+        }
         if (errCode == null || errCode != 0) {
             throw new BusinessException("获取微信手机号失败：" + response.getString("errmsg"));
         }
         JSONObject phoneInfo = response.getJSONObject("phone_info");
-        if (phoneInfo == null || !hasText(phoneInfo.getString("phoneNumber"))) {
+        if (phoneInfo == null || (!hasText(phoneInfo.getString("phoneNumber")) && !hasText(phoneInfo.getString("purePhoneNumber")))) {
             throw new BusinessException("微信未返回手机号");
         }
+        return toPhoneInfo(phoneInfo);
+    }
+
+    private JSONObject requestPhoneNumberByCode(String phoneCode, String accessToken) {
+        String url = "https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=" + accessToken;
+        return postJson(url, Map.of("code", phoneCode));
+    }
+
+    private WechatPhoneInfoVO toPhoneInfo(JSONObject phoneInfo) {
         WechatPhoneInfoVO vo = new WechatPhoneInfoVO();
         vo.setPhoneNumber(phoneInfo.getString("phoneNumber"));
         vo.setPurePhoneNumber(phoneInfo.getString("purePhoneNumber"));
@@ -97,7 +116,8 @@ public class WechatMiniProgramClient {
 
     public String getAccessToken() {
         requireEnabled();
-        String cached = stringRedisTemplate.opsForValue().get(ACCESS_TOKEN_KEY);
+        String accessTokenKey = accessTokenKey();
+        String cached = stringRedisTemplate.opsForValue().get(accessTokenKey);
         if (hasText(cached)) {
             return cached;
         }
@@ -111,8 +131,12 @@ public class WechatMiniProgramClient {
         }
         Integer expiresIn = response.getInteger("expires_in");
         long ttl = expiresIn == null ? 7000L : Math.max(expiresIn - 200L, 60L);
-        stringRedisTemplate.opsForValue().set(ACCESS_TOKEN_KEY, accessToken, ttl, TimeUnit.SECONDS);
+        stringRedisTemplate.opsForValue().set(accessTokenKey, accessToken, ttl, TimeUnit.SECONDS);
         return accessToken;
+    }
+
+    private void clearAccessToken() {
+        stringRedisTemplate.delete(accessTokenKey());
     }
 
     public JSONObject postJson(String url, Map<String, Object> payload) {
@@ -149,6 +173,10 @@ public class WechatMiniProgramClient {
         if (!hasText(appId) || !hasText(appSecret)) {
             throw new BusinessException("微信小程序 appId/appSecret 未配置");
         }
+    }
+
+    private String accessTokenKey() {
+        return redisKeyBuilder.cache("wechat", "mini", "access-token", appId);
     }
 
     private String encode(String value) {

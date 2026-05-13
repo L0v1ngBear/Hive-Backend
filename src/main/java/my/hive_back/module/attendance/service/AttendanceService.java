@@ -1,11 +1,13 @@
 package my.hive_back.module.attendance.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
-import my.hive_back.common.utils.RedisUtil;
+import my.hive.common.redis.HiveRedisKeyBuilder;
 import my.hive.common.utils.TimeUtil;
+import my.hive_back.common.enums.BinaryFlagEnum;
 import my.hive_back.module.attendance.PunchStatusEnum;
 import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
 import my.hive_back.module.attendance.model.dto.AttendancePunchRequest;
@@ -17,6 +19,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -30,8 +33,8 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class AttendanceService {
 
-    private static final String COMPANY_ATTENDANCE_RULE_KEY = "companyAttendanceRule";
-    private static final String PUNCH_LOCK_PREFIX = "attendance:punch:lock:";
+    private static final String LEGACY_COMPANY_ATTENDANCE_RULE_KEY = "companyAttendanceRule";
+    private static final Duration ATTENDANCE_RULE_CACHE_TTL = Duration.ofHours(6);
     private static final DefaultRedisScript<Long> RELEASE_LOCK_SCRIPT = buildReleaseLockScript();
 
     @Resource
@@ -41,10 +44,13 @@ public class AttendanceService {
     private TenantAttendanceRuleMapper tenantAttendanceRuleMapper;
 
     @Resource
-    private RedisUtil redisUtil;
+    private StringRedisTemplate stringRedisTemplate;
 
     @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private ObjectMapper objectMapper;
+
+    @Resource
+    private HiveRedisKeyBuilder redisKeyBuilder;
 
     @Transactional(rollbackFor = Exception.class)
     public void punch(AttendancePunchRequest request) {
@@ -54,7 +60,7 @@ public class AttendanceService {
         String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         String punchId = dateStr + "_" + userId;
 
-        String lockKey = PUNCH_LOCK_PREFIX + tenantCode + ":" + punchId;
+        String lockKey = redisKeyBuilder.lock("attendance", "punch", tenantCode, punchId);
         String lockValue = UUID.randomUUID().toString();
         Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, 10, TimeUnit.SECONDS);
         if (!Boolean.TRUE.equals(locked)) {
@@ -74,10 +80,10 @@ public class AttendanceService {
         }
 
         Double distance = null;
-        if (rule.getEnableGps() == null || rule.getEnableGps() == 1) {
+        if (BinaryFlagEnum.YES.matches(rule.getEnableGps())) {
             // 基础校验：距离校验。管理端关闭 GPS 围栏后，小程序可不校验位置。
             distance = calculateDistance(rule.getLatitude(), rule.getLongitude(), request.getUserLat(), request.getUserLng());
-            if (distance > rule.getRadius()) {
+            if (distance > safeRadius(rule.getRadius())) {
                 throw new BusinessException("超出打卡范围");
             }
         }
@@ -127,28 +133,51 @@ public class AttendanceService {
      * 获取公司考勤规则（缓存优先）
      */
     private TenantAttendanceRule getCompanyAttendanceRule(String tenantCode) {
-        TenantAttendanceRule rule = redisUtil.getHashValue(
-                COMPANY_ATTENDANCE_RULE_KEY, tenantCode, TenantAttendanceRule.class);
+        TenantAttendanceRule rule = getCachedAttendanceRule(tenantCode);
 
         if (rule == null || rule.getRadius() == null || rule.getWorkStartTime() == null || rule.getWorkEndTime() == null || rule.getOffWorkStartTime() == null || rule.getOffWorkEndTime() == null) {
             rule = tenantAttendanceRuleMapper.selectByTenantCode(tenantCode);
             if (rule == null) {
                 throw new BusinessException("考勤配置异常：未找到所属公司的考勤规则");
             }
-            redisUtil.pushHashValue(COMPANY_ATTENDANCE_RULE_KEY, tenantCode, rule);
+            cacheAttendanceRule(tenantCode, rule);
         }
         return rule;
+    }
+
+    private TenantAttendanceRule getCachedAttendanceRule(String tenantCode) {
+        try {
+            String cached = stringRedisTemplate.opsForValue().get(redisKeyBuilder.cache("tenant", "attendance-rule", tenantCode));
+            if (cached == null || cached.isBlank()) {
+                return null;
+            }
+            return objectMapper.readValue(cached, TenantAttendanceRule.class);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void cacheAttendanceRule(String tenantCode, TenantAttendanceRule rule) {
+        try {
+            stringRedisTemplate.opsForValue().set(
+                    redisKeyBuilder.cache("tenant", "attendance-rule", tenantCode),
+                    objectMapper.writeValueAsString(rule),
+                    ATTENDANCE_RULE_CACHE_TTL
+            );
+            stringRedisTemplate.opsForHash().delete(LEGACY_COMPANY_ATTENDANCE_RULE_KEY, tenantCode);
+        } catch (Exception ignored) {
+        }
     }
 
     /**
      * 计算球面距离（Haversine formula）
      */
     private Double calculateDistance(Double companyLat, Double companyLng, Double userLat, Double userLng) {
-        if (userLat == null || userLng == null) {
-            throw new IllegalArgumentException("定位失败：未获取到用户的经纬度");
+        if (!isValidLatitude(userLat) || !isValidLongitude(userLng)) {
+            throw new BusinessException("定位坐标不合法，请重新获取当前位置");
         }
-        if (companyLat == null || companyLng == null) {
-            throw new IllegalArgumentException("考勤配置异常：未获取到公司经纬度");
+        if (!isValidLatitude(companyLat) || !isValidLongitude(companyLng)) {
+            throw new BusinessException("考勤配置异常：请先设置公司打卡点");
         }
 
         double earthRadius = 6378137.0;
@@ -160,6 +189,18 @@ public class AttendanceService {
                 Math.cos(radLat1) * Math.cos(radLat2) * Math.pow(Math.sin(b / 2), 2)));
         s = s * earthRadius;
         return s;
+    }
+
+    private double safeRadius(Double radius) {
+        return radius == null || radius <= 0D ? 300D : radius;
+    }
+
+    private boolean isValidLatitude(Double value) {
+        return value != null && value >= -90D && value <= 90D;
+    }
+
+    private boolean isValidLongitude(Double value) {
+        return value != null && value >= -180D && value <= 180D;
     }
 
     public List<AttendanceRecord> selectRecord(Long userId) {

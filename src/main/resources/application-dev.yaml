@@ -15,6 +15,16 @@ spring:
     username: guest
     password: guest
 
+xxl:
+  job:
+    # 本地开发默认注册 XXL-JOB；启动后端前请先启动本地 xxl-job-admin。
+    enabled: ${XXL_JOB_ENABLED:true}
+    admin-addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:8088/xxl-job-admin}
+    access-token: ${XXL_JOB_ACCESS_TOKEN:dev_xxl_token}
+    executor:
+      app-name: ${XXL_JOB_EXECUTOR_APP_NAME:hive-mini}
+      port: ${XXL_JOB_EXECUTOR_PORT:9998}
+
 hive:
   operation-log:
     enabled: true
@@ -25,7 +35,7 @@ hive:
     rabbit-exchange: hive.operation.log.exchange
     rabbit-routing-key: hive.operation.log
     rabbit-queue: hive.operation.log.queue
-    cleanup-enabled: true
+    cleanup-enabled: false
     retention-days: 90
     cleanup-batch-size: 5000
     cleanup-cron: "0 20 3 * * ?"

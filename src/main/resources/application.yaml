@@ -44,6 +44,8 @@ auth:
   token:
     secret: ${AUTH_TOKEN_SECRET:hive-mini-dev-token-secret}
     expire-hours: ${AUTH_TOKEN_EXPIRE_HOURS:24}
+    renew-enabled: ${AUTH_TOKEN_RENEW_ENABLED:true}
+    renew-before-minutes: ${AUTH_TOKEN_RENEW_BEFORE_MINUTES:120}
   allow-legacy-header: false
   login:
     max-fail-count: 5
@@ -60,11 +62,11 @@ security:
 redis:
   key-prefix:
     barCode:
-      prefix: barcode:number:daily
+      prefix: ${BARCODE_DAILY_NUMBER_KEY_PREFIX:${HIVE_REDIS_NAMESPACE:hive}:${HIVE_REDIS_ENV:${spring.profiles.active:dev}}:seq:barcode:}
     inventory:
     trend:
-      today_in: inventory:today:in
-      today_out: inventory:today:out
+      today_in: ${INVENTORY_TODAY_IN_KEY_PREFIX:${HIVE_REDIS_NAMESPACE:hive}:${HIVE_REDIS_ENV:${spring.profiles.active:dev}}:counter:inventory:today:in:}
+      today_out: ${INVENTORY_TODAY_OUT_KEY_PREFIX:${HIVE_REDIS_NAMESPACE:hive}:${HIVE_REDIS_ENV:${spring.profiles.active:dev}}:counter:inventory:today:out:}
 
 wechat:
   mini-program:
@@ -74,3 +76,39 @@ wechat:
     app-secret: ${WECHAT_MINI_APP_SECRET:}
     subscribe:
       todo-template-id: ${WECHAT_TODO_TEMPLATE_ID:}
+storage:
+  oss:
+    enabled: ${ALIYUN_OSS_ENABLED:false}
+    endpoint: ${ALIYUN_OSS_ENDPOINT:}
+    bucket-name: ${ALIYUN_OSS_BUCKET:}
+    access-key-id: ${ALIYUN_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:}
+    public-base-url: ${ALIYUN_OSS_PUBLIC_BASE_URL:}
+    path-prefix: ${ALIYUN_OSS_PATH_PREFIX:hive}
+    max-file-size-mb: ${ALIYUN_OSS_MAX_FILE_SIZE_MB:20}
+    allowed-extensions: ${ALIYUN_OSS_ALLOWED_EXTENSIONS:jpg,jpeg,png,pdf,doc,docx,xls,xlsx}
+    allowed-content-types: ${ALIYUN_OSS_ALLOWED_CONTENT_TYPES:image/jpeg,image/png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet}
+
+xxl:
+  job:
+    enabled: ${XXL_JOB_ENABLED:false}
+    admin-addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:8088/xxl-job-admin}
+    access-token: ${XXL_JOB_ACCESS_TOKEN:}
+    executor:
+      app-name: ${XXL_JOB_EXECUTOR_APP_NAME:hive-mini}
+      address: ${XXL_JOB_EXECUTOR_ADDRESS:}
+      ip: ${XXL_JOB_EXECUTOR_IP:}
+      port: ${XXL_JOB_EXECUTOR_PORT:9998}
+      log-path: ${XXL_JOB_EXECUTOR_LOG_PATH:logs/xxl-job}
+      log-retention-days: ${XXL_JOB_EXECUTOR_LOG_RETENTION_DAYS:30}
+
+hive:
+  redis:
+    namespace: ${HIVE_REDIS_NAMESPACE:hive}
+    environment: ${HIVE_REDIS_ENV:${spring.profiles.active:dev}}
+  system-event:
+    enabled: ${SYSTEM_EVENT_ENABLED:true}
+    source-app: ${SYSTEM_EVENT_SOURCE_APP:hive-mini}
+    max-title-length: ${SYSTEM_EVENT_MAX_TITLE_LENGTH:180}
+    max-content-length: ${SYSTEM_EVENT_MAX_CONTENT_LENGTH:1000}
+    max-json-length: ${SYSTEM_EVENT_MAX_JSON_LENGTH:4000}

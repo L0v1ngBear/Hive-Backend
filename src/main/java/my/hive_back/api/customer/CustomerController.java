@@ -1,5 +1,7 @@
 package my.hive_back.api.customer;
 
+import my.hive_back.module.tenant.TenantFeatureEnum;
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
@@ -7,6 +9,7 @@ import jakarta.validation.Valid;
 import my.hive.common.annotation.RequirePermission;
 import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
+import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.customer.mapper.CustomerProjectMapper;
 import my.hive_back.module.customer.model.dto.CustomerAddRequest;
 import my.hive_back.module.customer.model.dto.CustomerPageRequest;
@@ -27,6 +30,7 @@ import java.util.stream.Collectors;
  */
 @RestController
 @RequestMapping("/customer")
+@RequireTenantFeature(TenantFeatureEnum.CODE_MODULE_CUSTOMER)
 @Validated
 public class CustomerController {
 
@@ -37,14 +41,14 @@ public class CustomerController {
     private CustomerProjectMapper customerProjectMapper;
 
     @PostMapping("/add")
-    @RequirePermission(value = "customer:add", message = "您没有权限新增客户")
+    @RequirePermission(value = PermissionCodeEnum.CODE_CUSTOMER_ADD, message = "您没有权限新增客户")
     public Result<Void> addCustomer(@RequestBody CustomerAddRequest request) {
         customerService.addCustomer(request);
         return Result.success(null);
     }
 
     @GetMapping("/page")
-    @RequirePermission(value = "customer:page", message = "您没有权限查看客户列表")
+    @RequirePermission(value = PermissionCodeEnum.CODE_CUSTOMER_PAGE, message = "您没有权限查看客户列表")
     public Result<PageResult<CustomerPageVO>> getCustomerPage(@Valid CustomerPageRequest request) {
         Page<Customer> page = Optional.ofNullable(customerService.pageSearchCustomer(request))
                 .orElse(new Page<>()); // 若返回null，初始化空分页对象
@@ -79,7 +83,7 @@ public class CustomerController {
     }
 
     @GetMapping("/detail/{id}")
-    @RequirePermission(value = "customer:detail", message = "您没有权限查看客户详情")
+    @RequirePermission(value = PermissionCodeEnum.CODE_CUSTOMER_DETAIL, message = "您没有权限查看客户详情")
     public Result<CustomerDetailVO> getCustomer(@PathVariable Long id) {
         CustomerDetailVO customerDetailVO = customerService.getCustomer(id);
         return Result.success(customerDetailVO);

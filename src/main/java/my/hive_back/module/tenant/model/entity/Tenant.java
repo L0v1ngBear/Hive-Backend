@@ -59,6 +59,24 @@ public class Tenant {
      */
     private Integer status;
 
+    private String packageCode;
+
+    private String packageName;
+
+    private String subscriptionStatus;
+
+    private LocalDateTime subscriptionStartTime;
+
+    private LocalDateTime subscriptionEndTime;
+
+    private Integer maxUsers;
+
+    private Integer maxAiAdvicePerMonth;
+
+    private Integer maxStorageMb;
+
+    private String featureFlags;
+
     /**
      * 创建人ID
      * 关联系统用户表的主键，记录该租户的创建者（管理员ID）

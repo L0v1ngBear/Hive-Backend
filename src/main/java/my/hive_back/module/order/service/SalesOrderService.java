@@ -1,5 +1,6 @@
 package my.hive_back.module.order.service;
 
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
@@ -25,6 +26,7 @@ import my.hive_back.module.order.model.vo.SalesOrderStatusLogVO;
 import my.hive_back.module.order.model.vo.SalesOrderVO;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
+import my.hive_back.module.wechat.service.WechatSubscribeNotificationService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,7 +69,10 @@ public class SalesOrderService {
     @Resource
     private CodeGeneratorUtil codeGeneratorUtil;
 
-    @RequirePermission(value = "sales:order:list", message = "您没有权限查询销售订单列表")
+    @Resource
+    private WechatSubscribeNotificationService wechatSubscribeNotificationService;
+
+    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_LIST, message = "您没有权限查询销售订单列表")
     public Page<SalesOrderVO> selectSalesOrder(SalesOrderListRequest request) {
         // 1. 分页参数默认值处理（防御性编程）
         long pageNum = safePageNum(request.getPageNum());
@@ -150,7 +155,7 @@ public class SalesOrderService {
     /**
      * 根据订单ID查询订单详情 (返回 VO 对象)
      */
-    @RequirePermission(value = "sales:order:detail", message = "您没有权限查询销售订单详情")
+    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_DETAIL, message = "您没有权限查询销售订单详情")
     public SalesOrderVO getByIdandTenantId(String orderId) {
         // 1. 查询主表订单信息
         SalesOrder order = salesOrderMapper.selectByOrderId(orderId);
@@ -192,7 +197,7 @@ public class SalesOrderService {
         return orderVO;
     }
 
-    @RequirePermission(value = "sales:order:detail", message = "您没有权限查询销售订单状态变更日志")
+    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_DETAIL, message = "您没有权限查询销售订单状态变更日志")
     public List<SalesOrderStatusLog> selectSalesOrderStatusLog(@NotBlank String orderId) {
         return salesOrderStatusLogMapper.selectList(new LambdaQueryWrapper<SalesOrderStatusLog>()
                 .eq(SalesOrderStatusLog::getOrderId, orderId)
@@ -201,7 +206,7 @@ public class SalesOrderService {
 
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = "sales:order:status", message = "您没有权限添加销售订单")
+    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限添加销售订单")
     public void addSalesOrder(@Valid SalesOrderAddRequest request) {
         SalesOrder order = new SalesOrder();
 
@@ -265,7 +270,7 @@ public class SalesOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = "sales:order:status", message = "您没有权限更新销售订单状态")
+    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限更新销售订单状态")
     public SalesOrder updateStatusAndProcess(@NotBlank String orderId, @Valid SalesOrderUpdateRequest request) {
         // 1. 查询当前销售订单
         SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
@@ -330,6 +335,7 @@ public class SalesOrderService {
 
         if (!Objects.equals(oldStatus, order.getStatus())) {
             insertSalesStatusLog(order, oldStatus, order.getStatus(), "status_change", "小程序更新销售订单状态");
+            notifySalesOrderChanged(order, oldStatus);
         }
 
         return order;
@@ -373,5 +379,41 @@ public class SalesOrderService {
     private String resolveCurrentUserIdText() {
         Long userId = TenantPermissionContext.getUserId();
         return userId == null ? "system" : String.valueOf(userId);
+    }
+
+    private void notifySalesOrderChanged(SalesOrder order, String oldStatus) {
+        Long creatorId = parseUserId(order.getCreator());
+        Long currentUserId = TenantPermissionContext.getUserId();
+        if (creatorId == null || creatorId.equals(currentUserId)) {
+            return;
+        }
+        wechatSubscribeNotificationService.sendTodoAfterCommit(
+                creatorId,
+                "销售订单状态更新",
+                order.getOrderId() + "：" + statusLabel(oldStatus) + " → " + statusLabel(order.getStatus()),
+                "/pages/orderDetail/orderDetail?type=sales&orderId=" + order.getOrderId()
+        );
+    }
+
+    private Long parseUserId(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private String statusLabel(String status) {
+        if (status == null || status.isBlank()) {
+            return "未设置";
+        }
+        try {
+            return OrderStatusEnum.getByCode(status).getName();
+        } catch (IllegalArgumentException ex) {
+            return status;
+        }
     }
 }

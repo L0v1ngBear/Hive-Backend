@@ -5,32 +5,50 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
+import my.hive_back.common.enums.DeleteFlagEnum;
+import my.hive_back.module.document.DocumentUploadStatusEnum;
+import my.hive_back.common.storage.FileUploadResult;
+import my.hive_back.common.storage.OssStorageService;
 import my.hive_back.module.document.DocumentTypeEnum;
 import my.hive_back.module.document.mapper.DocumentMapper;
 import my.hive_back.module.document.model.dto.DocumentAddRequest;
 import my.hive_back.module.document.model.entity.Document;
 import my.hive_back.module.document.model.vo.DocumentVO;
+import my.hive_back.module.tenant.mapper.TenantMapper;
+import my.hive_back.module.tenant.model.entity.Tenant;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-/**
- * DocumentService 属于小程序后端单据模块，实现核心业务编排与规则逻辑。
- */
+
 @Slf4j
 @Service
 public class DocumentService {
 
+    private static final int MAX_TREE_DEPTH = 20;
+    private static final int MAX_NAME_LENGTH = 180;
+
     @Resource
     private DocumentMapper documentMapper;
 
+    @Resource
+    private OssStorageService ossStorageService;
+
+    @Resource
+    private TenantMapper tenantMapper;
+
     public List<Document> selectDocumentByParentId(Long parentId) {
+        String tenantCode = requireTenantCode();
+        Long normalizedParentId = normalizeParentId(parentId);
         LambdaQueryWrapper<Document> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(Document::getParentId, parentId);
+        queryWrapper.eq(Document::getTenantCode, tenantCode);
+        queryWrapper.eq(Document::getParentId, normalizedParentId);
+        queryWrapper.eq(Document::getIsDeleted, DeleteFlagEnum.NORMAL.getCode());
         queryWrapper.orderByAsc(Document::getType);
         queryWrapper.orderByAsc(Document::getCreateTime);
         return documentMapper.selectList(queryWrapper);
@@ -38,150 +56,226 @@ public class DocumentService {
 
     @Transactional(rollbackFor = Exception.class)
     public void addFolder(DocumentAddRequest request) {
-
-        LambdaQueryWrapper<Document> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(Document::getParentId, request.getParentId());
-        queryWrapper.eq(Document::getName, request.getName());
-
-        if (documentMapper.selectOne(queryWrapper) != null) {
-            throw new BusinessException("文件夹名称已存在");
+        if (request == null) {
+            throw new BusinessException("文件夹参数不能为空");
         }
+        String tenantCode = requireTenantCode();
+        Long parentId = normalizeParentId(request.getParentId());
+        String folderName = normalizeName(request.getName(), "文件夹名称");
+        ensureParentFolder(parentId);
+        ensureNameNotExists(tenantCode, parentId, folderName, null);
 
-        insertFolder(request);
-    }
-
-    @Transactional(rollbackFor = Exception.class)
-    protected void insertFolder(DocumentAddRequest request) {
         Document document = new Document();
-        document.setName(request.getName());
-        document.setParentId(request.getParentId());
+        document.setName(folderName);
+        document.setOriginalName(folderName);
+        document.setParentId(parentId);
         document.setType(DocumentTypeEnum.FOLDER.getType());
-        document.setTenantCode(TenantPermissionContext.getTenantCode());
+        document.setTenantCode(tenantCode);
+        document.setCreatorId(TenantPermissionContext.getUserId());
         documentMapper.insert(document);
     }
 
-    public void uploadFile(MultipartFile file) {
-        // 预留阿里云 OSS 接入：
-        // 1. 校验文件大小、类型、租户上传权限
-        // 2. 生成按 tenantCode/日期 分层的对象存储路径
-        // 3. 上传到 OSS 后保存 fileUrl、fileSize、contentType、originalName
-        // 4. 回写 document 表，目录结构继续复用当前 parentId 体系
-        // 5. 建议同时补签名直传和服务端回调校验，降低大文件占用
-        throw new BusinessException("文件上传功能待接入阿里云OSS");
+    public DocumentVO uploadFile(MultipartFile file, Long parentId) {
+        String tenantCode = requireTenantCode();
+        Long normalizedParentId = normalizeParentId(parentId);
+        ensureParentFolder(normalizedParentId);
+
+        String displayName = normalizeUploadFilename(file);
+        ensureNameNotExists(tenantCode, normalizedParentId, displayName, null);
+        ensureStorageQuota(tenantCode, file.getSize());
+
+        FileUploadResult uploadResult = ossStorageService.upload(file, tenantCode);
+        Document document = new Document();
+        document.setTenantCode(tenantCode);
+        document.setParentId(normalizedParentId);
+        document.setName(displayName);
+        document.setOriginalName(uploadResult.getOriginalName());
+        document.setType(DocumentTypeEnum.FILE.getType());
+        document.setFileUrl(uploadResult.getUrl());
+        document.setStorageProvider(uploadResult.getStorageProvider());
+        document.setStorageBucket(uploadResult.getBucketName());
+        document.setStorageObjectKey(uploadResult.getObjectKey());
+        document.setFileSize(uploadResult.getFileSize());
+        document.setFileExt(uploadResult.getFileExt());
+        document.setMimeType(uploadResult.getMimeType());
+        document.setFileHash(uploadResult.getFileHash());
+        document.setEtag(uploadResult.getEtag());
+        document.setUploadStatus(DocumentUploadStatusEnum.UPLOADED.getCode());
+        document.setCreatorId(TenantPermissionContext.getUserId());
+
+        try {
+            documentMapper.insert(document);
+            return toVO(document);
+        } catch (RuntimeException e) {
+            ossStorageService.deleteQuietly(uploadResult.getObjectKey());
+            log.error("save document after oss upload failed, tenantCode={}, objectKey={}", tenantCode, uploadResult.getObjectKey(), e);
+            throw e;
+        }
     }
 
     public void renameDocument(Long documentId, String newName) {
-        Document document = documentMapper.selectById(documentId);
-        if (document == null) {
-            throw new BusinessException("文件不存在");
-        }
-        Long parentId = document.getParentId();
-        LambdaQueryWrapper<Document> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(Document::getParentId, parentId);
-        queryWrapper.eq(Document::getName, newName);
-        Document oldDocument = documentMapper.selectOne(queryWrapper);
-        if (oldDocument == null) {
-            document.setName(newName);
-            documentMapper.updateById(document);
-        } else {
-            throw new BusinessException("文件名称已存在");
-        }
+        Document document = requireDocument(documentId);
+        String normalizedName = normalizeName(newName, "文档名称");
+        ensureNameNotExists(document.getTenantCode(), document.getParentId(), normalizedName, documentId);
+        document.setName(normalizedName);
+        documentMapper.updateById(document);
     }
 
     public void moveDocument(Long documentId, Long targetParentId) {
-        // 1. 基础拦截：不能原地踏步
-        if (documentId.equals(targetParentId)) {
+        Document currentDoc = requireDocument(documentId);
+        Long normalizedTargetParentId = normalizeParentId(targetParentId);
+        if (documentId.equals(normalizedTargetParentId)) {
             throw new BusinessException("目标位置不能是自身");
         }
 
-        Document currentDoc = documentMapper.selectById(documentId);
-        if (currentDoc == null) {
-            throw new BusinessException("要移动的节点不存在");
-        }
+        ensureParentFolder(normalizedTargetParentId);
+        ensureNameNotExists(currentDoc.getTenantCode(), normalizedTargetParentId, currentDoc.getName(), currentDoc.getId());
 
-        // 2. 目标节点校验
-        if (targetParentId != null && targetParentId != 0L) {
-            Document targetDoc = documentMapper.selectById(targetParentId);
-            if (targetDoc == null) {
-                throw new BusinessException("目标文件夹不存在");
-            }
-            if (!DocumentTypeEnum.FOLDER.getType().equals(targetDoc.getType())) {
-                throw new BusinessException("目标位置不是文件夹，无法移入");
-            }
-        }
-
-        // 3. 高级校验：防死循环（仅当前移动的是文件夹，且目标不是根目录时需要校验）
-        if (DocumentTypeEnum.FOLDER.getType().equals(currentDoc.getType()) && targetParentId != null && targetParentId != 0L) {
-            Long checkId = targetParentId;
-            int maxDepth = 20;
+        if (DocumentTypeEnum.FOLDER.getType().equals(currentDoc.getType()) && normalizedTargetParentId > 0) {
+            Long checkId = normalizedTargetParentId;
             int depth = 0;
-
-            // 从目标位置往上回溯，看会不会撞见【当前节点】
-            while (checkId != null && checkId != 0L && depth < maxDepth) {
+            while (checkId != null && checkId > 0 && depth < MAX_TREE_DEPTH) {
                 if (checkId.equals(documentId)) {
-                    throw new BusinessException("非法操作：不能将文件夹移动到其自身的子文件夹内");
+                    throw new BusinessException("不能将文件夹移动到自己的子文件夹中");
                 }
-
-                Document checkDoc = documentMapper.selectById(checkId);
-                if (checkDoc == null) {
-                    break;
-                }
+                Document checkDoc = requireDocument(checkId);
                 checkId = checkDoc.getParentId();
                 depth++;
             }
         }
 
-        // 4. 更新数据库
-        currentDoc.setParentId(targetParentId);
-
+        currentDoc.setParentId(normalizedTargetParentId);
         documentMapper.updateById(currentDoc);
     }
 
-
-
     public List<DocumentVO> getBreadcrumbs(Long documentId) {
-        // 1. 判空校验
         if (documentId == null || documentId <= 0) {
             return Collections.emptyList();
         }
 
         List<DocumentVO> breadcrumbs = new ArrayList<>();
         Long currentId = documentId;
-
-        // 2. 深度限制，防止历史脏数据引发死循环导致 OOM 或 CPU 飙高
-        int maxDepth = 20;
         int depth = 0;
 
-        // 3. 核心逻辑：从当前节点不断向上追溯父节点
-        while (currentId != null && currentId > 0 && depth < maxDepth) {
-            // 通过 MyBatis-Plus 根据主键查询
+        while (currentId != null && currentId > 0 && depth < MAX_TREE_DEPTH) {
             Document document = documentMapper.selectById(currentId);
-
-            // 如果查不到数据（例如由于并发被删除了），直接中断
-            if (document == null) {
+            if (document == null || !requireTenantCode().equals(document.getTenantCode())) {
                 break;
             }
-
-            // 对象转换封装
-            DocumentVO vo = new DocumentVO();
-            BeanUtils.copyProperties(document, vo);
-
-            breadcrumbs.add(vo);
-
-            // 指针上移，指向父节点
+            breadcrumbs.add(toVO(document));
             currentId = document.getParentId();
             depth++;
         }
 
-        // 4. 边界预警：如果达到了最大深度，记录日志方便排查脏数据
-        if (depth >= maxDepth) {
-            log.warn("获取面包屑触发最大深度限制，可能存在环状数据或恶意嵌套，起始节点 documentId: {}", documentId);
-            // 注：面包屑查询属于展示类功能，达到阈值通常不需要抛出异常阻断用户，直接截断展示即可。
+        if (depth >= MAX_TREE_DEPTH) {
+            log.warn("document breadcrumbs reached max depth, documentId={}", documentId);
         }
 
-        // 5. 反转列表
         Collections.reverse(breadcrumbs);
-
         return breadcrumbs;
+    }
+
+    private DocumentVO toVO(Document document) {
+        DocumentVO vo = new DocumentVO();
+        BeanUtils.copyProperties(document, vo);
+        return vo;
+    }
+
+    private void ensureParentFolder(Long parentId) {
+        if (parentId == null || parentId == 0L) {
+            return;
+        }
+        Document parent = requireDocument(parentId);
+        if (!DocumentTypeEnum.FOLDER.getType().equals(parent.getType())) {
+            throw new BusinessException("目标目录不是文件夹");
+        }
+    }
+
+    private Document requireDocument(Long documentId) {
+        if (documentId == null || documentId <= 0) {
+            throw new BusinessException("文档ID不合法");
+        }
+        Document document = documentMapper.selectById(documentId);
+        if (document == null || !requireTenantCode().equals(document.getTenantCode())) {
+            throw new BusinessException("文档不存在");
+        }
+        return document;
+    }
+
+    private void ensureNameNotExists(String tenantCode, Long parentId, String name, Long excludeId) {
+        LambdaQueryWrapper<Document> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Document::getTenantCode, tenantCode);
+        queryWrapper.eq(Document::getParentId, parentId);
+        queryWrapper.eq(Document::getName, name);
+        queryWrapper.eq(Document::getIsDeleted, DeleteFlagEnum.NORMAL.getCode());
+        if (excludeId != null && excludeId > 0) {
+            queryWrapper.ne(Document::getId, excludeId);
+        }
+        queryWrapper.last("LIMIT 1");
+        if (documentMapper.selectOne(queryWrapper) != null) {
+            throw new BusinessException("同目录下已存在同名文档");
+        }
+    }
+
+    private void ensureStorageQuota(String tenantCode, long appendBytes) {
+        if (appendBytes <= 0) {
+            throw new BusinessException("文件内容为空，无法上传");
+        }
+        Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
+        if (tenant == null) {
+            throw new BusinessException("租户不存在，无法上传文件");
+        }
+        Integer maxStorageMb = tenant.getMaxStorageMb();
+        if (maxStorageMb == null) {
+            return;
+        }
+        if (maxStorageMb <= 0) {
+            throw new BusinessException("当前套餐未开通文件存储空间");
+        }
+        long maxBytes = maxStorageMb * 1024L * 1024L;
+        Long used = documentMapper.sumActiveFileSize(tenantCode);
+        long usedBytes = used == null ? 0L : used;
+        if (Long.MAX_VALUE - usedBytes < appendBytes || usedBytes + appendBytes > maxBytes) {
+            throw new BusinessException("租户文件存储空间不足，请升级套餐或清理历史文件");
+        }
+    }
+
+    private String normalizeUploadFilename(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException("请选择需要上传的文件");
+        }
+        return normalizeName(file.getOriginalFilename(), "文件名");
+    }
+
+    private String normalizeName(String name, String label) {
+        if (!StringUtils.hasText(name)) {
+            throw new BusinessException(label + "不能为空");
+        }
+        String normalized = org.springframework.util.StringUtils.cleanPath(name.trim());
+        if (normalized.contains("..") || normalized.contains("/") || normalized.contains("\\")) {
+            throw new BusinessException(label + "不合法");
+        }
+        if (normalized.length() > MAX_NAME_LENGTH) {
+            throw new BusinessException(label + "不能超过 " + MAX_NAME_LENGTH + " 个字符");
+        }
+        return normalized;
+    }
+
+    private Long normalizeParentId(Long parentId) {
+        if (parentId == null) {
+            return 0L;
+        }
+        if (parentId < 0) {
+            throw new BusinessException("父目录ID不合法");
+        }
+        return parentId;
+    }
+
+    private String requireTenantCode() {
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        if (!StringUtils.hasText(tenantCode)) {
+            throw new BusinessException("租户信息缺失");
+        }
+        return tenantCode;
     }
 }

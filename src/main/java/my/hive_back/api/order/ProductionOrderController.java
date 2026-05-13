@@ -1,11 +1,13 @@
 package my.hive_back.api.order;
 
+import my.hive_back.module.tenant.TenantFeatureEnum;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
+import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.order.model.dto.ProductionOrderUpdateRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderAddRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderListRequest;
@@ -26,6 +28,7 @@ import java.util.stream.Collectors;
  */
 @RestController
 @RequestMapping("/production")
+@RequireTenantFeature(TenantFeatureEnum.CODE_MODULE_ORDER)
 @Validated
 public class ProductionOrderController {
 

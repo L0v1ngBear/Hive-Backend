@@ -21,5 +21,9 @@ public class LoginVO {
 
     private String tenantCode;
 
+    private String tenantName;
+
+    private Boolean needsOrganization;
+
     private String responseKey;
 }

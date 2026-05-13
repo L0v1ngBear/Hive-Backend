@@ -27,6 +27,8 @@
         <jSerialComm.version>2.9.2</jSerialComm.version>
         <fastjson.version>2.0.33</fastjson.version>
         <springdoc.version>2.2.0</springdoc.version>
+        <xxl-job.version>2.4.1</xxl-job.version>
+        <aliyun-oss.version>3.18.5</aliyun-oss.version>
     </properties>
 
     <!-- 核心：dependencyManagement 统一管理版本，不实际引入依赖 -->
@@ -114,6 +116,16 @@
                 <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
                 <version>${springdoc.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.xuxueli</groupId>
+                <artifactId>xxl-job-core</artifactId>
+                <version>${xxl-job.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aliyun.oss</groupId>
+                <artifactId>aliyun-sdk-oss</artifactId>
+                <version>${aliyun-oss.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -122,7 +134,7 @@
         <dependency>
             <groupId>my.hive</groupId>
             <artifactId>hive-backend-common</artifactId>
-            <version>0.0.1-SNAPSHOT</version>
+            <version>0.1.0</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -194,6 +206,14 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.xuxueli</groupId>
+            <artifactId>xxl-job-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
         </dependency>
 
     </dependencies>

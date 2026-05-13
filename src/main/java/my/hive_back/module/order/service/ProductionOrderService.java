@@ -1,5 +1,6 @@
 package my.hive_back.module.order.service;
 
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
@@ -10,6 +11,9 @@ import my.hive.common.annotation.RequirePermission;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
 import my.hive_back.common.utils.CodeGeneratorUtil;
+import my.hive_back.module.order.OrderOperateTypeEnum;
+import my.hive_back.module.order.OrderStatusEnum;
+import my.hive_back.module.order.ProcessEnum;
 import my.hive_back.module.order.model.dto.ProductionOrderAddRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderListRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderUpdateRequest;
@@ -19,6 +23,7 @@ import my.hive_back.module.order.mapper.ProductionOrderMapper;
 import my.hive_back.module.order.mapper.ProductionOrderStatusLogMapper;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
+import my.hive_back.module.wechat.service.WechatSubscribeNotificationService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,9 +41,14 @@ public class ProductionOrderService {
     private static final long DEFAULT_PAGE_NUM = 1L;
     private static final long DEFAULT_PAGE_SIZE = 20L;
     private static final long MAX_PAGE_SIZE = 200L;
-    private static final String STATUS_PRODUCING = "producing";
+    private static final String STATUS_PRODUCING = OrderStatusEnum.PRODUCING.getCode();
     private static final Set<String> VALID_STATUS = Set.of(
-            "pending_confirm", "pending_material", "producing", "pending_ship", "shipped", "completed"
+            OrderStatusEnum.PENDING_CONFIRM.getCode(),
+            OrderStatusEnum.PENDING_MATERIAL.getCode(),
+            OrderStatusEnum.PRODUCING.getCode(),
+            OrderStatusEnum.PENDING_SHIP.getCode(),
+            OrderStatusEnum.SHIPPED.getCode(),
+            OrderStatusEnum.COMPLETED.getCode()
     );
 
     @Resource
@@ -53,7 +63,10 @@ public class ProductionOrderService {
     @Resource
     private UserMapper userMapper;
 
-    @RequirePermission(value = "production:order:list", message = "您没有权限查询生产订单列表")
+    @Resource
+    private WechatSubscribeNotificationService wechatSubscribeNotificationService;
+
+    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, message = "您没有权限查询生产订单列表")
     public Page<ProductionOrder> selectProductionOrder(ProductionOrderListRequest request) {
         LambdaQueryWrapper<ProductionOrder> queryWrapper = new LambdaQueryWrapper<>();
 
@@ -91,7 +104,7 @@ public class ProductionOrderService {
         return Math.min(pageSize, MAX_PAGE_SIZE);
     }
 
-    @RequirePermission(value = "production:order:detail", message = "您没有权限查询生产订单详情")
+    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_DETAIL, message = "您没有权限查询生产订单详情")
     public ProductionOrder selectProductionOrderDetail(String orderId) {
         ProductionOrder productionOrder = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
                 .eq(ProductionOrder::getOrderId, orderId));
@@ -103,7 +116,7 @@ public class ProductionOrderService {
         return productionOrder;
     }
 
-    @RequirePermission(value = "production:order:log", message = "您没有权限查询生产订单状态变更日志")
+    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LOG, message = "您没有权限查询生产订单状态变更日志")
     public List<ProductionOrderStatusLog> selectOrderStausLog(@NotBlank String orderId) {
         LambdaQueryWrapper<ProductionOrderStatusLog> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(ProductionOrderStatusLog::getOrderId, orderId);
@@ -111,18 +124,18 @@ public class ProductionOrderService {
         return statusLogMapper.selectList(queryWrapper);
     }
 
-    @RequirePermission(value = "production:order:status", message = "您没有权限处理生产订单")
+    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限处理生产订单")
     @Transactional(rollbackFor = Exception.class)
     public ProductionOrder processProductionOrder(String orderId, Integer process) {
         ProductionOrderUpdateRequest request = new ProductionOrderUpdateRequest();
         request.setProcess(process);
-        request.setOperateType("process_change");
+        request.setOperateType(OrderOperateTypeEnum.PROCESS_CHANGE.getCode());
         request.setRemark("更新生产工序");
         return updateStatusAndProcess(orderId, request);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = "production:order:status", message = "您没有权限更新生产订单状态")
+    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限更新生产订单状态")
     public ProductionOrder updateStatusAndProcess(String orderId, ProductionOrderUpdateRequest request) {
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
                 .eq(ProductionOrder::getOrderId, orderId));
@@ -181,13 +194,14 @@ public class ProductionOrderService {
 
         if (!Objects.equals(oldStatus, order.getStatus()) || !Objects.equals(oldProcess, order.getProcess())) {
             insertStatusLog(orderId, oldStatus, oldProcess, order.getStatus(), order.getProcess(), request);
+            notifyProductionOrderChanged(order, oldStatus, oldProcess);
         }
 
         return order;
     }
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = "production:order:status", message = "您没有权限添加生产订单")
+    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限添加生产订单")
     public void addProductionOrder(ProductionOrderAddRequest request) {
         this.addProductionOrder(request, null);
     }
@@ -236,12 +250,12 @@ public class ProductionOrderService {
             return request.getOperateType();
         }
         if (!Objects.equals(oldStatus, newStatus)) {
-            return "status_change";
+            return OrderOperateTypeEnum.STATUS_CHANGE.getCode();
         }
         if (!Objects.equals(oldProcess, newProcess)) {
-            return "process_change";
+            return OrderOperateTypeEnum.PROCESS_CHANGE.getCode();
         }
-        return "update";
+        return OrderOperateTypeEnum.UPDATE.getCode();
     }
 
     private String buildDefaultRemark(String oldStatus, Integer oldProcess, String newStatus, Integer newProcess) {
@@ -268,6 +282,31 @@ public class ProductionOrderService {
         return userId == null ? "system" : String.valueOf(userId);
     }
 
+    private void notifyProductionOrderChanged(ProductionOrder order, String oldStatus, Integer oldProcess) {
+        Long creatorId = parseUserId(order.getCreator());
+        Long currentUserId = TenantPermissionContext.getUserId();
+        if (creatorId == null || creatorId.equals(currentUserId)) {
+            return;
+        }
+        wechatSubscribeNotificationService.sendTodoAfterCommit(
+                creatorId,
+                "生产订单状态更新",
+                order.getOrderId() + "：" + buildStatusText(oldStatus, oldProcess) + " → " + buildStatusText(order.getStatus(), order.getProcess()),
+                "/pages/orderDetail/orderDetail?orderId=" + order.getOrderId()
+        );
+    }
+
+    private Long parseUserId(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private String buildStatusText(String status, Integer process) {
         if (!StringUtils.isNotBlank(status)) {
             return "未设置";
@@ -279,25 +318,19 @@ public class ProductionOrderService {
     }
 
     private String statusLabel(String status) {
-        return switch (status) {
-            case "pending_confirm" -> "待确认";
-            case "pending_material" -> "备料中";
-            case "producing" -> "生产中";
-            case "pending_ship" -> "待发货";
-            case "shipped" -> "已发货";
-            case "completed" -> "已完成";
-            default -> status;
-        };
+        try {
+            return OrderStatusEnum.getByCode(status).getName();
+        } catch (IllegalArgumentException ex) {
+            return status;
+        }
     }
 
     private String processLabel(Integer process) {
-        return switch (process) {
-            case 0 -> "整经";
-            case 1 -> "浆纱";
-            case 2 -> "织造";
-            case 3 -> "验布";
-            case 4 -> "卷布";
-            default -> "未知工序";
-        };
+        try {
+            return ProcessEnum.getByCode(process).getName();
+        } catch (IllegalArgumentException ex) {
+            return "\u672a\u77e5\u5de5\u5e8f";
+        }
     }
+
 }

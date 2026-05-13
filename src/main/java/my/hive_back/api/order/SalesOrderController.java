@@ -1,11 +1,13 @@
 package my.hive_back.api.order;
 
+import my.hive_back.module.tenant.TenantFeatureEnum;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
+import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.order.model.dto.SalesOrderAddRequest;
 import my.hive_back.module.order.model.dto.SalesOrderUpdateRequest;
 import my.hive_back.module.order.model.entity.SalesOrder;
@@ -24,6 +26,7 @@ import java.util.stream.Collectors;
  */
 @RestController
 @RequestMapping("/sales")
+@RequireTenantFeature(TenantFeatureEnum.CODE_MODULE_ORDER)
 @Validated
 public class SalesOrderController {
 

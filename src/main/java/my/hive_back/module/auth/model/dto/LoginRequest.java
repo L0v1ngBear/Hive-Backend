@@ -8,9 +8,6 @@ import lombok.Data;
 @Data
 public class LoginRequest {
 
-    @NotBlank(message = "租户编码不能为空")
-    private String tenantCode;
-
     @NotBlank(message = "账号不能为空")
     private String username;
 

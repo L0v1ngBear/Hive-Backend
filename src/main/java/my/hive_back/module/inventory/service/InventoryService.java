@@ -1,5 +1,6 @@
 package my.hive_back.module.inventory.service;
 
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
@@ -12,12 +13,14 @@ import my.hive.common.annotation.RequirePermission;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
 import my.hive.common.print.PrintTaskService;
+import my.hive.common.redis.HiveRedisKeyBuilder;
 import my.hive.common.utils.RedisCacheHelper;
 import my.hive_back.common.utils.BarCodeUtil;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.common.utils.RedisUtil;
 import my.hive_back.module.inventory.InventoryInTypeEnum;
 import my.hive_back.module.inventory.InventoryOperateTypeEnum;
+import my.hive_back.module.inventory.InventoryRecordOperateTypeEnum;
 import my.hive_back.module.inventory.mapper.ClothMapper;
 import my.hive_back.module.inventory.mapper.ClothModelSpecMapper;
 import my.hive_back.module.inventory.mapper.InventoryRecordMapper;
@@ -31,6 +34,7 @@ import my.hive_back.module.inventory.model.entity.InventoryRecord;
 import my.hive_back.module.inventory.model.entity.OutboundItem;
 import my.hive_back.module.inventory.model.entity.OutboundOrder;
 import my.hive_back.module.inventory.model.vo.ClothInfoVO;
+import my.hive_back.module.inventory.model.vo.InventoryDailyMetersVO;
 import my.hive_back.module.inventory.model.vo.InventoryRecordVO;
 import my.hive_back.module.inventory.model.vo.OutboundOrderOptionVO;
 import my.hive_back.module.price.mapper.PriceSkuMapper;
@@ -38,6 +42,7 @@ import my.hive_back.module.statics.inventory.mapper.InventoryTrendStaticsMapper;
 import my.hive_back.module.statics.inventory.model.entity.InventoryTrendStatics;
 import my.hive_back.module.statics.inventory.model.vo.InventoryTrendVO;
 import my.hive_back.module.order.mapper.SalesOrderMapper;
+import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -62,13 +67,9 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class InventoryService {
 
-    private static final String CLOTH_OUT_LOCK_PREFIX = "lock:cloth:out:";
-    private static final String OUTBOUND_ORDER_LOCK_PREFIX = "lock:outbound:order:";
     private static final int OUTBOUND_MAX_RETRY = 3;
     private static final float WARNING_METERS_THRESHOLD = 5F;
     private static final float METERS_EPSILON = 0.0001F;
-    private static final String DASHBOARD_OVERVIEW_CACHE_PREFIX = "management:dashboard:overview:";
-    private static final String DASHBOARD_AI_CACHE_PREFIX = "management:dashboard:ai-advice:";
 
     @Resource
     private InventoryTrendStaticsMapper staticsMapper;
@@ -84,6 +85,8 @@ public class InventoryService {
     private StringRedisTemplate stringRedisTemplate;
     @Resource
     private RedisCacheHelper redisCacheHelper;
+    @Resource
+    private HiveRedisKeyBuilder redisKeyBuilder;
     @Resource
     private RedisUtil redisUtil;
     @Resource
@@ -106,7 +109,7 @@ public class InventoryService {
 
     @Transactional(rollbackFor = Exception.class)
     @CollectLog(module = "inventory", action = "cloth_in", bizType = "cloth", bizNo = "#p0.barcode", description = "小程序布匹入库")
-    @RequirePermission(value = "inventory:cloth:in", message = "您没有权限执行布匹入库")
+    @RequirePermission(value = PermissionCodeEnum.CODE_INVENTORY_CLOTH_IN, message = "您没有权限执行布匹入库")
     public ClothInfoVO inCloth(@Valid InventoryInRequest inventoryInRequest) {
         InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.getCode(inventoryInRequest.getInType());
         String barcode;
@@ -133,7 +136,7 @@ public class InventoryService {
         return clothInfoVO;
     }
 
-    @RequirePermission(value = "inventory:cloth:out", message = "您没有权限执行布匹出库")
+    @RequirePermission(value = PermissionCodeEnum.CODE_INVENTORY_CLOTH_OUT, message = "您没有权限执行布匹出库")
     @Transactional(rollbackFor = Exception.class)
     @CollectLog(module = "inventory", action = "cloth_out", bizType = "cloth", bizNo = "#p0.barcode", description = "小程序扫码出库")
     public ClothInfoVO outCloth(@Valid InventoryOutRequest request) {
@@ -155,7 +158,7 @@ public class InventoryService {
             return idempotentResult;
         }
 
-        String lockKey = CLOTH_OUT_LOCK_PREFIX + tenantCode + ":" + barCode;
+        String lockKey = redisKeyBuilder.lock("cloth", "out", tenantCode, barCode);
         String lockValue = UUID.randomUUID().toString();
         Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, 30, TimeUnit.SECONDS);
         if (Boolean.FALSE.equals(locked)) {
@@ -275,7 +278,7 @@ public class InventoryService {
     }
 
     private OutboundOrder getOrCreatePendingOutboundOrder(String tenantCode, String businessOrderNo, String customerName, Long userId) {
-        String lockKey = OUTBOUND_ORDER_LOCK_PREFIX + tenantCode + ":" + businessOrderNo;
+        String lockKey = redisKeyBuilder.lock("outbound", "order", tenantCode, businessOrderNo);
         String lockValue = UUID.randomUUID().toString();
         Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, 15, TimeUnit.SECONDS);
         if (Boolean.FALSE.equals(locked)) {
@@ -409,7 +412,7 @@ public class InventoryService {
     public List<OutboundOrderOptionVO> searchOutboundBizOrders(String keyword) {
         String safeKeyword = keyword == null ? "" : keyword.trim();
         LambdaQueryWrapper<SalesOrder> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.in(SalesOrder::getStatus, List.of("pending_ship", "shipped"))
+        queryWrapper.in(SalesOrder::getStatus, List.of(OrderStatusEnum.PENDING_SHIP.getCode(), OrderStatusEnum.SHIPPED.getCode()))
                 .and(StringUtils.isNotBlank(safeKeyword), wrapper -> wrapper
                         .like(SalesOrder::getOrderId, safeKeyword)
                         .or()
@@ -455,29 +458,37 @@ public class InventoryService {
 
     public InventoryTrendVO getLastWeekTrend() {
         InventoryTrendVO vo = new InventoryTrendVO();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = LocalDate.now();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd");
+        String tenantCode = TenantPermissionContext.getTenantCode();
 
-        LocalDateTime dbEndDate = now.minusDays(1);
-        LocalDateTime dbStartDate = now.minusDays(6);
+        LocalDateTime dbStartDate = today.minusDays(6).atStartOfDay();
+        LocalDateTime dbEndDate = today.atStartOfDay();
         LambdaQueryWrapper<InventoryTrendStatics> wrapper = new LambdaQueryWrapper<>();
-        wrapper.between(InventoryTrendStatics::getStatDate, dbStartDate, dbEndDate);
+        wrapper.eq(InventoryTrendStatics::getTenantCode, tenantCode);
+        wrapper.ge(InventoryTrendStatics::getStatDate, dbStartDate);
+        wrapper.lt(InventoryTrendStatics::getStatDate, dbEndDate);
         wrapper.orderByAsc(InventoryTrendStatics::getStatDate);
         List<InventoryTrendStatics> dbList = staticsMapper.selectList(wrapper);
 
-        String tenantCode = TenantPermissionContext.getTenantCode();
-        Float todayIn = getTrendMeters(REDIS_TODAY_IN, tenantCode, now.toLocalDate());
-        Float todayOut = getTrendMeters(REDIS_TODAY_OUT, tenantCode, now.toLocalDate());
+        InventoryDailyMetersVO todayMeters = inventoryRecordMapper.sumDailyMeters(
+                tenantCode,
+                InventoryRecordOperateTypeEnum.IN.getCode(),
+                InventoryRecordOperateTypeEnum.EXTERNAL_IMPORT.getCode(),
+                InventoryRecordOperateTypeEnum.OUT.getCode(),
+                today.atStartOfDay(),
+                today.plusDays(1).atStartOfDay()
+        );
+        Float todayIn = toMetersFloat(todayMeters == null ? null : todayMeters.getInMeters());
+        Float todayOut = toMetersFloat(todayMeters == null ? null : todayMeters.getOutMeters());
 
         List<String> dateList = new ArrayList<>();
         List<Float> inList = new ArrayList<>();
         List<Float> outList = new ArrayList<>();
 
         for (int i = 6; i >= 0; i--) {
-            LocalDateTime date = now.minusDays(i);
-            LocalDate currentDay = date.toLocalDate();
-            String dateStr = date.format(formatter);
-            dateList.add(dateStr);
+            LocalDate currentDay = today.minusDays(i);
+            dateList.add(currentDay.format(formatter));
             if (i == 0) {
                 inList.add(todayIn == null ? 0f : todayIn);
                 outList.add(todayOut == null ? 0f : todayOut);
@@ -496,14 +507,8 @@ public class InventoryService {
         return vo;
     }
 
-    private Float getTrendMeters(String keyPrefix, String tenantCode, LocalDate statDate) {
-        try {
-            String value = stringRedisTemplate.opsForValue().get(keyPrefix + tenantCode + ":" + statDate);
-            return value == null ? 0f : Float.parseFloat(value);
-        } catch (Exception ex) {
-            log.warn("读取库存趋势缓存失败，tenantCode: {}, statDate: {}", tenantCode, statDate, ex);
-            return 0f;
-        }
+    private Float toMetersFloat(BigDecimal value) {
+        return value == null ? 0f : value.floatValue();
     }
 
     public void finishOutbound(String orderNo) {
@@ -536,8 +541,8 @@ public class InventoryService {
     }
 
     private void invalidateManagementDashboardCache(String tenantCode) {
-        deleteCacheByPattern(DASHBOARD_OVERVIEW_CACHE_PREFIX + tenantCode + ":*");
-        deleteCacheByPattern(DASHBOARD_AI_CACHE_PREFIX + tenantCode + ":*");
+        deleteCacheByPattern(redisKeyBuilder.cachePattern("management", "dashboard", "overview", tenantCode, "*"));
+        deleteCacheByPattern(redisKeyBuilder.cachePattern("management", "dashboard", "ai-advice", tenantCode, "*"));
     }
 
     private void deleteCacheByPattern(String pattern) {

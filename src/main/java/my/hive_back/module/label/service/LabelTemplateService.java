@@ -6,6 +6,10 @@ import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import jakarta.annotation.Resource;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
+import my.hive_back.common.enums.BinaryFlagEnum;
+import my.hive_back.common.enums.CommonStatusEnum;
+import my.hive_back.common.enums.DeleteFlagEnum;
+import my.hive_back.module.label.LabelPrintTypeEnum;
 import my.hive_back.module.label.mapper.LabelTemplateMapper;
 import my.hive_back.module.label.model.dto.LabelTemplateSaveRequest;
 import my.hive_back.module.label.model.entity.LabelTemplate;
@@ -49,14 +53,14 @@ public class LabelTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public List<LabelTemplateVO> list(String printType) {
         LambdaQueryWrapper<LabelTemplate> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(LabelTemplate::getStatus, 1);
+        queryWrapper.eq(LabelTemplate::getStatus, CommonStatusEnum.ENABLED.getCode());
         if (StringUtils.isNotBlank(printType)) {
             queryWrapper.eq(LabelTemplate::getPrintType, printType);
         }
         queryWrapper.orderByDesc(LabelTemplate::getIsDefault);
         queryWrapper.orderByDesc(LabelTemplate::getUpdateTime);
         List<LabelTemplate> templates = labelTemplateMapper.selectList(queryWrapper);
-        if (templates.isEmpty() && (!StringUtils.isNotBlank(printType) || "label".equals(printType))) {
+        if (templates.isEmpty() && (!StringUtils.isNotBlank(printType) || LabelPrintTypeEnum.LABEL.getCode().equals(printType))) {
             templates = List.of(createDefaultLabelTemplate());
         }
         return templates.stream().map(this::toVO).toList();
@@ -72,11 +76,11 @@ public class LabelTemplateService {
     }
 
     public LabelTemplateVO defaultTemplate(String printType) {
-        List<LabelTemplateVO> templates = list(StringUtils.isNotBlank(printType) ? printType : "label");
+        List<LabelTemplateVO> templates = list(StringUtils.isNotBlank(printType) ? printType : LabelPrintTypeEnum.LABEL.getCode());
         if (templates.isEmpty()) {
             throw new BusinessException("暂无可用标签模板，请先在管理端上传");
         }
-        return templates.stream().filter(item -> Integer.valueOf(1).equals(item.getIsDefault())).findFirst().orElse(templates.get(0));
+        return templates.stream().filter(item -> BinaryFlagEnum.YES.matches(item.getIsDefault())).findFirst().orElse(templates.get(0));
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -87,13 +91,13 @@ public class LabelTemplateService {
         template.setPrintType(resolvePrintType(request.getPrintType()));
         template.setContent(request.getContent());
         template.setVariables(String.join(",", extractVariables(request.getContent())));
-        template.setIsDefault(Integer.valueOf(1).equals(request.getIsDefault()) ? 1 : 0);
-        template.setStatus(1);
-        template.setIsDeleted(0);
+        template.setIsDefault(BinaryFlagEnum.YES.matches(request.getIsDefault()) ? BinaryFlagEnum.YES.getCode() : BinaryFlagEnum.NO.getCode());
+        template.setStatus(CommonStatusEnum.ENABLED.getCode());
+        template.setIsDeleted(DeleteFlagEnum.NORMAL.getCode());
         template.setCreatorId(TenantPermissionContext.getUserId());
         labelTemplateMapper.insert(template);
 
-        if (Integer.valueOf(1).equals(template.getIsDefault())) {
+        if (BinaryFlagEnum.YES.matches(template.getIsDefault())) {
             clearOtherDefault(template);
         }
         return toVO(template);
@@ -146,7 +150,7 @@ public class LabelTemplateService {
         if (template == null) {
             throw new BusinessException("标签模板不存在");
         }
-        template.setIsDefault(1);
+        template.setIsDefault(BinaryFlagEnum.YES.getCode());
         labelTemplateMapper.updateById(template);
         clearOtherDefault(template);
     }
@@ -155,7 +159,7 @@ public class LabelTemplateService {
     public void disable(Long id) {
         LambdaUpdateWrapper<LabelTemplate> updateWrapper = new LambdaUpdateWrapper<>();
         updateWrapper.eq(LabelTemplate::getId, id)
-                .set(LabelTemplate::getStatus, 0);
+                .set(LabelTemplate::getStatus, CommonStatusEnum.DISABLED.getCode());
         labelTemplateMapper.update(null, updateWrapper);
     }
 
@@ -163,14 +167,14 @@ public class LabelTemplateService {
         LabelTemplate template = new LabelTemplate();
         template.setTenantCode(TenantPermissionContext.getTenantCode());
         template.setName("系统默认面料标签");
-        template.setPrintType("label");
+        template.setPrintType(LabelPrintTypeEnum.LABEL.getCode());
         template.setContent(DEFAULT_LABEL_TEMPLATE);
         template.setVariables(String.join(",", extractVariables(DEFAULT_LABEL_TEMPLATE)));
         template.setFileName("system-default.prn");
         template.setFileSize((long) DEFAULT_LABEL_TEMPLATE.getBytes(StandardCharsets.UTF_8).length);
-        template.setIsDefault(1);
-        template.setStatus(1);
-        template.setIsDeleted(0);
+        template.setIsDefault(BinaryFlagEnum.YES.getCode());
+        template.setStatus(CommonStatusEnum.ENABLED.getCode());
+        template.setIsDeleted(DeleteFlagEnum.NORMAL.getCode());
         template.setCreatorId(TenantPermissionContext.getUserId());
         labelTemplateMapper.insert(template);
         return template;
@@ -180,7 +184,7 @@ public class LabelTemplateService {
         LambdaUpdateWrapper<LabelTemplate> updateWrapper = new LambdaUpdateWrapper<>();
         updateWrapper.eq(LabelTemplate::getPrintType, template.getPrintType())
                 .ne(LabelTemplate::getId, template.getId())
-                .set(LabelTemplate::getIsDefault, 0);
+                .set(LabelTemplate::getIsDefault, BinaryFlagEnum.NO.getCode());
         labelTemplateMapper.update(null, updateWrapper);
     }
 
@@ -196,7 +200,7 @@ public class LabelTemplateService {
     }
 
     private String resolvePrintType(String printType) {
-        return StringUtils.isNotBlank(printType) ? printType : "label";
+        return StringUtils.isNotBlank(printType) ? printType : LabelPrintTypeEnum.LABEL.getCode();
     }
 
     private List<String> extractVariables(String content) {

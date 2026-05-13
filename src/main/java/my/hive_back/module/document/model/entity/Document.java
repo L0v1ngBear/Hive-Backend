@@ -38,6 +38,9 @@ public class Document implements Serializable {
     @TableField("name")
     private String name;
 
+    @TableField("original_name")
+    private String originalName;
+
     /**
      * 节点类型: 1-文件夹, 2-文件
      * 建议后续封装为枚举类使用，例如：
@@ -52,6 +55,15 @@ public class Document implements Serializable {
      */
     @TableField("file_url")
     private String fileUrl;
+
+    @TableField("storage_provider")
+    private String storageProvider;
+
+    @TableField("storage_bucket")
+    private String storageBucket;
+
+    @TableField("storage_object_key")
+    private String storageObjectKey;
 
     /**
      * 文件大小 (字节)
@@ -73,6 +85,15 @@ public class Document implements Serializable {
      */
     @TableField("mime_type")
     private String mimeType;
+
+    @TableField("file_hash")
+    private String fileHash;
+
+    @TableField("etag")
+    private String etag;
+
+    @TableField("upload_status")
+    private String uploadStatus;
 
     /**
      * 创建人ID
