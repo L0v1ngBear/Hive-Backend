@@ -2,8 +2,6 @@ package my.hive_back.module.order;
 
 import lombok.Getter;
 
-import lombok.Getter;
-
 /**
  * OrderStatusEnum 属于小程序后端订单模块，属于该领域的细分实现。
  */
@@ -16,29 +14,34 @@ public enum OrderStatusEnum {
     PENDING_CONFIRM("pending_confirm", 0, "待确认"),
 
     /**
+     * 待收款
+     */
+    PENDING_PAY("pending_pay", 1, "待收款"),
+
+    /**
      * 备料中
      */
-    PENDING_MATERIAL("pending_material", 1, "备料中"),
+    PENDING_MATERIAL("pending_material", 2, "备料中"),
 
     /**
      * 生产中
      */
-    PRODUCING("producing", 2, "生产中"),
+    PRODUCING("producing", 3, "生产中"),
 
     /**
      * 待发货
      */
-    PENDING_SHIP("pending_ship", 3, "待发货"),
+    PENDING_SHIP("pending_ship", 4, "待发货"),
 
     /**
      * 已发货
      */
-    SHIPPED("shipped", 4, "已发货"),
+    SHIPPED("shipped", 5, "已发货"),
 
     /**
      * 已完成
      */
-    COMPLETED("completed", 5, "已完成");
+    COMPLETED("completed", 6, "已完成");
 
     /**
      * 状态编码（对应数据库status字段）

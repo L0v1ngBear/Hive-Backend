@@ -7,7 +7,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.nio.file.Path;
 /**
  * WebMvcConfig 属于小程序后端通用能力层，定义框架配置，用于组织基础设施行为。
  */
@@ -30,8 +33,11 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Resource
     private TenantInterceptor tenantInterceptor;
 
-    @Value("${app.cors.allowed-origin-patterns:*}")
+    @Value("${app.cors.allowed-origin-patterns:https://hellohive.top,http://localhost:*,http://127.0.0.1:*}")
     private String allowedOriginPatterns;
+
+    @Value("${app.upload.root:uploads}")
+    private String uploadRoot;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -53,6 +59,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 )
                 .allowCredentials(false)
                 .maxAge(3600);
+    }
+
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        String uploadLocation = Path.of(uploadRoot).toAbsolutePath().normalize().toUri().toString();
+        registry.addResourceHandler("/uploads/**")
+                .addResourceLocations(uploadLocation);
     }
 
     private String[] resolveAllowedOrigins() {

@@ -37,8 +37,14 @@ public class FinanceApproval {
     @TableField("reason")
     private String reason;
 
+    @TableField("attachment_name")
+    private String attachmentName;
+
     @TableField("attachment_url")
     private String attachmentUrl;
+
+    @TableField("attachment_size")
+    private Long attachmentSize;
 
     /** 1-待审批，2-已通过，3-已拒绝 */
     @TableField("status")
@@ -46,6 +52,9 @@ public class FinanceApproval {
 
     @TableField("auditor_id")
     private Long auditorId;
+
+    @TableField("auditor_ids")
+    private String auditorIds;
 
     @TableField("audit_comment")
     private String auditComment;

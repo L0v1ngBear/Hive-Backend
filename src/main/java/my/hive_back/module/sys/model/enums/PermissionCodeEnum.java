@@ -14,6 +14,10 @@ public enum PermissionCodeEnum {
     APPROVAL_LEAVE_AUDIT("approval:leave:audit"),
     APPROVAL_LEAVE_DETAIL("approval:leave:detail"),
     APPROVAL_LEAVE_SUBMIT("approval:leave:submit"),
+    APPROVAL_RESIGNATION("approval:resignation"),
+    APPROVAL_RESIGNATION_AUDIT("approval:resignation:audit"),
+    APPROVAL_RESIGNATION_DETAIL("approval:resignation:detail"),
+    APPROVAL_RESIGNATION_SUBMIT("approval:resignation:submit"),
     ATTENDANCE_ALL("attendance:*"),
     ATTENDANCE_PUNCH("attendance:punch"),
     ATTENDANCE_RECORD_LIST("attendance:record:list"),
@@ -64,6 +68,10 @@ public enum PermissionCodeEnum {
     public static final String CODE_APPROVAL_LEAVE_AUDIT = "approval:leave:audit";
     public static final String CODE_APPROVAL_LEAVE_DETAIL = "approval:leave:detail";
     public static final String CODE_APPROVAL_LEAVE_SUBMIT = "approval:leave:submit";
+    public static final String CODE_APPROVAL_RESIGNATION = "approval:resignation";
+    public static final String CODE_APPROVAL_RESIGNATION_AUDIT = "approval:resignation:audit";
+    public static final String CODE_APPROVAL_RESIGNATION_DETAIL = "approval:resignation:detail";
+    public static final String CODE_APPROVAL_RESIGNATION_SUBMIT = "approval:resignation:submit";
     public static final String CODE_ATTENDANCE_ALL = "attendance:*";
     public static final String CODE_ATTENDANCE_PUNCH = "attendance:punch";
     public static final String CODE_ATTENDANCE_RECORD_LIST = "attendance:record:list";

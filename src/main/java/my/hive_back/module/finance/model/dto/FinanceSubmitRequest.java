@@ -22,5 +22,9 @@ public class FinanceSubmitRequest {
     @NotBlank(message = "申请事由不能为空")
     private String reason;
 
+    private String attachmentName;
+
     private String attachmentUrl;
+
+    private Long attachmentSize;
 }

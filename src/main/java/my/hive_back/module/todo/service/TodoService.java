@@ -285,8 +285,8 @@ public class TodoService {
         return records.stream().map(item -> buildTodo(
                 "badProduct-" + item.getDefectiveId(),
                 "badProduct",
-                "次品处理",
-                "次品记录待处理",
+                "质量处理",
+                "质量记录待处理",
                 item.getDefectiveId(),
                 item.getDefectiveId(),
                 "/pages/badProduct/badProduct",

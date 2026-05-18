@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import my.hive.common.annotation.CollectLog;
 import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
 import my.hive_back.common.tenant.RequireTenantFeature;
@@ -21,6 +22,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -60,6 +62,11 @@ public class ProductionOrderController {
         return Result.success(pageResultVO);
     }
 
+    @GetMapping("/orders/status-summary")
+    public Result<Map<String, Long>> productionOrderStatusSummary() {
+        return Result.success(productionOrderService.countProductionOrderStatuses());
+    }
+
     /**
      * 生产订单详情查询
      * 补充：orderId 非空 + 格式校验
@@ -94,6 +101,7 @@ public class ProductionOrderController {
      * 通用流转接口：支持更改订单大状态或更新生产小工序
      */
     @PostMapping("/orders/{orderId}/status")
+    @CollectLog(module = "order", action = "mini_update_production_status", bizType = "production_order", bizNo = "#orderId", description = "小程序更新生产订单状态")
     public Result<ProductionOrderVO> updateOrderStatus(
             @NotBlank @PathVariable String orderId,
             @Valid @RequestBody ProductionOrderUpdateRequest request) {
@@ -106,6 +114,7 @@ public class ProductionOrderController {
     }
 
     @PostMapping("/orders/add")
+    @CollectLog(module = "order", action = "mini_create_production", bizType = "production_order", description = "小程序创建生产订单")
     public Result<Void> addProductionOrder(@RequestBody ProductionOrderAddRequest request) {
         productionOrderService.addProductionOrder(request);
         return Result.success(null);

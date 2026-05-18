@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 /**
  * LabelTemplate 属于小程序后端标签模块，定义持久化实体结构，用于表字段映射。
@@ -32,6 +33,15 @@ public class LabelTemplate {
     /** PRN/TSPL/ESC-POS 原始指令内容 */
     @TableField("content")
     private String content;
+
+    @TableField("design_json")
+    private String designJson;
+
+    @TableField("width_mm")
+    private BigDecimal widthMm;
+
+    @TableField("height_mm")
+    private BigDecimal heightMm;
 
     /** 模板变量，逗号分隔 */
     @TableField("variables")

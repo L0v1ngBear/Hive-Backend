@@ -17,13 +17,13 @@ public class LoginVO {
 
     private String phone;
 
+    private String departmentName;
+
     private String position;
 
     private String tenantCode;
 
     private String tenantName;
-
-    private Boolean needsOrganization;
 
     private String responseKey;
 }

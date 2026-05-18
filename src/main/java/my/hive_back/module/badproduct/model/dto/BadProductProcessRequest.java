@@ -8,7 +8,7 @@ import lombok.Data;
 @Data
 public class BadProductProcessRequest {
 
-    @NotBlank(message = "次品编号不能为空")
+    @NotBlank(message = "质量编号不能为空")
     private String defectiveId;
 
     @NotBlank(message = "处理方式不能为空")

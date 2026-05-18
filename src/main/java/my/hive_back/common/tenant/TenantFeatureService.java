@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import my.hive.common.exception.BusinessException;
 import my.hive_back.common.enums.CommonStatusEnum;
 import my.hive_back.common.enums.DeleteFlagEnum;
-import my.hive_back.common.enums.PlatformTenantEnum;
 import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.TenantFeatureEnum;
 import my.hive_back.module.tenant.TenantPlanEnum;
@@ -51,9 +50,6 @@ public class TenantFeatureService {
     private TenantMapper tenantMapper;
 
     public void requireFeatureEnabled(String tenantCode, String featureName, String message) {
-        if (isSuperTenant(tenantCode)) {
-            return;
-        }
         Tenant tenant = requireTenant(tenantCode);
         if (!isTenantUsable(tenant) || !isFeatureEnabled(tenant, featureName)) {
             throw new BusinessException(403, StringUtils.hasText(message) ? message : "当前套餐暂未开放该功能，请联系平台管理员开通");
@@ -89,10 +85,6 @@ public class TenantFeatureService {
         }
         LocalDateTime endTime = tenant.getSubscriptionEndTime();
         return endTime == null || !endTime.isBefore(LocalDateTime.now());
-    }
-
-    private boolean isSuperTenant(String tenantCode) {
-        return StringUtils.hasText(tenantCode) && PlatformTenantEnum.SUPER.matches(tenantCode);
     }
 
     private Set<String> buildFeatureKeys(Tenant tenant) {

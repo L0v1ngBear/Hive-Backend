@@ -3,6 +3,7 @@ package my.hive_back.api.document;
 import my.hive_back.module.tenant.TenantFeatureEnum;
 import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import jakarta.annotation.Resource;
+import my.hive.common.annotation.CollectLog;
 import my.hive.common.annotation.RequirePermission;
 import my.hive.common.dto.Result;
 import my.hive_back.common.tenant.RequireTenantFeature;
@@ -48,6 +49,7 @@ public class DocumentController {
 
     @PostMapping("/folder/create")
     @RequirePermission(value = PermissionCodeEnum.CODE_DOCUMENT_FOLDER_CREATE, message = "您没有权限创建文件夹")
+    @CollectLog(module = "document", action = "mini_create_folder", bizType = "document", bizNo = "#request.name", description = "小程序创建文档文件夹")
     public Result<Void> createFolder(@RequestBody DocumentAddRequest request) {
         documentService.addFolder(request);
         return Result.success(null);
@@ -55,6 +57,7 @@ public class DocumentController {
 
     @PostMapping("/file/upload")
     @RequirePermission(value = PermissionCodeEnum.CODE_DOCUMENT_FILE_UPLOAD, message = "您没有权限上传文件")
+    @CollectLog(module = "document", action = "mini_upload_file", bizType = "document", description = "小程序上传文档")
     public Result<DocumentVO> uploadFile(@RequestParam("file") MultipartFile file,
                                          @RequestParam(value = "parentId", required = false, defaultValue = "0") Long parentId) {
         return Result.success(documentService.uploadFile(file, parentId));
@@ -62,6 +65,7 @@ public class DocumentController {
 
     @PutMapping("/rename")
     @RequirePermission(value = PermissionCodeEnum.CODE_DOCUMENT_RENAME, message = "您没有权限重命名文档")
+    @CollectLog(module = "document", action = "mini_rename", bizType = "document", bizNo = "#documentId", description = "小程序重命名文档")
     public Result<Void> renameDocument(@RequestParam Long documentId, @RequestParam String newName) {
         documentService.renameDocument(documentId, newName);
         return Result.success(null);
@@ -69,6 +73,7 @@ public class DocumentController {
 
     @PutMapping("/move")
     @RequirePermission(value = PermissionCodeEnum.CODE_DOCUMENT_MOVE, message = "您没有权限移动文档")
+    @CollectLog(module = "document", action = "mini_move", bizType = "document", bizNo = "#documentId", description = "小程序移动文档")
     public Result<Void> moveDocument(@RequestParam Long documentId, @RequestParam Long newParentId) {
         documentService.moveDocument(documentId, newParentId);
         return Result.success(null);

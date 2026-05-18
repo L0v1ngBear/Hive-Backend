@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,6 +51,15 @@ public class SalesOrderService {
     private static final long DEFAULT_PAGE_NUM = 1L;
     private static final long DEFAULT_PAGE_SIZE = 20L;
     private static final long MAX_PAGE_SIZE = 200L;
+    private static final List<String> SALES_STATUS_CODES = List.of(
+            OrderStatusEnum.PENDING_CONFIRM.getCode(),
+            OrderStatusEnum.PENDING_PAY.getCode(),
+            OrderStatusEnum.PENDING_MATERIAL.getCode(),
+            OrderStatusEnum.PRODUCING.getCode(),
+            OrderStatusEnum.PENDING_SHIP.getCode(),
+            OrderStatusEnum.SHIPPED.getCode(),
+            OrderStatusEnum.COMPLETED.getCode()
+    );
 
     @Resource
     private SalesOrderMapper salesOrderMapper;
@@ -81,6 +91,7 @@ public class SalesOrderService {
 
         // 2. 构建查询条件（核心：空值判断 + OR 模糊查询）
         LambdaQueryWrapper<SalesOrder> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode());
         // 状态：非空才拼接
         if (StringUtils.isNotBlank(request.getStatus())) {
             queryWrapper.eq(SalesOrder::getStatus, request.getStatus());
@@ -111,6 +122,7 @@ public class SalesOrderService {
                 .collect(Collectors.toList());
         List<SalesOrderDetail> detailList = salesOrderDetailMapper.selectList(
                 new LambdaQueryWrapper<SalesOrderDetail>()
+                        .eq(SalesOrderDetail::getTenantCode, TenantPermissionContext.getTenantCode())
                         .in(SalesOrderDetail::getOrderId, orderIds)
         );
 
@@ -141,6 +153,20 @@ public class SalesOrderService {
         return resultPage;
     }
 
+    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_LIST, message = "您没有权限查询销售订单统计")
+    public Map<String, Long> countSalesOrderStatuses() {
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        Map<String, Long> result = new LinkedHashMap<>();
+        result.put("total", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getTenantCode, tenantCode))));
+        for (String status : SALES_STATUS_CODES) {
+            result.put(status, safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+                    .eq(SalesOrder::getTenantCode, tenantCode)
+                    .eq(SalesOrder::getStatus, status))));
+        }
+        return result;
+    }
+
     private long safePageNum(Integer pageNum) {
         return pageNum == null || pageNum <= 0 ? DEFAULT_PAGE_NUM : pageNum;
     }
@@ -152,13 +178,19 @@ public class SalesOrderService {
         return Math.min(pageSize, MAX_PAGE_SIZE);
     }
 
+    private long safeCount(Long count) {
+        return count == null ? 0L : count;
+    }
+
     /**
      * 根据订单ID查询订单详情 (返回 VO 对象)
      */
     @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_DETAIL, message = "您没有权限查询销售订单详情")
     public SalesOrderVO getByIdandTenantId(String orderId) {
         // 1. 查询主表订单信息
-        SalesOrder order = salesOrderMapper.selectByOrderId(orderId);
+        SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
+                .eq(SalesOrder::getOrderId, orderId));
         if (order == null) {
             throw new BusinessException(400, "订单不存在"); // 根据你的异常类调整
         }
@@ -166,6 +198,7 @@ public class SalesOrderService {
         // 2. 查询对应的明细列表
         List<SalesOrderDetail> detailList = salesOrderDetailMapper.selectList(
                 new LambdaQueryWrapper<SalesOrderDetail>()
+                        .eq(SalesOrderDetail::getTenantCode, TenantPermissionContext.getTenantCode())
                         .eq(SalesOrderDetail::getOrderId, orderId)
         );
 
@@ -200,6 +233,7 @@ public class SalesOrderService {
     @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_DETAIL, message = "您没有权限查询销售订单状态变更日志")
     public List<SalesOrderStatusLog> selectSalesOrderStatusLog(@NotBlank String orderId) {
         return salesOrderStatusLogMapper.selectList(new LambdaQueryWrapper<SalesOrderStatusLog>()
+                .eq(SalesOrderStatusLog::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrderStatusLog::getOrderId, orderId)
                 .orderByAsc(SalesOrderStatusLog::getCreateTime));
     }
@@ -272,8 +306,24 @@ public class SalesOrderService {
     @Transactional(rollbackFor = Exception.class)
     @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限更新销售订单状态")
     public SalesOrder updateStatusAndProcess(@NotBlank String orderId, @Valid SalesOrderUpdateRequest request) {
+        return updateStatusAndProcessInternal(orderId, request, false, "小程序更新销售订单状态");
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public SalesOrder approvePendingPayToProducing(@NotBlank String orderId, String remark) {
+        SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
+        request.setStatus(OrderStatusEnum.PRODUCING.getCode());
+        return updateStatusAndProcessInternal(orderId, request, true,
+                StringUtils.isNotBlank(remark) ? remark.trim() : "审批通过，待收款订单转生产中");
+    }
+
+    private SalesOrder updateStatusAndProcessInternal(String orderId,
+                                                      SalesOrderUpdateRequest request,
+                                                      boolean approvalBypass,
+                                                      String logRemark) {
         // 1. 查询当前销售订单
         SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrder::getOrderId, orderId));
 
         if (order == null) {
@@ -284,6 +334,25 @@ public class SalesOrderService {
         // 记录修改前的原始状态，用于最后的 CAS 并发安全校验
         String oldStatus = order.getStatus();
         String targetStatus = request.getStatus();
+        if (StringUtils.isBlank(targetStatus)) {
+            throw new BusinessException(400, "目标状态不能为空");
+        }
+        OrderStatusEnum oldStatusEnum;
+        OrderStatusEnum targetStatusEnum;
+        try {
+            oldStatusEnum = OrderStatusEnum.getByCode(oldStatus);
+            targetStatusEnum = OrderStatusEnum.getByCode(targetStatus);
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(400, "订单状态不合法");
+        }
+        if (!oldStatusEnum.canFlowTo(targetStatusEnum)) {
+            throw new BusinessException(400, "订单状态只能向后流转，不能回退或重复提交");
+        }
+        if (!approvalBypass
+                && OrderStatusEnum.PENDING_PAY.getCode().equals(oldStatus)
+                && OrderStatusEnum.PRODUCING.getCode().equals(targetStatus)) {
+            throw new BusinessException(400, "待收款订单转生产中需要先通过订单审批");
+        }
 
         // 2. 核心业务逻辑：状态与物流信息校验
         // 如果目标状态是“已发货 (shipped)”，强制要求填写完整的物流信息
@@ -294,9 +363,9 @@ public class SalesOrderService {
                     || StringUtils.isBlank(expressInfo.getExpressNo())) {
                 throw new BusinessException(400, "发货操作必须填写完整的物流公司和物流单号");
             }
-            // 填入物流信息
-            order.setExpressCompany(expressInfo.getExpressCompany());
-            order.setExpressNo(expressInfo.getExpressNo());
+            // 填入物流信息，保留发货追溯依据。
+            order.setExpressCompany(expressInfo.getExpressCompany().trim());
+            order.setExpressNo(expressInfo.getExpressNo().trim());
         }
         // 如果是其他状态（如 pending_ship 待发货）
         // 这里采取覆盖策略，如果传了物流信息就更新，没传就不动
@@ -316,6 +385,7 @@ public class SalesOrderService {
 
         // 3. 并发安全更新（CAS核心改造点）
         LambdaUpdateWrapper<SalesOrder> updateWrapper = new LambdaUpdateWrapper<SalesOrder>()
+                .eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrder::getOrderId, orderId);
 
         // 校验旧状态
@@ -334,7 +404,7 @@ public class SalesOrderService {
         }
 
         if (!Objects.equals(oldStatus, order.getStatus())) {
-            insertSalesStatusLog(order, oldStatus, order.getStatus(), "status_change", "小程序更新销售订单状态");
+            insertSalesStatusLog(order, oldStatus, order.getStatus(), "status_change", logRemark);
             notifySalesOrderChanged(order, oldStatus);
         }
 

@@ -33,7 +33,6 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class AttendanceService {
 
-    private static final String LEGACY_COMPANY_ATTENDANCE_RULE_KEY = "companyAttendanceRule";
     private static final Duration ATTENDANCE_RULE_CACHE_TTL = Duration.ofHours(6);
     private static final DefaultRedisScript<Long> RELEASE_LOCK_SCRIPT = buildReleaseLockScript();
 
@@ -164,7 +163,6 @@ public class AttendanceService {
                     objectMapper.writeValueAsString(rule),
                     ATTENDANCE_RULE_CACHE_TTL
             );
-            stringRedisTemplate.opsForHash().delete(LEGACY_COMPANY_ATTENDANCE_RULE_KEY, tenantCode);
         } catch (Exception ignored) {
         }
     }

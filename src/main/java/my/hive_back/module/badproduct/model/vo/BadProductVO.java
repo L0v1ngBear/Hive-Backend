@@ -20,6 +20,9 @@ public class BadProductVO {
     private String responsiblePerson;
     private String processMeasure;
     private String improvementPlan;
+    private String attachmentName;
+    private String attachmentUrl;
+    private Long attachmentSize;
     private String status;
     private String processMethod;
     private String processRemark;

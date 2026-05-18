@@ -3,6 +3,7 @@ package my.hive_back.api.auth;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import my.hive.common.annotation.CollectLog;
 import my.hive.common.dto.Result;
 import my.hive_back.module.auth.model.dto.LoginRequest;
 import my.hive_back.module.auth.model.dto.WechatLoginRequest;
@@ -29,11 +30,13 @@ public class AuthController {
     private AuthService authService;
 
     @PostMapping("/login")
+    @CollectLog(module = "auth", action = "mini_login", bizType = "account", bizNo = "#request.username", description = "小程序账号密码登录", recordResult = false)
     public Result<LoginVO> login(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
         return Result.success(authService.login(request, getClientIp(servletRequest)));
     }
 
     @PostMapping("/wechat-login")
+    @CollectLog(module = "auth", action = "wechat_login", bizType = "account", description = "小程序微信手机号一键登录", recordResult = false)
     public Result<LoginVO> wechatLogin(@Valid @RequestBody WechatLoginRequest request) {
         return Result.success(authService.wechatLogin(request));
     }

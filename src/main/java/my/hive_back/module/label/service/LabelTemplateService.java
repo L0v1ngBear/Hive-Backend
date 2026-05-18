@@ -14,12 +14,14 @@ import my.hive_back.module.label.mapper.LabelTemplateMapper;
 import my.hive_back.module.label.model.dto.LabelTemplateSaveRequest;
 import my.hive_back.module.label.model.entity.LabelTemplate;
 import my.hive_back.module.label.model.vo.LabelTemplateVO;
+import my.hive_back.module.label.model.vo.LabelTemplateVariableVO;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
@@ -37,18 +39,33 @@ public class LabelTemplateService {
     private static final long MAX_FILE_SIZE = 1024 * 1024;
     private static final Pattern DOLLAR_VARIABLE_PATTERN = Pattern.compile("\\$\\{([^}]+)}");
     private static final Pattern BRACE_VARIABLE_PATTERN = Pattern.compile("(?<!\\$)\\{([^}]+)}");
+    private static final BigDecimal DEFAULT_WIDTH_MM = new BigDecimal("70");
+    private static final BigDecimal DEFAULT_HEIGHT_MM = new BigDecimal("50");
+    private static final List<LabelTemplateVariableVO> LABEL_VARIABLES = List.of(
+            new LabelTemplateVariableVO("条码", "barcode", "barcode", "CL20260421001"),
+            new LabelTemplateVariableVO("型号", "modelCode", "text", "M-2026-A"),
+            new LabelTemplateVariableVO("米数", "meters", "text", "120.50"),
+            new LabelTemplateVariableVO("规格", "spec", "text", "160"),
+            new LabelTemplateVariableVO("批次", "batchNo", "text", "BATCH-001"),
+            new LabelTemplateVariableVO("入库时间", "inboundTime", "text", "2026-04-21"),
+            new LabelTemplateVariableVO("客户", "customerName", "text", "示例客户")
+    );
     private static final String DEFAULT_LABEL_TEMPLATE = "SIZE 70 mm,50 mm\r\n"
             + "GAP 2 mm,0 mm\r\n"
             + "DIRECTION 1\r\n"
             + "CLS\r\n"
-            + "TEXT 30,30,\"TSS24.BF2\",0,1,1,\"??: ${modelCode}\"\r\n"
-            + "TEXT 30,70,\"TSS24.BF2\",0,1,1,\"??: ${meters} m\"\r\n"
-            + "TEXT 30,110,\"TSS24.BF2\",0,1,1,\"??: ${spec}\"\r\n"
+            + "TEXT 30,30,\"TSS24.BF2\",0,1,1,\"型号: ${modelCode}\"\r\n"
+            + "TEXT 30,70,\"TSS24.BF2\",0,1,1,\"米数: ${meters} m\"\r\n"
+            + "TEXT 30,110,\"TSS24.BF2\",0,1,1,\"规格: ${spec}\"\r\n"
             + "BARCODE 30,160,\"128\",80,1,0,2,2,\"${barcode}\"\r\n"
             + "TEXT 30,250,\"TSS24.BF2\",0,1,1,\"${barcode}\"\r\n"
             + "PRINT 1,1";
     @Resource
     private LabelTemplateMapper labelTemplateMapper;
+
+    public List<LabelTemplateVariableVO> variables(String printType) {
+        return LABEL_VARIABLES;
+    }
 
     @Transactional(rollbackFor = Exception.class)
     public List<LabelTemplateVO> list(String printType) {
@@ -63,6 +80,7 @@ public class LabelTemplateService {
         if (templates.isEmpty() && (!StringUtils.isNotBlank(printType) || LabelPrintTypeEnum.LABEL.getCode().equals(printType))) {
             templates = List.of(createDefaultLabelTemplate());
         }
+        templates.forEach(this::repairLegacySystemLabelTemplateIfNecessary);
         return templates.stream().map(this::toVO).toList();
     }
 
@@ -85,17 +103,24 @@ public class LabelTemplateService {
 
     @Transactional(rollbackFor = Exception.class)
     public LabelTemplateVO save(LabelTemplateSaveRequest request) {
-        LabelTemplate template = new LabelTemplate();
-        template.setTenantCode(TenantPermissionContext.getTenantCode());
+        LabelTemplate template = resolveTemplateForSave(request.getId());
         template.setName(request.getName().trim());
         template.setPrintType(resolvePrintType(request.getPrintType()));
         template.setContent(request.getContent());
+        template.setDesignJson(request.getDesignJson());
+        template.setWidthMm(request.getWidthMm() == null ? DEFAULT_WIDTH_MM : request.getWidthMm());
+        template.setHeightMm(request.getHeightMm() == null ? DEFAULT_HEIGHT_MM : request.getHeightMm());
         template.setVariables(String.join(",", extractVariables(request.getContent())));
         template.setIsDefault(BinaryFlagEnum.YES.matches(request.getIsDefault()) ? BinaryFlagEnum.YES.getCode() : BinaryFlagEnum.NO.getCode());
         template.setStatus(CommonStatusEnum.ENABLED.getCode());
         template.setIsDeleted(DeleteFlagEnum.NORMAL.getCode());
-        template.setCreatorId(TenantPermissionContext.getUserId());
-        labelTemplateMapper.insert(template);
+        if (template.getId() == null) {
+            template.setTenantCode(TenantPermissionContext.getTenantCode());
+            template.setCreatorId(TenantPermissionContext.getUserId());
+            labelTemplateMapper.insert(template);
+        } else {
+            labelTemplateMapper.updateById(template);
+        }
 
         if (BinaryFlagEnum.YES.matches(template.getIsDefault())) {
             clearOtherDefault(template);
@@ -132,6 +157,8 @@ public class LabelTemplateService {
         request.setName(StringUtils.isNotBlank(name) ? name : originalFilename);
         request.setPrintType(printType);
         request.setContent(content);
+        request.setWidthMm(DEFAULT_WIDTH_MM);
+        request.setHeightMm(DEFAULT_HEIGHT_MM);
         request.setIsDefault(isDefault);
         LabelTemplateVO vo = save(request);
 
@@ -163,12 +190,26 @@ public class LabelTemplateService {
         labelTemplateMapper.update(null, updateWrapper);
     }
 
+    private LabelTemplate resolveTemplateForSave(Long id) {
+        if (id == null) {
+            return new LabelTemplate();
+        }
+        LabelTemplate template = labelTemplateMapper.selectOne(new LambdaQueryWrapper<LabelTemplate>()
+                .eq(LabelTemplate::getId, id));
+        if (template == null) {
+            throw new BusinessException("标签模板不存在");
+        }
+        return template;
+    }
+
     private LabelTemplate createDefaultLabelTemplate() {
         LabelTemplate template = new LabelTemplate();
         template.setTenantCode(TenantPermissionContext.getTenantCode());
         template.setName("系统默认面料标签");
         template.setPrintType(LabelPrintTypeEnum.LABEL.getCode());
         template.setContent(DEFAULT_LABEL_TEMPLATE);
+        template.setWidthMm(DEFAULT_WIDTH_MM);
+        template.setHeightMm(DEFAULT_HEIGHT_MM);
         template.setVariables(String.join(",", extractVariables(DEFAULT_LABEL_TEMPLATE)));
         template.setFileName("system-default.prn");
         template.setFileSize((long) DEFAULT_LABEL_TEMPLATE.getBytes(StandardCharsets.UTF_8).length);
@@ -180,9 +221,37 @@ public class LabelTemplateService {
         return template;
     }
 
+    private void repairLegacySystemLabelTemplateIfNecessary(LabelTemplate template) {
+        if (template == null || !LabelPrintTypeEnum.LABEL.getCode().equals(template.getPrintType())) {
+            return;
+        }
+        if (!isLegacySystemLabelTemplate(template)) {
+            return;
+        }
+        template.setName("系统默认面料标签");
+        template.setContent(DEFAULT_LABEL_TEMPLATE);
+        template.setWidthMm(DEFAULT_WIDTH_MM);
+        template.setHeightMm(DEFAULT_HEIGHT_MM);
+        template.setVariables(String.join(",", extractVariables(DEFAULT_LABEL_TEMPLATE)));
+        template.setFileName("system-default.prn");
+        template.setFileSize((long) DEFAULT_LABEL_TEMPLATE.getBytes(StandardCharsets.UTF_8).length);
+        labelTemplateMapper.updateById(template);
+    }
+
+    private boolean isLegacySystemLabelTemplate(LabelTemplate template) {
+        String fileName = template.getFileName() == null ? "" : template.getFileName().trim();
+        String content = template.getContent() == null ? "" : template.getContent();
+        boolean systemFile = "default-label.prn".equalsIgnoreCase(fileName) || "system-default.prn".equalsIgnoreCase(fileName);
+        boolean legacyContent = content.contains("生产厂家：XX有限责任公司")
+                || content.contains("??: ${")
+                || content.startsWith("^XA");
+        return systemFile && legacyContent;
+    }
+
     private void clearOtherDefault(LabelTemplate template) {
         LambdaUpdateWrapper<LabelTemplate> updateWrapper = new LambdaUpdateWrapper<>();
-        updateWrapper.eq(LabelTemplate::getPrintType, template.getPrintType())
+        updateWrapper.eq(LabelTemplate::getTenantCode, template.getTenantCode())
+                .eq(LabelTemplate::getPrintType, template.getPrintType())
                 .ne(LabelTemplate::getId, template.getId())
                 .set(LabelTemplate::getIsDefault, BinaryFlagEnum.NO.getCode());
         labelTemplateMapper.update(null, updateWrapper);

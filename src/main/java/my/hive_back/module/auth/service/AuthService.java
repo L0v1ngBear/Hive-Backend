@@ -10,6 +10,7 @@ import my.hive.common.utils.EncryptUtil;
 import my.hive.common.utils.ResponseEncryptUtil;
 import my.hive.common.utils.TokenUtil;
 import my.hive_back.common.enums.CommonStatusEnum;
+import my.hive_back.common.tenant.BoundedTenantProperties;
 import my.hive_back.module.auth.model.dto.LoginRequest;
 import my.hive_back.module.auth.model.dto.WechatLoginRequest;
 import my.hive_back.module.auth.model.vo.LoginVO;
@@ -18,9 +19,9 @@ import my.hive_back.module.tenant.model.entity.Tenant;
 import my.hive_back.module.user.UserStatusEnum;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
+import my.hive_back.module.user.service.UserService;
 import my.hive_back.module.wechat.model.vo.WechatPhoneInfoVO;
 import my.hive_back.module.wechat.service.WechatMiniProgramClient;
-import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -39,11 +40,17 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class AuthService {
 
-    private static final String STANDALONE_DEPARTMENT = "未加入组织";
-    private static final String STANDALONE_POSITION = "待加入组织";
+    private static final String LEGACY_STANDALONE_DEPARTMENT = "未加入组织";
+    private static final String LEGACY_STANDALONE_POSITION = "待加入组织";
+    private static final String DEFAULT_JOINED_DEPARTMENT = "待分配部门";
+    private static final String LEGACY_PERMISSION_PLACEHOLDER = "待分配权限";
+    private static final String DEFAULT_JOINED_POSITION = "普通员工";
 
     @Resource
     private UserMapper userMapper;
+
+    @Resource
+    private UserService userService;
 
     @Resource
     private TenantMapper tenantMapper;
@@ -66,6 +73,9 @@ public class AuthService {
     @Resource
     private HiveRedisKeyBuilder redisKeyBuilder;
 
+    @Resource
+    private BoundedTenantProperties boundedTenantProperties;
+
     @Value("${auth.login.max-fail-count:5}")
     private Long maxFailCount;
 
@@ -77,6 +87,9 @@ public class AuthService {
 
     @Value("${auth.token.expire-hours:24}")
     private Long tokenExpireHours;
+
+    @Value("${hive.single-tenant.name:当前组织}")
+    private String singleTenantName;
 
     public LoginVO login(LoginRequest request, String clientIp) {
         String username = request.getUsername().trim();
@@ -106,17 +119,13 @@ public class AuthService {
             throw new BusinessException(401, "账号或密码错误");
         }
 
-        String tenantCode = normalizeTenantCode(user.getTenantCode());
-        if (tenantCode == null) {
-            recordLoginFail(accountFailKey);
-            recordLoginFail(ipFailKey);
-            throw new BusinessException(403, "该账号尚未加入组织，请先使用微信一键登录加入组织");
-        }
+        String tenantCode = resolveLoginTenantCode(user);
+        user = userService.ensureSingleTenantMembership(user, tenantCode, user.getName());
         Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
         if (tenant == null || !CommonStatusEnum.ENABLED.matches(tenant.getStatus())) {
             recordLoginFail(accountFailKey);
             recordLoginFail(ipFailKey);
-            throw new BusinessException(403, "租户不可用");
+            throw new BusinessException(403, "组织不可用");
         }
         if (!encryptUtil.isBcryptHash(user.getPassword())) {
             user.setPassword(encryptUtil.encode(request.getPassword()));
@@ -141,7 +150,7 @@ public class AuthService {
             throw new BusinessException(403, "该账号已停用或离职，请联系管理员");
         }
         List<User> tenantUsers = usableUsers.stream()
-                .filter(user -> normalizeTenantCode(user.getTenantCode()) != null)
+                .filter(this::isAllowedTenantUser)
                 .sorted(Comparator.comparing(User::getUpdateTime, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
         if (tenantUsers.size() == 1) {
@@ -159,7 +168,7 @@ public class AuthService {
     /**
      * 微信手机号一键登录。
      *
-     * 新手机号会先创建一个无租户用户，只允许进入首页加入组织；未加入组织前不能访问业务功能。
+     * 新手机号直接进入当前单组织；系统会给新用户绑定普通员工基础权限。
      */
     public LoginVO wechatLogin(WechatLoginRequest request) {
         if (request == null || !hasText(request.getPhoneCode())) {
@@ -175,59 +184,48 @@ public class AuthService {
         }
 
         String phoneHash = privacyProtectionUtil.hashPhone(normalizedPhone);
-        String tenantCode = normalizeTenantCode(request.getTenantCode());
-        User user = resolveWechatLoginUser(phoneHash, normalizedPhone, tenantCode);
-        String resolvedTenantCode = normalizeTenantCode(user.getTenantCode());
-        if (resolvedTenantCode != null) {
-            Tenant tenant = tenantMapper.selectByTenantCode(resolvedTenantCode);
-            if (tenant == null || !CommonStatusEnum.ENABLED.matches(tenant.getStatus())) {
-                throw new BusinessException(403, "租户不可用");
-            }
+        User user = resolveWechatLoginUser(phoneHash, normalizedPhone);
+        String tenantCode = resolveLoginTenantCode(user);
+        user = userService.ensureSingleTenantMembership(user, tenantCode, "微信用户");
+        Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
+        if (tenant == null || !CommonStatusEnum.ENABLED.matches(tenant.getStatus())) {
+            throw new BusinessException(403, "组织不可用");
         }
 
-        String token = TokenUtil.createToken(user.getId(), resolvedTenantCode);
-        return buildLoginVO(user, token, resolvedTenantCode);
+        String token = TokenUtil.createToken(user.getId(), tenantCode);
+        return buildLoginVO(user, token, tenantCode);
     }
 
     public LoginVO currentUser() {
         Long userId = TenantPermissionContext.getUserId();
-        String tenantCode = normalizeTenantCode(TenantPermissionContext.getTenantCode());
+        String contextTenantCode = normalizeTenantCode(TenantPermissionContext.getTenantCode());
         if (userId == null) {
             throw new BusinessException(401, "请先登录");
         }
 
-        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<User>().eq(User::getId, userId);
-        if (tenantCode != null) {
-            wrapper.eq(User::getTenantCode, tenantCode);
-        }
-        User user = userMapper.selectOne(wrapper.last("LIMIT 1"));
+        User user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(401, "登录已失效");
         }
 
-        LoginVO loginVO = new LoginVO();
-        BeanUtils.copyProperties(user, loginVO);
-        loginVO.setUserId(user.getId());
-        loginVO.setUserName(resolveDisplayName(user));
-        loginVO.setTenantCode(tenantCode);
-        loginVO.setPhone(privacyProtectionUtil.displayPhone(user.getPhone(), user.getPhoneMask()));
-        loginVO.setPosition(user.getPosition());
-        loginVO.setNeedsOrganization(tenantCode == null);
-        if (tenantCode != null) {
-            Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
-            loginVO.setTenantName(tenant == null ? tenantCode : tenant.getTenantName());
+        String resolvedTenantCode = contextTenantCode != null ? contextTenantCode : defaultTenantCode();
+        user = userService.ensureSingleTenantMembership(user, resolvedTenantCode, user.getName());
+        Tenant tenant = tenantMapper.selectByTenantCode(resolvedTenantCode);
+        if (tenant == null || !CommonStatusEnum.ENABLED.matches(tenant.getStatus())) {
+            throw new BusinessException(403, "组织不可用");
         }
-        return loginVO;
+        String token = TokenUtil.createToken(user.getId(), resolvedTenantCode);
+        return buildLoginVO(user, token, resolvedTenantCode);
     }
 
-    private User resolveWechatLoginUser(String phoneHash, String normalizedPhone, String tenantCode) {
+    private User resolveWechatLoginUser(String phoneHash, String normalizedPhone) {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<User>()
                 .and(query -> query.eq(User::getPhoneHash, phoneHash)
                         .or()
                         .eq(User::getPhone, normalizedPhone));
         List<User> users = userMapper.selectList(wrapper.last("LIMIT 20"));
         if (users == null || users.isEmpty()) {
-            return createStandaloneWechatUser(phoneHash, normalizedPhone);
+            return createStandaloneWechatUser(phoneHash, normalizedPhone, defaultTenantCode());
         }
 
         List<User> usableUsers = users.stream()
@@ -238,20 +236,9 @@ public class AuthService {
         }
 
         List<User> tenantUsers = usableUsers.stream()
-                .filter(user -> normalizeTenantCode(user.getTenantCode()) != null)
+                .filter(this::isAllowedTenantUser)
                 .sorted(Comparator.comparing(User::getUpdateTime, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
-        if (tenantCode != null) {
-            List<User> sameTenantUsers = tenantUsers.stream()
-                    .filter(user -> tenantCode.equals(normalizeTenantCode(user.getTenantCode())))
-                    .toList();
-            if (sameTenantUsers.size() == 1) {
-                return sameTenantUsers.get(0);
-            }
-            if (!tenantUsers.isEmpty()) {
-                throw new BusinessException(409, "该手机号已加入其它组织，请联系管理员确认员工归属");
-            }
-        }
         if (tenantUsers.size() == 1) {
             return tenantUsers.get(0);
         }
@@ -262,13 +249,13 @@ public class AuthService {
         Optional<User> standaloneUser = usableUsers.stream()
                 .filter(user -> normalizeTenantCode(user.getTenantCode()) == null)
                 .findFirst();
-        return standaloneUser.orElseGet(() -> createStandaloneWechatUser(phoneHash, normalizedPhone));
+        return standaloneUser.orElseGet(() -> createStandaloneWechatUser(phoneHash, normalizedPhone, defaultTenantCode()));
     }
 
-    private User createStandaloneWechatUser(String phoneHash, String normalizedPhone) {
+    private User createStandaloneWechatUser(String phoneHash, String normalizedPhone, String tenantCode) {
         User existing = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getPhoneHash, phoneHash)
-                .isNull(User::getTenantCode)
+                .eq(User::getTenantCode, tenantCode)
                 .eq(User::getStatus, UserStatusEnum.ACTIVE.getCode())
                 .last("LIMIT 1"));
         if (existing != null) {
@@ -276,15 +263,15 @@ public class AuthService {
         }
 
         User user = new User();
-        user.setTenantCode(null);
+        user.setTenantCode(tenantCode);
         user.setName("微信用户");
         user.setLoginName(buildStandaloneLoginName(phoneHash));
         user.setPassword(null);
         user.setPhone(null);
         user.setPhoneHash(phoneHash);
         user.setPhoneMask(privacyProtectionUtil.maskPhone(normalizedPhone));
-        user.setDepartmentName(STANDALONE_DEPARTMENT);
-        user.setPosition(STANDALONE_POSITION);
+        user.setDepartmentName(DEFAULT_JOINED_DEPARTMENT);
+        user.setPosition(DEFAULT_JOINED_POSITION);
         user.setManagerId(null);
         user.setRoleLevel(0);
         user.setStatus(UserStatusEnum.ACTIVE.getCode());
@@ -302,13 +289,11 @@ public class AuthService {
         loginVO.setUserId(user.getId());
         loginVO.setUserName(resolveDisplayName(user));
         loginVO.setPhone(privacyProtectionUtil.displayPhone(user.getPhone(), user.getPhoneMask()));
-        loginVO.setPosition(user.getPosition());
+        loginVO.setDepartmentName(resolveLoginDepartment(user.getDepartmentName(), tenantCode));
+        loginVO.setPosition(resolveLoginPosition(user.getPosition(), tenantCode));
         loginVO.setTenantCode(tenantCode);
-        loginVO.setNeedsOrganization(tenantCode == null);
-        if (tenantCode != null) {
-            Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
-            loginVO.setTenantName(tenant == null ? tenantCode : tenant.getTenantName());
-        }
+        Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
+        loginVO.setTenantName(tenant == null ? defaultText(singleTenantName, tenantCode) : tenant.getTenantName());
         loginVO.setResponseKey(responseEncryptUtil.buildResponseKey(token));
         return loginVO;
     }
@@ -355,6 +340,30 @@ public class AuthService {
         return tenantCode.trim();
     }
 
+    private boolean isAllowedTenantUser(User user) {
+        String tenantCode = user == null ? null : normalizeTenantCode(user.getTenantCode());
+        return tenantCode != null && boundedTenantProperties.isTenantAllowed(tenantCode);
+    }
+
+    private String resolveLoginTenantCode(User user) {
+        String tenantCode = user == null ? null : normalizeTenantCode(user.getTenantCode());
+        if (tenantCode == null) {
+            return defaultTenantCode();
+        }
+        if (!boundedTenantProperties.isTenantAllowed(tenantCode)) {
+            throw new BusinessException(403, "当前组织不在系统允许范围内");
+        }
+        return tenantCode;
+    }
+
+    private String defaultTenantCode() {
+        return boundedTenantProperties.defaultTenantCode();
+    }
+
+    private String defaultText(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
@@ -372,5 +381,28 @@ public class AuthService {
             return "微信用户";
         }
         return user.getName();
+    }
+
+    private String resolveLoginPosition(String position, String tenantCode) {
+        if (tenantCode == null) {
+            return null;
+        }
+        if (position == null
+                || position.isBlank()
+                || LEGACY_STANDALONE_POSITION.equals(position.trim())
+                || LEGACY_PERMISSION_PLACEHOLDER.equals(position.trim())) {
+            return DEFAULT_JOINED_POSITION;
+        }
+        return position.trim();
+    }
+
+    private String resolveLoginDepartment(String departmentName, String tenantCode) {
+        if (tenantCode == null) {
+            return null;
+        }
+        if (departmentName == null || departmentName.isBlank() || LEGACY_STANDALONE_DEPARTMENT.equals(departmentName.trim())) {
+            return DEFAULT_JOINED_DEPARTMENT;
+        }
+        return departmentName.trim();
     }
 }

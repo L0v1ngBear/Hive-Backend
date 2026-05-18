@@ -93,4 +93,8 @@ public class CodeGeneratorUtil {
     public String generateFinanceApprovalCode() {
         return generateCode("FA", 6);
     }
+
+    public String generateResignationApprovalCode() {
+        return generateCode("RS", 6);
+    }
 }

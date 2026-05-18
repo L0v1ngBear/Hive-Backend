@@ -15,6 +15,8 @@ import my.hive.common.exception.BusinessException;
 import my.hive.common.print.PrintTaskService;
 import my.hive.common.redis.HiveRedisKeyBuilder;
 import my.hive.common.utils.RedisCacheHelper;
+import my.hive_back.common.storage.BusinessImageAttachmentService;
+import my.hive_back.common.storage.BusinessImageAttachmentVO;
 import my.hive_back.common.utils.BarCodeUtil;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.common.utils.RedisUtil;
@@ -34,6 +36,7 @@ import my.hive_back.module.inventory.model.entity.InventoryRecord;
 import my.hive_back.module.inventory.model.entity.OutboundItem;
 import my.hive_back.module.inventory.model.entity.OutboundOrder;
 import my.hive_back.module.inventory.model.vo.ClothInfoVO;
+import my.hive_back.module.inventory.model.vo.InventoryImageRecognitionVO;
 import my.hive_back.module.inventory.model.vo.InventoryDailyMetersVO;
 import my.hive_back.module.inventory.model.vo.InventoryRecordVO;
 import my.hive_back.module.inventory.model.vo.OutboundOrderOptionVO;
@@ -51,6 +54,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -58,8 +62,12 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 /**
  * InventoryService 属于小程序后端库存模块，实现核心业务编排与规则逻辑。
  */
@@ -68,8 +76,12 @@ import java.util.concurrent.TimeUnit;
 public class InventoryService {
 
     private static final int OUTBOUND_MAX_RETRY = 3;
-    private static final float WARNING_METERS_THRESHOLD = 5F;
     private static final float METERS_EPSILON = 0.0001F;
+    private static final long MAX_IMAGE_RECOGNITION_BYTES = 5L * 1024 * 1024;
+    private static final String IMAGE_RECOGNITION_MODULE = "inventory-recognition";
+    private static final Set<String> IMAGE_RECOGNITION_EXTENSIONS = Set.of("png", "jpg", "jpeg", "webp");
+    private static final Pattern METERS_FILENAME_PATTERN = Pattern.compile("(?i)(\\d+(?:\\.\\d{1,2})?)\\s*(?:m|meter|meters|米)");
+    private static final Pattern SPEC_FILENAME_PATTERN = Pattern.compile("(?i)(?:spec|规格|克重|门幅|幅宽|width)[-_\\s]*(\\d+(?:\\.\\d{1,2})?)");
 
     @Resource
     private InventoryTrendStaticsMapper staticsMapper;
@@ -101,6 +113,10 @@ public class InventoryService {
     private SalesOrderMapper salesOrderMapper;
     @Resource
     private PrintTaskService printTaskService;
+    @Resource
+    private InventoryWarningCacheService inventoryWarningCacheService;
+    @Resource
+    private BusinessImageAttachmentService businessImageAttachmentService;
 
     @Value("${redis.key-prefix.trend.today_in}")
     private String REDIS_TODAY_IN;
@@ -116,7 +132,7 @@ public class InventoryService {
 
         switch (inTypeEnum) {
             case SCAN -> barcode = inventoryInRequest.getBarcode();
-            case HAND, AUTO -> {
+            case HAND, AUTO, IMAGE_RECOGNITION -> {
                 barcode = barCodeUtil.createBarCode(TenantPermissionContext.getTenantCode());
                 inventoryInRequest.setBarcode(barcode);
                 inventoryHandIn(inventoryInRequest);
@@ -129,11 +145,34 @@ public class InventoryService {
         ClothInfoVO clothInfoVO = new ClothInfoVO();
         BeanUtils.copyProperties(inventoryInRequest, clothInfoVO);
         clothInfoVO.setBarcode(barcode);
+        clothInfoVO.setInboundTime(java.time.LocalDateTime.now());
         clothInfoVO.setStatus(InventoryOperateTypeEnum.IN.getCode());
         clothInfoVO.setNeedPrintLabel(true);
         clothInfoVO.setPrintReason("首次入库，请打印并粘贴布匹标签");
         clothInfoVO.setPrintTaskNo(printTaskService.createLabelTask(barcode, clothInfoVO, null, null, clothInfoVO.getPrintReason()));
         return clothInfoVO;
+    }
+
+    public InventoryImageRecognitionVO recognizeInboundImage(MultipartFile file) {
+        validateRecognitionImage(file);
+        BusinessImageAttachmentVO attachment = businessImageAttachmentService.uploadImage(file, IMAGE_RECOGNITION_MODULE);
+        InventoryImageRecognitionVO.Candidate candidate = buildRecognitionCandidate(attachment.getFileName());
+        boolean hasCandidate = cleanText(candidate.getModelCode()) != null
+                || candidate.getSpec() != null
+                || candidate.getMeters() != null
+                || cleanText(candidate.getBarcode()) != null;
+
+        InventoryImageRecognitionVO vo = new InventoryImageRecognitionVO();
+        vo.setFileName(attachment.getFileName());
+        vo.setFileUrl(attachment.getFileUrl());
+        vo.setFileSize(attachment.getFileSize());
+        vo.setStatus("NEED_CONFIRM");
+        vo.setConfidence(candidate.getConfidence());
+        vo.setCandidates(List.of(candidate));
+        vo.setMessage(hasCandidate
+                ? "图片已上传，系统已带出可疑字段，请人工核对后确认入库。"
+                : "图片已上传。当前未接入正式 OCR，请人工补全型号、规格和米数后确认入库。");
+        return vo;
     }
 
     @RequirePermission(value = PermissionCodeEnum.CODE_INVENTORY_CLOTH_OUT, message = "您没有权限执行布匹出库")
@@ -194,6 +233,8 @@ public class InventoryService {
             ClothInfoVO clothInfoVO = new ClothInfoVO();
             BeanUtils.copyProperties(latestCloth, clothInfoVO);
             clothInfoVO.setMeters(latestCloth.getRemainingMeters());
+            clothInfoVO.setInboundTime(latestCloth.getInTime());
+            clothInfoVO.setCustomerName(request.getCustomerName());
             clothInfoVO.setBeforeMeters(beforeMeters);
             clothInfoVO.setOutMeters(metersToOut);
             clothInfoVO.setNeedPrintLabel(latestCloth.getRemainingMeters() != null && latestCloth.getRemainingMeters() > 0);
@@ -441,19 +482,7 @@ public class InventoryService {
     }
 
     public List<InventoryRecordVO> warningList() {
-        List<Cloth> list = clothMapper.selectList(new LambdaQueryWrapper<Cloth>()
-                .ne(Cloth::getStatus, InventoryOperateTypeEnum.OUT.getCode())
-                .le(Cloth::getRemainingMeters, WARNING_METERS_THRESHOLD)
-                .orderByAsc(Cloth::getRemainingMeters)
-                .last("limit 10"));
-        return list.stream().map(item -> {
-            InventoryRecordVO vo = new InventoryRecordVO();
-            vo.setId(item.getId());
-            vo.setModelCode(item.getModelCode());
-            vo.setMeters(item.getRemainingMeters());
-            vo.setCreateTime(item.getUpdateTime());
-            return vo;
-        }).toList();
+        return inventoryWarningCacheService.warningList(TenantPermissionContext.getTenantCode(), 10);
     }
 
     public InventoryTrendVO getLastWeekTrend() {
@@ -540,7 +569,125 @@ public class InventoryService {
         invalidateManagementDashboardCache(TenantPermissionContext.getTenantCode());
     }
 
+    private void validateRecognitionImage(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException("请选择需要识别的入库图片");
+        }
+        if (file.getSize() <= 0) {
+            throw new BusinessException("图片内容为空，无法识别");
+        }
+        if (file.getSize() > MAX_IMAGE_RECOGNITION_BYTES) {
+            throw new BusinessException("图片大小不能超过 5MB");
+        }
+        String originalFilename = file.getOriginalFilename();
+        String extension = resolveExtension(originalFilename);
+        if (!IMAGE_RECOGNITION_EXTENSIONS.contains(extension)) {
+            throw new BusinessException("图片识别入库仅支持 PNG、JPG、JPEG、WEBP 格式");
+        }
+        String contentType = file.getContentType();
+        if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+            throw new BusinessException("上传文件不是有效图片");
+        }
+    }
+
+    private InventoryImageRecognitionVO.Candidate buildRecognitionCandidate(String fileName) {
+        String sourceText = stripExtension(fileName);
+        InventoryImageRecognitionVO.Candidate candidate = new InventoryImageRecognitionVO.Candidate();
+        candidate.setSourceText(sourceText);
+        candidate.setBarcode(resolveBarcodeCandidate(sourceText));
+        candidate.setModelCode(resolveModelCandidate(sourceText));
+        candidate.setSpec(resolveDecimalCandidate(SPEC_FILENAME_PATTERN, sourceText));
+        candidate.setMeters(resolveDecimalCandidate(METERS_FILENAME_PATTERN, sourceText));
+        int recognizedFields = 0;
+        if (cleanText(candidate.getBarcode()) != null) recognizedFields++;
+        if (cleanText(candidate.getModelCode()) != null) recognizedFields++;
+        if (candidate.getSpec() != null) recognizedFields++;
+        if (candidate.getMeters() != null) recognizedFields++;
+        candidate.setConfidence(BigDecimal.valueOf(Math.min(0.85D, 0.08D + recognizedFields * 0.18D)));
+        return candidate;
+    }
+
+    private String resolveExtension(String originalFilename) {
+        String safeName = cleanText(originalFilename);
+        if (safeName == null) {
+            return "";
+        }
+        int dotIndex = safeName.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex == safeName.length() - 1) {
+            return "";
+        }
+        return safeName.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private String stripExtension(String fileName) {
+        String safeName = cleanText(fileName);
+        if (safeName == null) {
+            return "";
+        }
+        int dotIndex = safeName.lastIndexOf('.');
+        return dotIndex > 0 ? safeName.substring(0, dotIndex) : safeName;
+    }
+
+    private String resolveBarcodeCandidate(String sourceText) {
+        if (sourceText == null) {
+            return null;
+        }
+        for (String token : sourceText.split("[\\s_\\-]+")) {
+            String cleaned = cleanText(token);
+            if (cleaned != null && cleaned.length() >= 8 && cleaned.matches("[A-Za-z0-9]+")) {
+                return cleaned;
+            }
+        }
+        return null;
+    }
+
+    private String resolveModelCandidate(String sourceText) {
+        if (sourceText == null) {
+            return null;
+        }
+        for (String token : sourceText.split("[\\s_\\-]+")) {
+            String cleaned = cleanText(token);
+            if (cleaned == null || cleaned.matches("\\d+(\\.\\d+)?")) {
+                continue;
+            }
+            String lower = cleaned.toLowerCase(Locale.ROOT);
+            if (lower.contains("入库") || lower.contains("库存") || lower.contains("image") || lower.contains("photo")) {
+                continue;
+            }
+            return cleaned.length() > 80 ? cleaned.substring(0, 80) : cleaned;
+        }
+        return null;
+    }
+
+    private BigDecimal resolveDecimalCandidate(Pattern pattern, String sourceText) {
+        if (sourceText == null) {
+            return null;
+        }
+        Matcher matcher = pattern.matcher(sourceText);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            BigDecimal value = new BigDecimal(matcher.group(1));
+            return value.compareTo(BigDecimal.ZERO) > 0 ? value : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private String cleanText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String cleaned = value.trim();
+        if (cleaned.isEmpty() || "null".equalsIgnoreCase(cleaned) || "undefined".equalsIgnoreCase(cleaned)) {
+            return null;
+        }
+        return cleaned;
+    }
+
     private void invalidateManagementDashboardCache(String tenantCode) {
+        inventoryWarningCacheService.invalidate(tenantCode);
         deleteCacheByPattern(redisKeyBuilder.cachePattern("management", "dashboard", "overview", tenantCode, "*"));
         deleteCacheByPattern(redisKeyBuilder.cachePattern("management", "dashboard", "ai-advice", tenantCode, "*"));
     }

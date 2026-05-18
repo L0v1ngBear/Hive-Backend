@@ -1,6 +1,8 @@
 package my.hive_back.module.inventory.model.vo;
 
 import lombok.Data;
+
+import java.time.LocalDateTime;
 /**
  * ClothInfoVO 属于小程序后端库存模块，定义出参结构。
  */
@@ -12,6 +14,12 @@ public class ClothInfoVO {
     private String modelCode;
 
     private Float spec;
+
+    private String batchNo;
+
+    private LocalDateTime inboundTime;
+
+    private String customerName;
 
     /**
      * 当前需要打印到标签上的米数。

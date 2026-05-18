@@ -3,6 +3,7 @@ package my.hive_back.api.attendance;
 import my.hive_back.module.tenant.TenantFeatureEnum;
 import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import jakarta.annotation.Resource;
+import my.hive.common.annotation.CollectLog;
 import my.hive.common.annotation.RequirePermission;
 import my.hive.common.dto.Result;
 import my.hive_back.common.tenant.RequireTenantFeature;
@@ -34,6 +35,7 @@ public class AttendanceController {
 
     @PostMapping("/punch")
     @RequirePermission(value = PermissionCodeEnum.CODE_ATTENDANCE_PUNCH, message = "您没有权限执行打卡")
+    @CollectLog(module = "attendance", action = "punch", bizType = "attendance_record", description = "小程序考勤打卡")
     public Result<String> punch(@RequestBody AttendancePunchRequest attendancePunchRequest) {
         attendanceService.punch(attendancePunchRequest);
         return Result.success("打卡成功");

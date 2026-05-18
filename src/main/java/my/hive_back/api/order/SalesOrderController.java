@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import my.hive.common.annotation.CollectLog;
 import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
 import my.hive_back.common.tenant.RequireTenantFeature;
@@ -20,6 +21,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 /**
  * SalesOrderController 是小程序后端订单入口控制类，负责接收请求并调用对应服务。
@@ -51,6 +53,11 @@ public class SalesOrderController {
         return Result.success(pageResultVo);
     }
 
+    @GetMapping("/orders/status-summary")
+    public Result<Map<String, Long>> salesOrderStatusSummary() {
+        return Result.success(salesOrderService.countSalesOrderStatuses());
+    }
+
     /**
      * 订单详情：路径参数校验（非空 + 格式校验）
      */
@@ -71,6 +78,7 @@ public class SalesOrderController {
      * 通用流转接口：支持更改订单大状态或更新生产小工序
      */
     @PostMapping("/orders/{orderId}/status")
+    @CollectLog(module = "order", action = "mini_update_sales_status", bizType = "sales_order", bizNo = "#orderId", description = "小程序更新销售订单状态")
     public Result<SalesOrderVO> updateOrderStatus(
             @NotBlank @PathVariable String orderId,
             @Valid @RequestBody SalesOrderUpdateRequest request) {
@@ -110,6 +118,7 @@ public class SalesOrderController {
     }
 
     @PostMapping("/orders/add")
+    @CollectLog(module = "order", action = "mini_create_sales", bizType = "sales_order", description = "小程序创建销售订单")
     public Result<Void> addSalesOrder(@Valid @RequestBody SalesOrderAddRequest request) {
         salesOrderService.addSalesOrder(request);
         return Result.success(null);

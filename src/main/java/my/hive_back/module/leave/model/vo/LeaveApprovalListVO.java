@@ -37,6 +37,8 @@ public class LeaveApprovalListVO {
 
     private Long auditorId;
 
+    private String auditorIds;
+
     private String auditorName;
 
     private LocalDateTime createTime;

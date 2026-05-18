@@ -75,7 +75,28 @@ wechat:
     app-id: ${WECHAT_MINI_APP_ID:}
     app-secret: ${WECHAT_MINI_APP_SECRET:}
     subscribe:
+      enabled: ${WECHAT_SUBSCRIBE_ENABLED:${WECHAT_MINI_ENABLED:false}}
       todo-template-id: ${WECHAT_TODO_TEMPLATE_ID:}
+      todo-title-key: ${WECHAT_TODO_TITLE_KEY:thing1}
+      todo-content-key: ${WECHAT_TODO_CONTENT_KEY:thing2}
+      todo-time-key: ${WECHAT_TODO_TIME_KEY:time3}
+
+external-api:
+  guard:
+    wechat:
+      window-seconds: ${EXTERNAL_API_WECHAT_WINDOW_SECONDS:60}
+      code2session:
+        max-calls-per-window: ${EXTERNAL_API_WECHAT_CODE2SESSION_MAX_CALLS_PER_WINDOW:120}
+      phone-number:
+        max-calls-per-window: ${EXTERNAL_API_WECHAT_PHONE_NUMBER_MAX_CALLS_PER_WINDOW:60}
+      access-token:
+        max-calls-per-window: ${EXTERNAL_API_WECHAT_ACCESS_TOKEN_MAX_CALLS_PER_WINDOW:20}
+      subscribe-send:
+        max-calls-per-window: ${EXTERNAL_API_WECHAT_SUBSCRIBE_SEND_MAX_CALLS_PER_WINDOW:120}
+    oss:
+      max-uploads-per-tenant-window: ${EXTERNAL_API_OSS_MAX_UPLOADS_PER_TENANT_WINDOW:120}
+      upload-window-seconds: ${EXTERNAL_API_OSS_UPLOAD_WINDOW_SECONDS:3600}
+
 storage:
   oss:
     enabled: ${ALIYUN_OSS_ENABLED:false}
@@ -103,6 +124,17 @@ xxl:
       log-retention-days: ${XXL_JOB_EXECUTOR_LOG_RETENTION_DAYS:30}
 
 hive:
+  tenant:
+    # BOUNDED = keep tenant_code isolation, but only allow the configured fixed tenants.
+    # OPEN is reserved for a future multi-tenant platform and should not be used now.
+    mode: ${HIVE_TENANT_MODE:BOUNDED}
+    default-code: ${HIVE_DEFAULT_TENANT_CODE:${HIVE_SINGLE_TENANT_CODE:TENANT_001}}
+    allowed-codes: ${HIVE_ALLOWED_TENANT_CODES:TENANT_001,TENANT_002}
+    max-count: ${HIVE_TENANT_MAX_COUNT:2}
+  single-tenant:
+    enabled: ${HIVE_SINGLE_TENANT_ENABLED:true}
+    code: ${HIVE_SINGLE_TENANT_CODE:TENANT_001}
+    name: ${HIVE_SINGLE_TENANT_NAME:当前组织}
   redis:
     namespace: ${HIVE_REDIS_NAMESPACE:hive}
     environment: ${HIVE_REDIS_ENV:${spring.profiles.active:dev}}

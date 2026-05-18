@@ -30,7 +30,8 @@ public class HomeSummaryVO {
     public static class UserInfo {
         private Long id;
         private String name;
-        private String dept;
+        private String departmentName;
+        private String position;
     }
 
     @Data

@@ -28,4 +28,9 @@ public class CustomerProject {
      */
     private String projectName;
 
+    /**
+     * 项目负责人
+     */
+    private String projectOwner;
+
 }

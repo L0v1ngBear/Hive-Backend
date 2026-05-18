@@ -13,4 +13,6 @@ public class WechatSubscribeConfigVO {
     private Boolean enabled;
 
     private List<String> templateIds;
+
+    private String todoTemplateId;
 }

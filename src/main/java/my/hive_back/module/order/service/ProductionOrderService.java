@@ -29,7 +29,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 /**
@@ -43,6 +45,14 @@ public class ProductionOrderService {
     private static final long MAX_PAGE_SIZE = 200L;
     private static final String STATUS_PRODUCING = OrderStatusEnum.PRODUCING.getCode();
     private static final Set<String> VALID_STATUS = Set.of(
+            OrderStatusEnum.PENDING_CONFIRM.getCode(),
+            OrderStatusEnum.PENDING_MATERIAL.getCode(),
+            OrderStatusEnum.PRODUCING.getCode(),
+            OrderStatusEnum.PENDING_SHIP.getCode(),
+            OrderStatusEnum.SHIPPED.getCode(),
+            OrderStatusEnum.COMPLETED.getCode()
+    );
+    private static final List<String> PRODUCTION_STATUS_CODES = List.of(
             OrderStatusEnum.PENDING_CONFIRM.getCode(),
             OrderStatusEnum.PENDING_MATERIAL.getCode(),
             OrderStatusEnum.PRODUCING.getCode(),
@@ -69,6 +79,7 @@ public class ProductionOrderService {
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, message = "您没有权限查询生产订单列表")
     public Page<ProductionOrder> selectProductionOrder(ProductionOrderListRequest request) {
         LambdaQueryWrapper<ProductionOrder> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode());
 
         if (StringUtils.isNotBlank(request.getStatus())) {
             queryWrapper.eq(ProductionOrder::getStatus, request.getStatus());
@@ -93,6 +104,20 @@ public class ProductionOrderService {
         );
     }
 
+    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, message = "您没有权限查询生产订单统计")
+    public Map<String, Long> countProductionOrderStatuses() {
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        Map<String, Long> result = new LinkedHashMap<>();
+        result.put("total", safeCount(productionOrderMapper.selectCount(new LambdaQueryWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getTenantCode, tenantCode))));
+        for (String status : PRODUCTION_STATUS_CODES) {
+            result.put(status, safeCount(productionOrderMapper.selectCount(new LambdaQueryWrapper<ProductionOrder>()
+                    .eq(ProductionOrder::getTenantCode, tenantCode)
+                    .eq(ProductionOrder::getStatus, status))));
+        }
+        return result;
+    }
+
     private long safePageNum(Integer pageNum) {
         return pageNum == null || pageNum <= 0 ? DEFAULT_PAGE_NUM : pageNum;
     }
@@ -104,9 +129,14 @@ public class ProductionOrderService {
         return Math.min(pageSize, MAX_PAGE_SIZE);
     }
 
+    private long safeCount(Long count) {
+        return count == null ? 0L : count;
+    }
+
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_DETAIL, message = "您没有权限查询生产订单详情")
     public ProductionOrder selectProductionOrderDetail(String orderId) {
         ProductionOrder productionOrder = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId));
 
         if (productionOrder == null) {
@@ -119,6 +149,7 @@ public class ProductionOrderService {
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LOG, message = "您没有权限查询生产订单状态变更日志")
     public List<ProductionOrderStatusLog> selectOrderStausLog(@NotBlank String orderId) {
         LambdaQueryWrapper<ProductionOrderStatusLog> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(ProductionOrderStatusLog::getTenantCode, TenantPermissionContext.getTenantCode());
         queryWrapper.eq(ProductionOrderStatusLog::getOrderId, orderId);
         queryWrapper.orderByAsc(ProductionOrderStatusLog::getCreateTime);
         return statusLogMapper.selectList(queryWrapper);
@@ -138,6 +169,7 @@ public class ProductionOrderService {
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限更新生产订单状态")
     public ProductionOrder updateStatusAndProcess(String orderId, ProductionOrderUpdateRequest request) {
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId));
 
         if (order == null) {
@@ -153,6 +185,18 @@ public class ProductionOrderService {
                 throw new BusinessException(400, "无效的订单状态");
             }
 
+            if (!Objects.equals(oldStatus, targetStatus)) {
+                try {
+                    OrderStatusEnum oldStatusEnum = OrderStatusEnum.getByCode(oldStatus);
+                    OrderStatusEnum targetStatusEnum = OrderStatusEnum.getByCode(targetStatus);
+                    if (oldStatusEnum == null || !oldStatusEnum.canFlowTo(targetStatusEnum)) {
+                        throw new BusinessException(400, "订单状态只能向后流转，不能回退或重复提交");
+                    }
+                } catch (IllegalArgumentException ex) {
+                    throw new BusinessException(400, "订单状态不合法");
+                }
+            }
+
             if (STATUS_PRODUCING.equals(targetStatus) && !STATUS_PRODUCING.equals(order.getStatus())) {
                 order.setProcess(0);
             } else if (!STATUS_PRODUCING.equals(targetStatus)) {
@@ -161,13 +205,25 @@ public class ProductionOrderService {
             order.setStatus(targetStatus);
         }
 
-        if (STATUS_PRODUCING.equals(order.getStatus()) && request.getProcess() != null) {
+        if (request.getProcess() != null) {
+            if (!STATUS_PRODUCING.equals(order.getStatus())) {
+                throw new BusinessException(400, "只有生产中的订单才能更新生产工序");
+            }
+            try {
+                ProcessEnum.getByCode(request.getProcess());
+            } catch (IllegalArgumentException ex) {
+                throw new BusinessException(400, "生产工序不合法");
+            }
+            if (oldProcess != null && request.getProcess() < oldProcess) {
+                throw new BusinessException(400, "生产工序不能回退");
+            }
             order.setProcess(request.getProcess());
         }
 
         order.setUpdater(resolveCurrentUserIdText());
 
         LambdaUpdateWrapper<ProductionOrder> updateWrapper = new LambdaUpdateWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId);
 
         if (oldStatus == null) {

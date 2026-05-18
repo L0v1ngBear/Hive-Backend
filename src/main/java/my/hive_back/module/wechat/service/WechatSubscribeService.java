@@ -7,6 +7,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
+import my.hive.common.external.ExternalApiGuardService;
 import my.hive.common.redis.HiveRedisKeyBuilder;
 import my.hive_back.module.wechat.mapper.WechatSubscribeUserMapper;
 import my.hive_back.module.wechat.model.dto.WechatSubscribeRegisterRequest;
@@ -25,10 +26,11 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -41,6 +43,8 @@ public class WechatSubscribeService {
     private static final String ACCEPT = "accept";
     private static final String REJECT = "reject";
     private static final String USED = "used";
+    private static final Set<String> ALLOWED_SUBSCRIBE_STATUS = Set.of(ACCEPT, REJECT, "ban", USED);
+    private static final DateTimeFormatter SUBSCRIBE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Value("${wechat.mini-program.enabled:false}")
     private Boolean enabled;
@@ -51,8 +55,32 @@ public class WechatSubscribeService {
     @Value("${wechat.mini-program.app-secret:}")
     private String appSecret;
 
+    @Value("${wechat.mini-program.subscribe.enabled:false}")
+    private Boolean subscribeEnabled;
+
     @Value("${wechat.mini-program.subscribe.todo-template-id:}")
     private String todoTemplateId;
+
+    @Value("${wechat.mini-program.subscribe.todo-title-key:thing1}")
+    private String todoTitleKey;
+
+    @Value("${wechat.mini-program.subscribe.todo-content-key:thing2}")
+    private String todoContentKey;
+
+    @Value("${wechat.mini-program.subscribe.todo-time-key:time3}")
+    private String todoTimeKey;
+
+    @Value("${external-api.guard.wechat.window-seconds:60}")
+    private Integer wechatWindowSeconds;
+
+    @Value("${external-api.guard.wechat.code2session.max-calls-per-window:120}")
+    private Integer wechatCode2SessionMaxCallsPerWindow;
+
+    @Value("${external-api.guard.wechat.access-token.max-calls-per-window:20}")
+    private Integer wechatAccessTokenMaxCallsPerWindow;
+
+    @Value("${external-api.guard.wechat.subscribe-send.max-calls-per-window:120}")
+    private Integer wechatSubscribeSendMaxCallsPerWindow;
 
     @Resource
     private WechatSubscribeUserMapper wechatSubscribeUserMapper;
@@ -63,48 +91,62 @@ public class WechatSubscribeService {
     @Resource
     private HiveRedisKeyBuilder redisKeyBuilder;
 
+    @Resource
+    private ExternalApiGuardService externalApiGuardService;
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
             .build();
 
     public WechatSubscribeConfigVO getConfig() {
+        boolean ready = subscribeReady();
         WechatSubscribeConfigVO vo = new WechatSubscribeConfigVO();
-        vo.setEnabled(Boolean.TRUE.equals(enabled) && hasText(todoTemplateId));
-        vo.setTemplateIds(hasText(todoTemplateId) ? List.of(todoTemplateId) : List.of());
+        vo.setEnabled(ready);
+        vo.setTemplateIds(ready ? List.of(todoTemplateId.trim()) : List.of());
+        vo.setTodoTemplateId(ready ? todoTemplateId.trim() : null);
         return vo;
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void register(WechatSubscribeRegisterRequest request) {
-        if (!Boolean.TRUE.equals(enabled)) {
+        if (!subscribeReady()) {
             throw new BusinessException("微信订阅消息暂未启用");
         }
-        if (!hasText(appId) || !hasText(appSecret)) {
-            throw new BusinessException("微信小程序 appId/appSecret 未配置");
+        requireWechatCredential();
+        if (request == null || !hasText(request.getCode())) {
+            throw new BusinessException("缺少微信登录 code");
         }
         String openid = code2Openid(request.getCode());
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = TenantPermissionContext.getTenantCode();
         List<WechatSubscribeRegisterRequest.TemplateSubscribeStatus> subscriptions =
                 request.getSubscriptions() == null ? List.of() : request.getSubscriptions();
+        if (subscriptions.isEmpty()) {
+            throw new BusinessException("订阅模板授权结果不能为空");
+        }
 
         for (WechatSubscribeRegisterRequest.TemplateSubscribeStatus item : subscriptions) {
             if (item == null || !hasText(item.getTemplateId())) {
                 continue;
             }
+            String templateId = item.getTemplateId().trim();
+            if (!templateId.equals(todoTemplateId.trim())) {
+                throw new BusinessException("订阅模板与系统配置不一致，请刷新小程序后重试");
+            }
+            String status = normalizeSubscribeStatus(item.getStatus());
             WechatSubscribeUser entity = wechatSubscribeUserMapper.selectOne(new LambdaQueryWrapper<WechatSubscribeUser>()
                     .eq(WechatSubscribeUser::getUserId, userId)
-                    .eq(WechatSubscribeUser::getTemplateId, item.getTemplateId())
+                    .eq(WechatSubscribeUser::getTemplateId, templateId)
                     .last("limit 1"));
             if (entity == null) {
                 entity = new WechatSubscribeUser();
                 entity.setTenantCode(tenantCode);
                 entity.setUserId(userId);
-                entity.setTemplateId(item.getTemplateId());
+                entity.setTemplateId(templateId);
                 entity.setCreateTime(LocalDateTime.now());
             }
             entity.setOpenid(openid);
-            entity.setSubscribeStatus(hasText(item.getStatus()) ? item.getStatus() : ACCEPT);
+            entity.setSubscribeStatus(status);
             if (entity.getId() == null) {
                 wechatSubscribeUserMapper.insert(entity);
             } else {
@@ -117,13 +159,14 @@ public class WechatSubscribeService {
      * 给指定用户发送待办提醒。当前作为业务预留入口，后续订单/审批变更时可直接调用。
      */
     public boolean sendTodoReminder(Long userId, String title, String content, String pagePath) {
-        if (!Boolean.TRUE.equals(enabled) || !hasText(todoTemplateId)) {
+        if (!subscribeReady()) {
             log.info("微信订阅消息未启用，跳过待办提醒 userId={}", userId);
             return false;
         }
+        requireSubscribeTemplateKeys();
         WechatSubscribeUser subscribeUser = wechatSubscribeUserMapper.selectOne(new LambdaQueryWrapper<WechatSubscribeUser>()
                 .eq(WechatSubscribeUser::getUserId, userId)
-                .eq(WechatSubscribeUser::getTemplateId, todoTemplateId)
+                .eq(WechatSubscribeUser::getTemplateId, todoTemplateId.trim())
                 .eq(WechatSubscribeUser::getSubscribeStatus, ACCEPT)
                 .last("limit 1"));
         if (subscribeUser == null || !hasText(subscribeUser.getOpenid())) {
@@ -132,7 +175,7 @@ public class WechatSubscribeService {
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("touser", subscribeUser.getOpenid());
-        payload.put("template_id", todoTemplateId);
+        payload.put("template_id", todoTemplateId.trim());
         payload.put("page", hasText(pagePath) ? pagePath : "pages/todo/todo");
         payload.put("data", buildTodoTemplateData(title, content));
         JSONObject response = sendSubscribeMessage(payload);
@@ -150,13 +193,20 @@ public class WechatSubscribeService {
 
     private Map<String, Object> buildTodoTemplateData(String title, String content) {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("thing1", Map.of("value", limit(title, 20)));
-        data.put("thing2", Map.of("value", limit(content, 20)));
-        data.put("time3", Map.of("value", LocalDateTime.now().toString().replace('T', ' ')));
+        data.put(todoTitleKey.trim(), Map.of("value", limit(title, 20)));
+        data.put(todoContentKey.trim(), Map.of("value", limit(content, 20)));
+        data.put(todoTimeKey.trim(), Map.of("value", LocalDateTime.now().format(SUBSCRIBE_TIME_FORMATTER)));
         return data;
     }
 
     private JSONObject sendSubscribeMessage(Map<String, Object> payload) {
+        String receiver = payload == null ? "" : String.valueOf(payload.getOrDefault("touser", ""));
+        protectWechatCall(
+                "subscribe-send",
+                externalApiGuardService.fingerprint(receiver),
+                wechatSubscribeSendMaxCallsPerWindow,
+                120
+        );
         String accessToken = getAccessToken();
         String url = "https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=" + accessToken;
         return postJson(url, payload);
@@ -179,6 +229,13 @@ public class WechatSubscribeService {
         if (hasText(cached)) {
             return cached;
         }
+        protectWechatCall(
+                "access-token",
+                appSubject(),
+                wechatAccessTokenMaxCallsPerWindow,
+                20
+        );
+
         String url = "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential"
                 + "&appid=" + encode(appId)
                 + "&secret=" + encode(appSecret);
@@ -194,9 +251,21 @@ public class WechatSubscribeService {
     }
 
     private String code2Openid(String code) {
-        if (!hasText(code)) {
-            throw new BusinessException("缺少微信登录 code");
-        }
+        requireWechatCredential();
+        protectWechatCall(
+                "code2session",
+                appSubject(),
+                wechatCode2SessionMaxCallsPerWindow,
+                120
+        );
+        protectWechatCall(
+                "code2session-code",
+                externalApiGuardService.fingerprint(code),
+                3,
+                3,
+                Duration.ofMinutes(10)
+        );
+
         String url = "https://api.weixin.qq.com/sns/jscode2session"
                 + "?appid=" + encode(appId)
                 + "&secret=" + encode(appSecret)
@@ -237,14 +306,66 @@ public class WechatSubscribeService {
         }
     }
 
+    private void protectWechatCall(String action, String subject, Integer maxCalls, int defaultMaxCalls) {
+        protectWechatCall(action, subject, maxCalls, defaultMaxCalls, wechatWindow());
+    }
+
+    private void protectWechatCall(String action, String subject, Integer maxCalls, int defaultMaxCalls, Duration window) {
+        externalApiGuardService.checkRateLimit(
+                "wechat-mini",
+                action,
+                subject,
+                maxCalls == null ? defaultMaxCalls : Math.max(1, maxCalls),
+                window
+        );
+    }
+
+    private Duration wechatWindow() {
+        int seconds = wechatWindowSeconds == null ? 60 : Math.max(1, wechatWindowSeconds);
+        return Duration.ofSeconds(seconds);
+    }
+
     private void requireWechatCredential() {
         if (!hasText(appId) || !hasText(appSecret)) {
             throw new BusinessException("微信小程序 appId/appSecret 未配置");
         }
     }
 
+    private boolean subscribeReady() {
+        return Boolean.TRUE.equals(enabled) && Boolean.TRUE.equals(subscribeEnabled) && hasText(todoTemplateId);
+    }
+
+    private void requireSubscribeTemplateKeys() {
+        requireTemplateKey(todoTitleKey, "待办标题字段");
+        requireTemplateKey(todoContentKey, "待办内容字段");
+        requireTemplateKey(todoTimeKey, "待办时间字段");
+        if (todoTitleKey.trim().equals(todoContentKey.trim())
+                || todoTitleKey.trim().equals(todoTimeKey.trim())
+                || todoContentKey.trim().equals(todoTimeKey.trim())) {
+            throw new BusinessException("微信订阅消息模板字段不能重复");
+        }
+    }
+
+    private void requireTemplateKey(String key, String label) {
+        if (!hasText(key) || !key.trim().matches("^[A-Za-z_]+\\d+$")) {
+            throw new BusinessException("微信订阅消息" + label + "配置不正确");
+        }
+    }
+
+    private String normalizeSubscribeStatus(String status) {
+        String normalized = hasText(status) ? status.trim() : REJECT;
+        if (!ALLOWED_SUBSCRIBE_STATUS.contains(normalized)) {
+            throw new BusinessException("订阅授权状态不正确");
+        }
+        return normalized;
+    }
+
     private String accessTokenKey() {
         return redisKeyBuilder.cache("wechat", "mini", "access-token", appId);
+    }
+
+    private String appSubject() {
+        return "app-" + appId;
     }
 
     private String encode(String value) {

@@ -15,6 +15,7 @@ import my.hive_back.module.inventory.model.entity.ClothModelSpec;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
 import my.hive_back.module.inventory.model.vo.BarCodeSearchVO;
 import my.hive_back.module.inventory.model.vo.ClothInfoVO;
+import my.hive_back.module.inventory.model.vo.InventoryImageRecognitionVO;
 import my.hive_back.module.inventory.model.vo.InventoryRecordVO;
 import my.hive_back.module.inventory.model.vo.ModelCodeVO;
 import my.hive_back.module.inventory.model.vo.OutboundOrderOptionVO;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 /**
@@ -46,6 +48,12 @@ public class InventoryController {
     @RequirePermission(value = PermissionCodeEnum.CODE_INVENTORY_CLOTH_IN, message = "您没有权限执行布匹入库")
     public Result<ClothInfoVO> inCloth(@Valid @RequestBody InventoryInRequest inventoryInRequest) {
         return Result.success(inventoryService.inCloth(inventoryInRequest));
+    }
+
+    @PostMapping("/cloth/image-recognition")
+    @RequirePermission(value = PermissionCodeEnum.CODE_INVENTORY_CLOTH_IN, message = "您没有权限执行图片识别入库")
+    public Result<InventoryImageRecognitionVO> recognizeInboundImage(@RequestParam("file") MultipartFile file) {
+        return Result.success(inventoryService.recognizeInboundImage(file));
     }
 
     @PostMapping("/cloth/out")

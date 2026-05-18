@@ -19,6 +19,12 @@ import java.util.Set;
 @Service
 public class HomeService {
 
+    private static final String LEGACY_STANDALONE_DEPARTMENT = "未加入组织";
+    private static final String LEGACY_STANDALONE_POSITION = "待加入组织";
+    private static final String LEGACY_PERMISSION_PLACEHOLDER = "待分配权限";
+    private static final String DEFAULT_JOINED_DEPARTMENT = "待分配部门";
+    private static final String DEFAULT_JOINED_POSITION = "普通员工";
+
     @Resource
     private UserMapper userMapper;
 
@@ -60,11 +66,27 @@ public class HomeService {
         if (user != null) {
             userInfo.setId(user.getId());
             userInfo.setName(user.getName());
-            String dept = user.getDepartmentName() == null ? "未分配部门" : user.getDepartmentName();
-            String position = user.getPosition() == null ? "未设置岗位" : user.getPosition();
-            userInfo.setDept(dept + " - " + position);
+            userInfo.setDepartmentName(resolveJoinedDepartment(user.getDepartmentName()));
+            userInfo.setPosition(resolveJoinedPosition(user.getPosition()));
         }
         return userInfo;
+    }
+
+    private String resolveJoinedDepartment(String departmentName) {
+        if (departmentName == null || departmentName.isBlank() || LEGACY_STANDALONE_DEPARTMENT.equals(departmentName.trim())) {
+            return DEFAULT_JOINED_DEPARTMENT;
+        }
+        return departmentName.trim();
+    }
+
+    private String resolveJoinedPosition(String position) {
+        if (position == null
+                || position.isBlank()
+                || LEGACY_STANDALONE_POSITION.equals(position.trim())
+                || LEGACY_PERMISSION_PLACEHOLDER.equals(position.trim())) {
+            return DEFAULT_JOINED_POSITION;
+        }
+        return position.trim();
     }
 
     private HomeSummaryVO.FunctionEnable buildFunctionEnable() {
@@ -73,7 +95,18 @@ public class HomeService {
         functionEnable.setOrder(hasAnyPermission("production:order", "production:order:*", "production:order:list", "production:order:add", "production:order:detail"));
         functionEnable.setSalesOrder(hasAnyPermission("sales:order", "sales:order:*", "sales:order:list", "sales:order:add", "sales:order:detail"));
         functionEnable.setInventory(hasAnyPermission("inventory", "inventory:*", "inventory:cloth:in", "inventory:cloth:out", "inventory:warning:list"));
-        functionEnable.setApproval(hasAnyPermission("approval", "approval:*", "approval:leave", "approval:finance", "approval:leave:submit", "approval:finance:submit"));
+        functionEnable.setApproval(hasAnyPermission(
+                "approval",
+                "approval:*",
+                "approval:leave",
+                "approval:finance",
+                "approval:resignation",
+                "approval:leave:submit",
+                "approval:finance:submit",
+                "approval:resignation:submit",
+                "sales:order:list",
+                "production:order:list"
+        ));
         functionEnable.setNotice(false);
         functionEnable.setFile(hasAnyPermission("document", "document:*", "document:list", "document:folder:create"));
         functionEnable.setBadProduct(hasAnyPermission("*", "badproduct:*", "badproduct:list", "badproduct:save", "badproduct:process"));

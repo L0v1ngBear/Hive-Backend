@@ -14,6 +14,7 @@ import my.hive.common.redis.HiveRedisKeyBuilder;
 import my.hive.common.tenant.TenantIsolationSupport;
 import my.hive.common.utils.ResponseEncryptUtil;
 import my.hive.common.utils.TokenUtil;
+import my.hive_back.common.tenant.BoundedTenantProperties;
 import my.hive_back.module.sys.model.mapper.SysUserRoleMapper;
 import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.model.entity.Tenant;
@@ -43,11 +44,6 @@ public class TenantInterceptor implements HandlerInterceptor {
     private static final long TENANT_STATUS_CACHE_MINUTES = 10L;
     private static final long TENANT_STATUS_NEGATIVE_CACHE_SECONDS = 60L;
     private static final long USER_PERMISSION_CACHE_MINUTES = 30L;
-    private static final Set<String> NO_TENANT_ALLOWED_PATHS = Set.of(
-            "/auth/me",
-            "/user/join-organization"
-    );
-
     @Resource
     private TenantMapper tenantMapper;
 
@@ -68,6 +64,9 @@ public class TenantInterceptor implements HandlerInterceptor {
 
     @Resource
     private ResponseEncryptUtil responseEncryptUtil;
+
+    @Resource
+    private BoundedTenantProperties boundedTenantProperties;
 
     @Value("${auth.allow-legacy-header:false}")
     private boolean allowLegacyHeader;
@@ -96,22 +95,18 @@ public class TenantInterceptor implements HandlerInterceptor {
                 return false;
             }
             tenantCode = normalizeTenantCode(authUserInfo.getTenantCode());
-            userId = authUserInfo.getUserId();
-
             if (tenantCode == null) {
-                if (!isNoTenantAllowedPath(request)) {
-                    writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "请先加入组织后再使用功能");
-                    return false;
-                }
-                TenantPermissionContext.init(null, userId, Collections.emptySet());
-                maybeRenewToken(response, authUserInfo);
-                return true;
+                tenantCode = defaultTenantCode();
             }
+            userId = authUserInfo.getUserId();
         } else if (allowLegacyHeader) {
             tenantCode = normalizeTenantCode(request.getHeader("Tenant-Code"));
             String userIdStr = request.getHeader("User-Id");
 
-            if (tenantCode == null || StringUtils.isBlank(userIdStr)) {
+            if (tenantCode == null) {
+                tenantCode = defaultTenantCode();
+            }
+            if (StringUtils.isBlank(userIdStr)) {
                 writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
                 return false;
             }
@@ -129,6 +124,11 @@ public class TenantInterceptor implements HandlerInterceptor {
 
         if (!isValidTenantCode(tenantCode)) {
             writeErrorResponse(response, HttpStatus.BAD_REQUEST, 400, "无权限");
+            return false;
+        }
+
+        if (!boundedTenantProperties.isTenantAllowed(tenantCode)) {
+            writeErrorResponse(response, HttpStatus.FORBIDDEN, 403, "当前组织不在系统允许范围内");
             return false;
         }
 
@@ -156,7 +156,8 @@ public class TenantInterceptor implements HandlerInterceptor {
         if (!tokenRenewEnabled || response.isCommitted() || !TokenUtil.shouldRenew(authUserInfo, tokenRenewBeforeMinutes)) {
             return;
         }
-        String renewedToken = TokenUtil.createToken(authUserInfo.getUserId(), normalizeTenantCode(authUserInfo.getTenantCode()));
+        String tenantCode = normalizeTenantCode(authUserInfo.getTenantCode());
+        String renewedToken = TokenUtil.createToken(authUserInfo.getUserId(), tenantCode == null ? defaultTenantCode() : tenantCode);
         AuthUserInfo renewedUserInfo = TokenUtil.parseToken(renewedToken);
         if (renewedUserInfo == null || renewedUserInfo.getExpireAt() == null) {
             return;
@@ -253,16 +254,15 @@ public class TenantInterceptor implements HandlerInterceptor {
         }
     }
 
-    private boolean isNoTenantAllowedPath(HttpServletRequest request) {
-        String path = request.getServletPath();
-        return NO_TENANT_ALLOWED_PATHS.contains(path);
-    }
-
     private String normalizeTenantCode(String tenantCode) {
         if (tenantCode == null || tenantCode.trim().isEmpty()) {
             return null;
         }
         return tenantCode.trim();
+    }
+
+    private String defaultTenantCode() {
+        return boundedTenantProperties.defaultTenantCode();
     }
 
     private boolean isValidTenantCode(String tenantCode) {

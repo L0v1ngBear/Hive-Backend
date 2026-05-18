@@ -11,7 +11,8 @@ public enum InventoryInTypeEnum {
 
     SCAN("scan", "扫码入库"),
     HAND("hand", "手动入库"),
-    AUTO("auto", "检验机自动入库");
+    AUTO("auto", "检验机自动入库"),
+    IMAGE_RECOGNITION("image_recognition", "图片识别入库");
 
     private final String code;
     private final String desc;
@@ -22,8 +23,9 @@ public enum InventoryInTypeEnum {
     }
 
     public static InventoryInTypeEnum getCode(@NotBlank String inType) {
+        String normalized = inType == null ? "" : inType.trim().toLowerCase();
         for (InventoryInTypeEnum inTypeEnum : InventoryInTypeEnum.values()) {
-            if (inTypeEnum.getCode().equals(inType)) {
+            if (inTypeEnum.getCode().equals(normalized)) {
                 return inTypeEnum;
             }
         }

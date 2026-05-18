@@ -71,10 +71,14 @@ public class CustomerService {
 
         if (request.getProjects() != null && !request.getProjects().isEmpty()) {
             for (CustomerProject projectDto : request.getProjects()) {
+                if (!StringUtils.isNotBlank(projectDto.getProjectName())) {
+                    continue;
+                }
                 CustomerProject project = new CustomerProject();
                 project.setTenantCode(tenantCode);
                 project.setCustomerId(customerId);
-                project.setProjectName(projectDto.getProjectName());
+                project.setProjectName(projectDto.getProjectName().trim());
+                project.setProjectOwner(StringUtils.isNotBlank(projectDto.getProjectOwner()) ? projectDto.getProjectOwner().trim() : null);
                 customerProjectMapper.insert(project);
             }
         }
@@ -89,7 +93,7 @@ public class CustomerService {
             String safeKeyword = keyword.trim();
             wrapper.and(w -> w
                     .like(Customer::getCustomerName, safeKeyword)
-                    .or().apply("id IN (SELECT customer_id FROM customer_project WHERE tenant_code = {0} AND project_name LIKE CONCAT('%', {1}, '%'))", tenantCode, safeKeyword)
+                    .or().apply("id IN (SELECT customer_id FROM customer_project WHERE tenant_code = {0} AND (project_name LIKE CONCAT('%', {1}, '%') OR project_owner LIKE CONCAT('%', {1}, '%')))", tenantCode, safeKeyword)
                     .or().apply("id IN (SELECT customer_id FROM customer_contact WHERE tenant_code = {0} AND (contact_name LIKE CONCAT('%', {1}, '%') OR contact_phone LIKE CONCAT('%', {1}, '%')))", tenantCode, safeKeyword)
             );
         }

@@ -2,6 +2,7 @@ package my.hive_back.api.wechat;
 
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
+import my.hive.common.annotation.CollectLog;
 import my.hive.common.dto.Result;
 import my.hive_back.module.wechat.model.dto.WechatSubscribeRegisterRequest;
 import my.hive_back.module.wechat.model.vo.WechatSubscribeConfigVO;
@@ -28,6 +29,7 @@ public class WechatSubscribeController {
     }
 
     @PostMapping("/register")
+    @CollectLog(module = "wechat_subscribe", action = "register", bizType = "wechat_subscribe", description = "小程序登记微信订阅消息授权")
     public Result<Void> register(@Valid @RequestBody WechatSubscribeRegisterRequest request) {
         wechatSubscribeService.register(request);
         return Result.success(null);

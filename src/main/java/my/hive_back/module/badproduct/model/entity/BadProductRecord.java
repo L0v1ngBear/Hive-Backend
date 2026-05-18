@@ -38,13 +38,13 @@ public class BadProductRecord {
     private String description;
 
     /**
-     * 负责跟进本次次品问题的人员。
+     * 负责跟进本次质量问题的人员。
      */
     @TableField("responsible_person")
     private String responsiblePerson;
 
     /**
-     * 次品即时处理措施。
+     * 质量异常即时处理措施。
      */
     @TableField("process_measure")
     private String processMeasure;
@@ -54,6 +54,12 @@ public class BadProductRecord {
      */
     @TableField("improvement_plan")
     private String improvementPlan;
+
+    private String attachmentName;
+
+    private String attachmentUrl;
+
+    private Long attachmentSize;
 
     private String status;
 

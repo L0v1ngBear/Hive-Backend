@@ -26,5 +26,6 @@ public class UserLeave {
     private String auditComment;  // 审批意见
     private LocalDateTime updateTime;
     private Long auditorId;       // 当前审批人/处理人ID
+    private String auditorIds;
     private LocalDateTime createTime;
 }

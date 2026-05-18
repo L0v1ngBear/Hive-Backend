@@ -19,6 +19,13 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
             "AND status = #{oldStatus} ")
     int updateStatus(SalesOrder order, String oldStatus);
 
-    @Select("SELECT * FROM sales_order WHERE order_id = #{orderId}")
+    @Select("""
+            SELECT order_id, tenant_code, status, customer_name, project_name, goods_desc,
+                   total_amount, total_quantity, delivery_date, express_company, express_no,
+                   is_invoice, creator, updater, create_time, update_time
+            FROM sales_order
+            WHERE order_id = #{orderId}
+            LIMIT 1
+            """)
     SalesOrder selectByOrderId(String orderId);
 }

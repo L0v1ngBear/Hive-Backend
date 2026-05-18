@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
+import my.hive.common.annotation.CollectLog;
 import my.hive.common.annotation.RequirePermission;
 import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
@@ -42,6 +43,7 @@ public class CustomerController {
 
     @PostMapping("/add")
     @RequirePermission(value = PermissionCodeEnum.CODE_CUSTOMER_ADD, message = "您没有权限新增客户")
+    @CollectLog(module = "customer", action = "mini_create", bizType = "customer", bizNo = "#request.customerName", description = "小程序新增客户")
     public Result<Void> addCustomer(@RequestBody CustomerAddRequest request) {
         customerService.addCustomer(request);
         return Result.success(null);

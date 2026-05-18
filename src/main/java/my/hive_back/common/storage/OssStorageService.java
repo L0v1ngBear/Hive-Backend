@@ -7,7 +7,9 @@ import com.aliyun.oss.OSSException;
 import com.aliyun.oss.model.ObjectMetadata;
 import com.aliyun.oss.model.PutObjectResult;
 import lombok.extern.slf4j.Slf4j;
+import my.hive.common.external.ExternalApiGuardService;
 import my.hive.common.exception.BusinessException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -20,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Locale;
 import java.util.Set;
@@ -33,14 +36,29 @@ public class OssStorageService {
     private static final String STORAGE_PROVIDER = "ALIYUN_OSS";
 
     private final OssStorageProperties properties;
+    private final ExternalApiGuardService externalApiGuardService;
 
-    public OssStorageService(OssStorageProperties properties) {
+    @Value("${external-api.guard.oss.max-uploads-per-tenant-window:120}")
+    private Integer ossMaxUploadsPerTenantWindow;
+
+    @Value("${external-api.guard.oss.upload-window-seconds:3600}")
+    private Integer ossUploadWindowSeconds;
+
+    public OssStorageService(OssStorageProperties properties, ExternalApiGuardService externalApiGuardService) {
         this.properties = properties;
+        this.externalApiGuardService = externalApiGuardService;
     }
 
     public FileUploadResult upload(MultipartFile file, String tenantCode) {
         validateConfig();
         FileCandidate candidate = validateFile(file, tenantCode);
+        externalApiGuardService.checkRateLimit(
+                "aliyun-oss",
+                "upload",
+                candidate.tenantCode(),
+                ossMaxUploadsPerTenantWindow == null ? 120 : ossMaxUploadsPerTenantWindow,
+                Duration.ofSeconds(ossUploadWindowSeconds == null ? 3600 : Math.max(1, ossUploadWindowSeconds))
+        );
         String objectKey = buildObjectKey(candidate.tenantCode(), candidate.fileExt());
         String fileHash = sha256(file);
 

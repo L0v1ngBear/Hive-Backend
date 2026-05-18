@@ -1,41 +1,27 @@
 package my.hive_back.module.user.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
-import my.hive.common.privacy.PrivacyProtectionUtil;
 import my.hive.common.redis.HiveRedisKeyBuilder;
-import my.hive.common.utils.ResponseEncryptUtil;
-import my.hive.common.utils.TokenUtil;
-import my.hive_back.module.auth.model.vo.LoginVO;
 import my.hive_back.module.sys.model.entity.SysPermission;
 import my.hive_back.module.sys.model.entity.SysRole;
+import my.hive_back.module.sys.model.entity.SysUserRole;
 import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import my.hive_back.module.sys.model.mapper.SysPermissionMapper;
 import my.hive_back.module.sys.model.mapper.SysRoleMapper;
 import my.hive_back.module.sys.model.mapper.SysRolePermissionMapper;
 import my.hive_back.module.sys.model.mapper.SysUserRoleMapper;
-import my.hive_back.module.tenant.mapper.TenantMapper;
-import my.hive_back.module.tenant.model.entity.Tenant;
 import my.hive_back.module.user.UserStatusEnum;
 import my.hive_back.module.user.mapper.UserMapper;
-import my.hive_back.module.user.model.dto.JoinOrganizationRequest;
 import my.hive_back.module.user.model.entity.User;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
 
 /**
  * 小程序用户服务。
@@ -44,35 +30,48 @@ import java.util.Objects;
 public class UserService {
 
     private static final int MAX_LOGIN_NAME_LENGTH = 64;
-    private static final int MAX_JOIN_CODE_LENGTH = 12;
+    private static final String LEGACY_STANDALONE_DEPARTMENT = "未加入组织";
+    private static final String LEGACY_STANDALONE_POSITION = "待加入组织";
+    private static final String LEGACY_PERMISSION_PLACEHOLDER = "待分配权限";
+    private static final String DEFAULT_JOINED_DEPARTMENT = "待分配部门";
     private static final String DEFAULT_JOIN_ROLE_CODE = "EMPLOYEE";
     private static final String DEFAULT_JOIN_ROLE_NAME = "普通员工";
-    private static final TypeReference<Map<String, Object>> JOIN_CODE_PAYLOAD_TYPE = new TypeReference<>() {
-    };
     private static final List<String> DEFAULT_JOIN_PERMISSION_CODES = List.of(
             PermissionCodeEnum.CODE_ATTENDANCE_PUNCH,
             PermissionCodeEnum.CODE_ATTENDANCE_RECORD_LIST,
             PermissionCodeEnum.CODE_APPROVAL_LEAVE_SUBMIT,
-            PermissionCodeEnum.CODE_APPROVAL_LEAVE_DETAIL
+            PermissionCodeEnum.CODE_APPROVAL_LEAVE_DETAIL,
+            PermissionCodeEnum.CODE_APPROVAL_FINANCE_SUBMIT,
+            PermissionCodeEnum.CODE_APPROVAL_FINANCE_DETAIL,
+            PermissionCodeEnum.CODE_APPROVAL_RESIGNATION_SUBMIT,
+            PermissionCodeEnum.CODE_APPROVAL_RESIGNATION_DETAIL,
+            PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST,
+            PermissionCodeEnum.CODE_PRODUCTION_ORDER_DETAIL,
+            PermissionCodeEnum.CODE_PRODUCTION_ORDER_LOG,
+            PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS,
+            PermissionCodeEnum.CODE_SALES_ORDER_LIST,
+            PermissionCodeEnum.CODE_SALES_ORDER_DETAIL,
+            PermissionCodeEnum.CODE_SALES_ORDER_STATUS,
+            PermissionCodeEnum.CODE_INVENTORY_BARCODE_SEARCH,
+            PermissionCodeEnum.CODE_INVENTORY_MODEL_SEARCH,
+            PermissionCodeEnum.CODE_INVENTORY_RECORD_RECENT,
+            PermissionCodeEnum.CODE_INVENTORY_WARNING_LIST,
+            PermissionCodeEnum.CODE_INVENTORY_CLOTH_IN,
+            PermissionCodeEnum.CODE_INVENTORY_CLOTH_OUT,
+            PermissionCodeEnum.CODE_BADPRODUCT_LIST,
+            PermissionCodeEnum.CODE_BADPRODUCT_SAVE,
+            PermissionCodeEnum.CODE_CUSTOMER_PAGE,
+            PermissionCodeEnum.CODE_CUSTOMER_DETAIL,
+            PermissionCodeEnum.CODE_LABEL_TEMPLATE_LIST,
+            PermissionCodeEnum.CODE_LABEL_TEMPLATE_DETAIL,
+            PermissionCodeEnum.CODE_LABEL_TEMPLATE_DEFAULT
     );
 
     @Resource
     private UserMapper userMapper;
 
     @Resource
-    private TenantMapper tenantMapper;
-
-    @Resource
-    private PrivacyProtectionUtil privacyProtectionUtil;
-
-    @Resource
-    private ResponseEncryptUtil responseEncryptUtil;
-
-    @Resource
     private StringRedisTemplate stringRedisTemplate;
-
-    @Resource
-    private ObjectMapper objectMapper;
 
     @Resource
     private HiveRedisKeyBuilder redisKeyBuilder;
@@ -88,9 +87,6 @@ public class UserService {
 
     @Resource
     private SysUserRoleMapper sysUserRoleMapper;
-
-    @Value("${auth.token.expire-hours:24}")
-    private Long tokenExpireHours;
 
     public Long getManagerId(Long applyUserId) {
         if (applyUserId == null) {
@@ -119,100 +115,99 @@ public class UserService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public LoginVO joinOrganization(JoinOrganizationRequest request) {
-        Long currentUserId = TenantPermissionContext.getUserId();
-        if (currentUserId == null) {
-            throw new BusinessException(401, "请先登录");
+    public void markResignedByApproval(Long userId) {
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        if (userId == null || tenantCode == null || tenantCode.isBlank()) {
+            throw new BusinessException("离职员工信息异常");
+        }
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getId, userId)
+                .eq(User::getTenantCode, tenantCode)
+                .last("LIMIT 1"));
+        if (user == null) {
+            throw new BusinessException("员工不存在");
+        }
+        if (!UserStatusEnum.isResigned(user.getStatus())) {
+            user.setStatus(UserStatusEnum.RESIGNED.getCode());
+            user.setUpdateTime(LocalDateTime.now());
+            userMapper.updateById(user);
         }
 
-        String tenantCode = resolveTenantCodeByJoinCode(request == null ? null : request.getJoinCode());
-
-        Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
-        if (!isTenantUsable(tenant)) {
-            throw new BusinessException(404, "组织不存在或暂不可用");
+        List<SysUserRole> activeRoles = sysUserRoleMapper.selectList(new LambdaQueryWrapper<SysUserRole>()
+                .eq(SysUserRole::getUserId, userId)
+                .eq(SysUserRole::getTenantCode, tenantCode)
+                .eq(SysUserRole::getIsDeleted, 0));
+        for (SysUserRole role : activeRoles) {
+            role.setIsDeleted(1);
+            sysUserRoleMapper.updateById(role);
         }
-
-        User currentUser = userMapper.selectById(currentUserId);
-        if (currentUser == null || !UserStatusEnum.isUsable(currentUser.getStatus())) {
-            throw new BusinessException(401, "登录已失效");
-        }
-
-        String currentTenantCode = normalizeTenantCode(currentUser.getTenantCode());
-        if (currentTenantCode != null) {
-            if (currentTenantCode.equals(tenantCode)) {
-                grantDefaultRoleIfAbsent(currentUser.getId(), tenantCode);
-                return buildLoginVO(currentUser, tenant);
-            }
-            throw new BusinessException(409, "当前账号已加入其它组织，请退出后使用对应组织账号");
-        }
-        if (currentUser.getPhoneHash() == null || currentUser.getPhoneHash().isBlank()) {
-            throw new BusinessException("当前账号缺少手机号信息，请重新微信一键登录");
-        }
-
-        User existingTenantUser = resolveExistingUserForJoin(currentUser, tenantCode);
-        if (existingTenantUser != null) {
-            grantDefaultRoleIfAbsent(existingTenantUser.getId(), tenantCode);
-            return buildLoginVO(existingTenantUser, tenant);
-        }
-
-        currentUser.setTenantCode(tenantCode);
-        currentUser.setDepartmentName(defaultText(currentUser.getDepartmentName(), "待分配部门"));
-        currentUser.setPosition(DEFAULT_JOIN_ROLE_NAME);
-        currentUser.setRoleLevel(0);
-        currentUser.setLoginName(resolveTenantLoginName(tenantCode, currentUser));
-        currentUser.setUpdateTime(LocalDateTime.now());
-        userMapper.updateById(currentUser);
-        grantDefaultRoleIfAbsent(currentUser.getId(), tenantCode);
-
-        return buildLoginVO(currentUser, tenant);
+        clearUserPermissionCache(userId, tenantCode);
     }
 
-    private String resolveTenantCodeByJoinCode(String rawJoinCode) {
-        String joinCode = normalizeJoinCode(rawJoinCode);
-        if (joinCode == null) {
-            throw new BusinessException("请输入组织邀请码");
-        }
-        if (!joinCode.matches("^[A-Z0-9]{6," + MAX_JOIN_CODE_LENGTH + "}$")) {
-            throw new BusinessException("组织邀请码格式不正确");
+    @Transactional(rollbackFor = Exception.class)
+    public User ensureSingleTenantMembership(User user, String tenantCode, String fallbackName) {
+        String safeTenantCode = normalizeTenantCode(tenantCode);
+        if (user == null || user.getId() == null || safeTenantCode == null) {
+            throw new BusinessException(401, "登录状态异常，请重新登录");
         }
 
-        String payloadJson;
-        try {
-            payloadJson = stringRedisTemplate.opsForValue().get(joinCodeKey(joinCode));
-        } catch (Exception e) {
-            throw new BusinessException("组织邀请码服务暂不可用，请稍后重试");
-        }
-        if (payloadJson == null || payloadJson.isBlank()) {
-            throw new BusinessException(404, "组织邀请码无效或已过期，请联系管理员重新生成");
+        String currentTenantCode = normalizeTenantCode(user.getTenantCode());
+        if (currentTenantCode != null && !safeTenantCode.equals(currentTenantCode)) {
+            throw new BusinessException(409, "该账号不属于当前系统组织，请联系管理员确认员工归属");
         }
 
-        try {
-            Map<String, Object> payload = objectMapper.readValue(payloadJson, JOIN_CODE_PAYLOAD_TYPE);
-            Object tenantValue = payload == null ? null : payload.get("tenantCode");
-            String tenantCode = tenantValue instanceof String ? normalizeTenantCode((String) tenantValue) : null;
-            if (tenantCode == null) {
-                throw new BusinessException("组织邀请码数据异常，请联系管理员重新生成");
-            }
-            return tenantCode;
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BusinessException("组织邀请码数据异常，请联系管理员重新生成");
+        boolean changed = false;
+        if (currentTenantCode == null) {
+            user.setTenantCode(safeTenantCode);
+            changed = true;
         }
+        String safeName = defaultText(fallbackName, "微信用户").trim();
+        if ((user.getName() == null || user.getName().isBlank()) && !safeName.isBlank()) {
+            user.setName(safeName);
+            changed = true;
+        }
+        String departmentName = resolveJoinedDepartment(user.getDepartmentName());
+        if (!departmentName.equals(user.getDepartmentName())) {
+            user.setDepartmentName(departmentName);
+            changed = true;
+        }
+        String position = resolveJoinedPosition(user.getPosition());
+        if (!position.equals(user.getPosition())) {
+            user.setPosition(position);
+            changed = true;
+        }
+        String loginName = resolveTenantLoginName(safeTenantCode, user);
+        if (user.getLoginName() == null || user.getLoginName().isBlank() || !user.getLoginName().equals(loginName)) {
+            user.setLoginName(loginName);
+            changed = true;
+        }
+        if (user.getRoleLevel() == null) {
+            user.setRoleLevel(0);
+            changed = true;
+        }
+        if (changed) {
+            user.setUpdateTime(LocalDateTime.now());
+            userMapper.updateById(user);
+        }
+        grantDefaultRoleIfAbsent(user.getId(), safeTenantCode);
+        return user;
     }
 
     private void grantDefaultRoleIfAbsent(Long userId, String tenantCode) {
         if (userId == null || tenantCode == null || tenantCode.isBlank()) {
             return;
         }
+        SysRole defaultRole = ensureDefaultJoinRole(tenantCode);
+        ensureDefaultRolePermissions(defaultRole.getId());
+
         long activeRoleCount = sysUserRoleMapper.countActiveRolesByUserIdAndTenantCode(userId, tenantCode);
         if (activeRoleCount > 0) {
+            clearUserPermissionCache(userId, tenantCode);
             return;
         }
 
-        SysRole defaultRole = ensureDefaultJoinRole(tenantCode);
-        ensureDefaultRolePermissions(defaultRole.getId());
         sysUserRoleMapper.insertIfAbsent(userId, tenantCode, defaultRole.getId());
+        clearUserPermissionCache(userId, tenantCode);
     }
 
     private SysRole ensureDefaultJoinRole(String tenantCode) {
@@ -263,58 +258,15 @@ public class UserService {
         }
     }
 
-    private LoginVO buildLoginVO(User user, Tenant tenant) {
-        String tenantCode = tenant.getTenantCode();
-        String token = TokenUtil.createToken(user.getId(), tenantCode);
-
-        LoginVO vo = new LoginVO();
-        vo.setToken(token);
-        vo.setExpireAt(Instant.now().plus(Duration.ofHours(tokenExpireHours)).getEpochSecond());
-        vo.setUserId(user.getId());
-        vo.setUserName(defaultText(user.getName(), "微信用户"));
-        vo.setPhone(privacyProtectionUtil.displayPhone(user.getPhone(), user.getPhoneMask()));
-        vo.setPosition(user.getPosition());
-        vo.setTenantCode(tenantCode);
-        vo.setTenantName(tenant.getTenantName());
-        vo.setNeedsOrganization(false);
-        vo.setResponseKey(responseEncryptUtil.buildResponseKey(token));
-        return vo;
-    }
-
-    private User resolveExistingUserForJoin(User currentUser, String tenantCode) {
-        List<User> samePhoneUsers = userMapper.selectList(new LambdaQueryWrapper<User>()
-                .and(wrapper -> {
-                    wrapper.eq(User::getPhoneHash, currentUser.getPhoneHash());
-                    if (currentUser.getPhone() != null && !currentUser.getPhone().isBlank()) {
-                        wrapper.or().eq(User::getPhone, currentUser.getPhone());
-                    }
-                })
-                .last("LIMIT 20"));
-        if (samePhoneUsers == null || samePhoneUsers.isEmpty()) {
-            return null;
+    private void clearUserPermissionCache(Long userId, String tenantCode) {
+        if (userId == null || tenantCode == null || tenantCode.isBlank()) {
+            return;
         }
-
-        List<User> tenantUsers = samePhoneUsers.stream()
-                .filter(user -> user != null && normalizeTenantCode(user.getTenantCode()) != null)
-                .toList();
-        for (User user : tenantUsers) {
-            String userTenantCode = normalizeTenantCode(user.getTenantCode());
-            if (!tenantCode.equals(userTenantCode) && UserStatusEnum.isUsable(user.getStatus())) {
-                throw new BusinessException(409, "该手机号已加入其它组织，请联系管理员确认员工归属");
-            }
-            if (tenantCode.equals(userTenantCode) && UserStatusEnum.isResigned(user.getStatus())) {
-                throw new BusinessException(403, "该手机号在当前组织已离职，请联系管理员重新启用");
-            }
+        try {
+            stringRedisTemplate.delete(redisKeyBuilder.cache("mini", "perm", tenantCode, String.valueOf(userId)));
+        } catch (Exception ignored) {
+            // Permission cache is an acceleration layer only; role binding has already been persisted.
         }
-
-        List<User> usableSameTenantUsers = tenantUsers.stream()
-                .filter(user -> tenantCode.equals(normalizeTenantCode(user.getTenantCode())))
-                .filter(user -> UserStatusEnum.isUsable(user.getStatus()))
-                .toList();
-        if (usableSameTenantUsers.size() > 1) {
-            throw new BusinessException(409, "该手机号在当前组织存在多个账号，请联系管理员清理员工数据");
-        }
-        return usableSameTenantUsers.isEmpty() ? null : usableSameTenantUsers.get(0);
     }
 
     private String resolveTenantLoginName(String tenantCode, User user) {
@@ -340,21 +292,6 @@ public class UserService {
         return base.substring(0, Math.min(base.length(), maxBaseLength)) + suffix;
     }
 
-    private boolean isTenantUsable(Tenant tenant) {
-        if (tenant == null || Objects.equals(tenant.getDeleted(), 1) || !Objects.equals(tenant.getStatus(), 1)) {
-            return false;
-        }
-        String subscriptionStatus = tenant.getSubscriptionStatus();
-        if (subscriptionStatus != null && !subscriptionStatus.isBlank()) {
-            String normalized = subscriptionStatus.trim().toUpperCase(Locale.ROOT);
-            if ("EXPIRED".equals(normalized) || "SUSPENDED".equals(normalized)) {
-                return false;
-            }
-        }
-        LocalDateTime endTime = tenant.getSubscriptionEndTime();
-        return endTime == null || !endTime.isBefore(LocalDateTime.now());
-    }
-
     private String normalizeTenantCode(String tenantCode) {
         if (tenantCode == null || tenantCode.trim().isEmpty()) {
             return null;
@@ -362,15 +299,21 @@ public class UserService {
         return tenantCode.trim();
     }
 
-    private String normalizeJoinCode(String joinCode) {
-        if (joinCode == null || joinCode.trim().isEmpty()) {
-            return null;
+    private String resolveJoinedDepartment(String departmentName) {
+        if (departmentName == null || departmentName.isBlank() || LEGACY_STANDALONE_DEPARTMENT.equals(departmentName.trim())) {
+            return DEFAULT_JOINED_DEPARTMENT;
         }
-        return joinCode.trim().toUpperCase(Locale.ROOT);
+        return departmentName.trim();
     }
 
-    private String joinCodeKey(String joinCode) {
-        return redisKeyBuilder.cache("tenant", "join-code", joinCode);
+    private String resolveJoinedPosition(String position) {
+        if (position == null
+                || position.isBlank()
+                || LEGACY_STANDALONE_POSITION.equals(position.trim())
+                || LEGACY_PERMISSION_PLACEHOLDER.equals(position.trim())) {
+            return DEFAULT_JOIN_ROLE_NAME;
+        }
+        return position.trim();
     }
 
     private String defaultText(String value, String fallback) {

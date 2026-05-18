@@ -9,6 +9,14 @@ import org.apache.ibatis.annotations.Select;
  */
 public interface ProductionOrderMapper extends BaseMapper<ProductionOrder> {
 
-    @Select("SELECT * FROM production_order WHERE order_id = #{orderId} FOR UPDATE")
+    @Select("""
+            SELECT id, tenant_code, order_id, sales_order_id, status, model, weight, width,
+                   quantity, process, customer_name, project_name, delivery_date,
+                   create_time, update_time, creator, updater
+            FROM production_order
+            WHERE order_id = #{orderId}
+            LIMIT 1
+            FOR UPDATE
+            """)
     ProductionOrder selectByOrderId(String orderId);
 }

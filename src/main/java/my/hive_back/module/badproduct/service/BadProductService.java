@@ -7,6 +7,7 @@ import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.dto.PageResult;
 import my.hive.common.exception.BusinessException;
 import my.hive_back.common.enums.QueryScopeEnum;
+import my.hive_back.common.security.InternalUploadUrlValidator;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.module.badproduct.BadProductStatusEnum;
 import my.hive_back.module.badproduct.mapper.BadProductMapper;
@@ -26,6 +27,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Set;
 /**
  * BadProductService 属于小程序后端坏品模块，实现核心业务编排与规则逻辑。
  */
@@ -35,6 +37,13 @@ public class BadProductService {
     private static final int DEFAULT_PAGE_NUM = 1;
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
+    private static final String BUSINESS_SCOPE_AFTER_SALES = "afterSales";
+    private static final Set<String> AFTER_SALES_TYPES = Set.of(
+            "after_sales",
+            "return_exchange",
+            "compensation",
+            "customer_complaint"
+    );
 
     @Resource
     private BadProductMapper badProductMapper;
@@ -53,13 +62,23 @@ public class BadProductService {
 
         String status = normalizeQueryValue(request.getStatus());
         String type = normalizeQueryValue(request.getType());
+        String businessScope = normalizeQueryValue(request.getBusinessScope());
         String dateText = normalizeQueryValue(request.getDate());
 
+        boolean afterSalesScope = BUSINESS_SCOPE_AFTER_SALES.equalsIgnoreCase(businessScope);
         if (status != null && !QueryScopeEnum.ALL.matches(status)) {
             wrapper.eq(BadProductRecord::getStatus, status);
         }
         if (type != null && !QueryScopeEnum.ALL.matches(type)) {
-            wrapper.eq(BadProductRecord::getType, type);
+            if (afterSalesScope != AFTER_SALES_TYPES.contains(type)) {
+                wrapper.apply("1 = 0");
+            } else {
+                wrapper.eq(BadProductRecord::getType, type);
+            }
+        } else if (afterSalesScope) {
+            wrapper.in(BadProductRecord::getType, AFTER_SALES_TYPES);
+        } else {
+            wrapper.notIn(BadProductRecord::getType, AFTER_SALES_TYPES);
         }
         if (dateText != null) {
             LocalDate date = LocalDate.parse(dateText, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
@@ -94,7 +113,7 @@ public class BadProductService {
             entity = badProductMapper.selectOne(new LambdaQueryWrapper<BadProductRecord>()
                     .eq(BadProductRecord::getDefectiveId, request.getDefectiveId()));
             if (entity == null) {
-                throw new BusinessException("次品记录不存在");
+                throw new BusinessException("质量记录不存在");
             }
         } else {
             entity = new BadProductRecord();
@@ -114,6 +133,13 @@ public class BadProductService {
         entity.setResponsiblePerson(blankToNull(request.getResponsiblePerson()));
         entity.setProcessMeasure(blankToNull(request.getProcessMeasure()));
         entity.setImprovementPlan(blankToNull(request.getImprovementPlan()));
+        entity.setAttachmentName(blankToNull(request.getAttachmentName()));
+        entity.setAttachmentUrl(InternalUploadUrlValidator.normalizeStoredUploadUrl(
+                request.getAttachmentUrl(),
+                tenantCode,
+                "bad-product"
+        ));
+        entity.setAttachmentSize(safeAttachmentSize(request.getAttachmentSize()));
 
         if (entity.getId() == null) {
             badProductMapper.insert(entity);
@@ -127,7 +153,7 @@ public class BadProductService {
         BadProductRecord entity = badProductMapper.selectOne(new LambdaQueryWrapper<BadProductRecord>()
                 .eq(BadProductRecord::getDefectiveId, request.getDefectiveId()));
         if (entity == null) {
-            throw new BusinessException("次品记录不存在");
+            throw new BusinessException("质量记录不存在");
         }
         entity.setStatus(BadProductStatusEnum.PROCESSED.getCode());
         entity.setProcessMethod(request.getMethod());
@@ -143,8 +169,8 @@ public class BadProductService {
         }
         wechatSubscribeNotificationService.sendTodoAfterCommit(
                 entity.getCreatorId(),
-                "次品处理结果",
-                "次品记录 " + entity.getDefectiveId() + " 已处理",
+                "质量处理结果",
+                "质量记录 " + entity.getDefectiveId() + " 已处理",
                 "/pages/badProduct/badProduct"
         );
     }
@@ -169,6 +195,10 @@ public class BadProductService {
             return null;
         }
         return trimmed;
+    }
+
+    private Long safeAttachmentSize(Long attachmentSize) {
+        return attachmentSize == null || attachmentSize <= 0 ? null : attachmentSize;
     }
 
     private int safePageNum(Integer pageNum) {
