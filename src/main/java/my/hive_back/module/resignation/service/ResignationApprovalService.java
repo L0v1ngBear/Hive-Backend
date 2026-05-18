@@ -1,18 +1,17 @@
-package my.hive_back.module.finance.service;
+package my.hive_back.module.resignation.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
-import my.hive_back.common.security.InternalUploadUrlValidator;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
-import my.hive_back.module.finance.mapper.FinanceApprovalMapper;
-import my.hive_back.module.finance.model.dto.FinanceAuditRequest;
-import my.hive_back.module.finance.model.dto.FinanceSubmitRequest;
-import my.hive_back.module.finance.model.entity.FinanceApproval;
-import my.hive_back.module.finance.model.vo.FinanceApprovalVO;
 import my.hive_back.module.leave.ApprovalActionEnum;
+import my.hive_back.module.resignation.mapper.ResignationApprovalMapper;
+import my.hive_back.module.resignation.model.dto.ResignationAuditRequest;
+import my.hive_back.module.resignation.model.dto.ResignationSubmitRequest;
+import my.hive_back.module.resignation.model.entity.ResignationApproval;
+import my.hive_back.module.resignation.model.vo.ResignationApprovalVO;
 import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
@@ -26,20 +25,21 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+
 /**
- * FinanceApprovalService 属于小程序后端财务模块，实现核心业务编排与规则逻辑。
+ * 小程序离职审批业务。
  */
 @Service
-public class FinanceApprovalService {
+public class ResignationApprovalService {
 
-    private static final String APPROVAL_TYPE_FINANCE = "FINANCE";
+    private static final String APPROVAL_TYPE_RESIGNATION = "RESIGNATION";
     private static final int STATUS_PENDING = 1;
     private static final int STATUS_APPROVED = 2;
     private static final int STATUS_REJECTED = 3;
     private static final int MAX_PARALLEL_APPROVERS = 30;
 
     @Resource
-    private FinanceApprovalMapper financeApprovalMapper;
+    private ResignationApprovalMapper resignationApprovalMapper;
 
     @Resource
     private UserService userService;
@@ -57,90 +57,84 @@ public class FinanceApprovalService {
     private ApprovalAuditorCandidateService approvalAuditorCandidateService;
 
     @Transactional(rollbackFor = Exception.class)
-    public String submit(FinanceSubmitRequest request) {
+    public String submit(ResignationSubmitRequest request) {
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = TenantPermissionContext.getTenantCode();
         Long managerId = userService.getManagerId(userId);
+        Long pendingCount = resignationApprovalMapper.selectCount(new LambdaQueryWrapper<ResignationApproval>()
+                .eq(ResignationApproval::getTenantCode, tenantCode)
+                .eq(ResignationApproval::getApplyUserId, userId)
+                .eq(ResignationApproval::getStatus, STATUS_PENDING));
+        if (pendingCount != null && pendingCount > 0) {
+            throw new BusinessException("已有待审批离职申请，请勿重复提交");
+        }
 
-        FinanceApproval approval = new FinanceApproval();
-        approval.setApprovalCode(codeGeneratorUtil.generateFinanceApprovalCode());
+        ResignationApproval approval = new ResignationApproval();
+        approval.setResignationCode(codeGeneratorUtil.generateResignationApprovalCode());
         approval.setTenantCode(tenantCode);
         approval.setApplyUserId(userId);
-        approval.setCategory(request.getCategory().trim());
-        approval.setAmount(request.getAmount());
+        approval.setExpectedLeaveDate(request.getExpectedLeaveDate());
         approval.setReason(request.getReason().trim());
-        approval.setAttachmentName(blankToNull(request.getAttachmentName()));
-        approval.setAttachmentUrl(InternalUploadUrlValidator.normalizeOptionalFinanceAttachment(request.getAttachmentUrl(), tenantCode));
-        approval.setAttachmentSize(safeAttachmentSize(request.getAttachmentSize()));
+        approval.setHandoverNote(trimToNull(request.getHandoverNote()));
         approval.setStatus(STATUS_PENDING);
         assignAuditors(approval, managerId);
-        financeApprovalMapper.insert(approval);
-        notifyFinancePendingApprover(approval);
-        return approval.getApprovalCode();
+        resignationApprovalMapper.insert(approval);
+        notifyPendingApprover(approval);
+        return approval.getResignationCode();
     }
 
-    public FinanceApproval getByCode(String approvalCode) {
-        String tenantCode = TenantPermissionContext.getTenantCode();
-        FinanceApproval approval = financeApprovalMapper.selectOne(new LambdaQueryWrapper<FinanceApproval>()
-                .eq(tenantCode != null, FinanceApproval::getTenantCode, tenantCode)
-                .eq(FinanceApproval::getApprovalCode, approvalCode));
-        if (approval == null) {
-            throw new BusinessException("财务审批单不存在");
-        }
-        return approval;
-    }
-
-    public FinanceApprovalVO detail(String approvalCode) {
-        return toVO(getByCode(approvalCode));
-    }
-
-    public List<FinanceApprovalVO> list(String scope, Integer status) {
+    public List<ResignationApprovalVO> list(String scope, Integer status) {
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = TenantPermissionContext.getTenantCode();
         if (tenantCode == null || tenantCode.isBlank()) {
             return List.of();
         }
-        LambdaQueryWrapper<FinanceApproval> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinanceApproval::getTenantCode, tenantCode);
+        LambdaQueryWrapper<ResignationApproval> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(ResignationApproval::getTenantCode, tenantCode);
         if (status != null) {
-            queryWrapper.eq(FinanceApproval::getStatus, status);
+            queryWrapper.eq(ResignationApproval::getStatus, status);
         }
         if ("mine".equalsIgnoreCase(scope)) {
-            queryWrapper.eq(FinanceApproval::getApplyUserId, userId);
+            queryWrapper.eq(ResignationApproval::getApplyUserId, userId);
         } else if ("self_pending".equalsIgnoreCase(scope)) {
-            queryWrapper.eq(FinanceApproval::getApplyUserId, userId)
-                    .eq(FinanceApproval::getStatus, STATUS_PENDING);
+            queryWrapper.eq(ResignationApproval::getApplyUserId, userId)
+                    .eq(ResignationApproval::getStatus, STATUS_PENDING);
             appendAuditorFilter(queryWrapper, userId);
         } else if ("others_pending".equalsIgnoreCase(scope)) {
-            queryWrapper.ne(FinanceApproval::getApplyUserId, userId)
-                    .eq(FinanceApproval::getStatus, STATUS_PENDING);
+            queryWrapper.ne(ResignationApproval::getApplyUserId, userId)
+                    .eq(ResignationApproval::getStatus, STATUS_PENDING);
             appendAuditorFilter(queryWrapper, userId);
         } else if (!"all".equalsIgnoreCase(scope)) {
             appendAuditorFilter(queryWrapper, userId);
         }
-        queryWrapper.orderByDesc(FinanceApproval::getCreateTime);
-        return financeApprovalMapper.selectList(queryWrapper).stream().map(this::toVO).toList();
+        queryWrapper.orderByDesc(ResignationApproval::getCreateTime);
+        return resignationApprovalMapper.selectList(queryWrapper).stream().map(this::toVO).toList();
+    }
+
+    public ResignationApprovalVO detail(String resignationCode) {
+        return toVO(getByCode(resignationCode));
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void audit(FinanceAuditRequest request) {
+    public void audit(ResignationAuditRequest request) {
         Long currentUserId = TenantPermissionContext.getUserId();
-        FinanceApproval approval = getByCode(request.getApprovalCode());
+        ResignationApproval approval = getByCode(request.getResignationCode());
         if (!canCurrentUserAudit(currentUserId, approval.getAuditorId(), approval.getAuditorIds())) {
-            throw new BusinessException("您不是该财务审批单当前审批人");
+            throw new BusinessException("您不是该离职审批单当前审批人");
         }
-        if (approval.getStatus() != STATUS_PENDING) {
-            throw new BusinessException("该财务审批单已处理，请勿重复审批");
+        if (approval.getStatus() == null || approval.getStatus() != STATUS_PENDING) {
+            throw new BusinessException("该离职审批单已处理，请勿重复审批");
         }
 
         Long previousAuditorId = approval.getAuditorId();
         String previousAuditorIds = approval.getAuditorIds();
-        approval.setAuditComment(request.getComment());
+        approval.setAuditComment(trimToNull(request.getComment()));
         if (ApprovalActionEnum.APPROVE.getCode() == request.getAction()) {
             Long nextManagerId = userService.getManagerId(currentUserId);
             Integer roleLevel = userService.getRoleLevel(currentUserId);
-            if (roleLevel != null && roleLevel >= 2 || nextManagerId == null) {
+            if ((roleLevel != null && roleLevel >= 2) || nextManagerId == null) {
                 approval.setStatus(STATUS_APPROVED);
+                userService.markResignedByApproval(approval.getApplyUserId());
             } else {
                 assignAuditors(approval, nextManagerId);
             }
@@ -149,82 +143,84 @@ public class FinanceApprovalService {
         }
         if (approval.getStatus() == null || approval.getStatus() != STATUS_PENDING) {
             approvalAuditorCandidateService.closeActiveCandidates(
-                    approval.getTenantCode(), APPROVAL_TYPE_FINANCE, approval.getApprovalCode());
+                    approval.getTenantCode(), APPROVAL_TYPE_RESIGNATION, approval.getResignationCode());
         }
-        financeApprovalMapper.updateById(approval);
-        notifyFinanceAuditChange(approval, previousAuditorId, previousAuditorIds);
+        resignationApprovalMapper.updateById(approval);
+        notifyAuditChange(approval, previousAuditorId, previousAuditorIds);
     }
 
-    private void notifyFinancePendingApprover(FinanceApproval approval) {
-        for (Long auditorId : resolveNotifyAuditorIds(approval.getAuditorId(), approval.getAuditorIds())) {
-            wechatSubscribeNotificationService.sendTodoAfterCommit(
-                    auditorId,
-                    "财务审批待处理",
-                    buildApplicantName(approval.getApplyUserId()) + " 提交了财务单 " + approval.getApprovalCode(),
-                    "/pages/approval/approval"
-            );
+    private ResignationApproval getByCode(String resignationCode) {
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        ResignationApproval approval = resignationApprovalMapper.selectOne(new LambdaQueryWrapper<ResignationApproval>()
+                .eq(ResignationApproval::getTenantCode, tenantCode)
+                .eq(ResignationApproval::getResignationCode, resignationCode));
+        if (approval == null) {
+            throw new BusinessException("离职审批单不存在");
         }
+        return approval;
     }
 
-    private void notifyFinanceAuditChange(FinanceApproval approval, Long previousAuditorId, String previousAuditorIds) {
-        if (approval.getStatus() != null && approval.getStatus() == STATUS_PENDING
-                && !sameAuditorGroup(previousAuditorId, previousAuditorIds, approval.getAuditorId(), approval.getAuditorIds())) {
-            notifyFinancePendingApprover(approval);
-            return;
-        }
-        if (approval.getStatus() != null && (approval.getStatus() == STATUS_APPROVED || approval.getStatus() == STATUS_REJECTED)) {
-            wechatSubscribeNotificationService.sendTodoAfterCommit(
-                    approval.getApplyUserId(),
-                    "财务审批结果",
-                    "财务单 " + approval.getApprovalCode() + " " + statusText(approval.getStatus()),
-                    "/pages/approval/approval"
-            );
-        }
-    }
-
-    private String buildApplicantName(Long userId) {
-        User user = userService.getUserById(userId);
-        if (user == null || user.getName() == null || user.getName().isBlank()) {
-            return "员工";
-        }
-        return user.getName();
-    }
-
-    private FinanceApprovalVO toVO(FinanceApproval approval) {
-        FinanceApprovalVO vo = new FinanceApprovalVO();
+    private ResignationApprovalVO toVO(ResignationApproval approval) {
+        ResignationApprovalVO vo = new ResignationApprovalVO();
         BeanUtils.copyProperties(approval, vo);
-
+        vo.setStatusText(statusText(approval.getStatus()));
         User applyUser = userService.getUserById(approval.getApplyUserId());
         if (applyUser != null) {
             vo.setApplyUserName(applyUser.getName());
             vo.setApplyDepartmentName(applyUser.getDepartmentName());
         }
         vo.setAuditorName(resolveAuditorNames(approval.getAuditorId(), approval.getAuditorIds()));
-        vo.setStatusText(statusText(approval.getStatus()));
         return vo;
     }
 
-    private void appendAuditorFilter(LambdaQueryWrapper<FinanceApproval> wrapper, Long userId) {
+    private void notifyPendingApprover(ResignationApproval approval) {
+        for (Long auditorId : resolveNotifyAuditorIds(approval.getAuditorId(), approval.getAuditorIds())) {
+            wechatSubscribeNotificationService.sendTodoAfterCommit(
+                    auditorId,
+                    "离职审批待处理",
+                    buildApplicantName(approval.getApplyUserId()) + " 提交了离职申请 " + approval.getResignationCode(),
+                    "/pages/approval/approval?tab=resignation"
+            );
+        }
+    }
+
+    private void notifyAuditChange(ResignationApproval approval, Long previousAuditorId, String previousAuditorIds) {
+        if (approval.getStatus() != null && approval.getStatus() == STATUS_PENDING
+                && !sameAuditorGroup(previousAuditorId, previousAuditorIds, approval.getAuditorId(), approval.getAuditorIds())) {
+            notifyPendingApprover(approval);
+            return;
+        }
+        if (approval.getStatus() != null && (approval.getStatus() == STATUS_APPROVED || approval.getStatus() == STATUS_REJECTED)) {
+            wechatSubscribeNotificationService.sendTodoAfterCommit(
+                    approval.getApplyUserId(),
+                    "离职审批结果",
+                    "离职申请 " + approval.getResignationCode() + " " + statusText(approval.getStatus()),
+                    "/pages/approval/approval?tab=resignation"
+            );
+        }
+    }
+
+    private void appendAuditorFilter(LambdaQueryWrapper<ResignationApproval> wrapper, Long userId) {
         if (userId == null) {
             wrapper.apply("1 = 0");
             return;
         }
-        wrapper.and(q -> q.eq(FinanceApproval::getAuditorId, userId)
+        wrapper.and(q -> q.eq(ResignationApproval::getAuditorId, userId)
                 .or()
                 .apply("FIND_IN_SET({0}, auditor_ids) > 0", String.valueOf(userId)));
     }
 
-    private void assignAuditors(FinanceApproval approval, Long primaryAuditorId) {
+    private void assignAuditors(ResignationApproval approval, Long primaryAuditorId) {
         List<Long> auditorIds = resolveParallelAuditorIds(
                 approval.getTenantCode(),
                 approval.getApplyUserId(),
                 primaryAuditorId,
-                PermissionCodeEnum.CODE_APPROVAL_FINANCE_AUDIT
+                PermissionCodeEnum.CODE_APPROVAL_RESIGNATION_AUDIT
         );
         approval.setAuditorId(auditorIds.get(0));
         approval.setAuditorIds(joinAuditorIds(auditorIds));
         approvalAuditorCandidateService.replaceActiveCandidates(
-                approval.getTenantCode(), APPROVAL_TYPE_FINANCE, approval.getApprovalCode(), auditorIds);
+                approval.getTenantCode(), APPROVAL_TYPE_RESIGNATION, approval.getResignationCode(), auditorIds);
     }
 
     private List<Long> resolveParallelAuditorIds(String tenantCode,
@@ -319,6 +315,14 @@ public class FinanceApprovalService {
         return String.join(",", auditorIds.stream().map(String::valueOf).toList());
     }
 
+    private String buildApplicantName(Long userId) {
+        User user = userService.getUserById(userId);
+        if (user == null || user.getName() == null || user.getName().isBlank()) {
+            return "员工";
+        }
+        return user.getName();
+    }
+
     private String statusText(Integer status) {
         if (status == null) {
             return "未知";
@@ -331,11 +335,11 @@ public class FinanceApprovalService {
         };
     }
 
-    private String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
-
-    private Long safeAttachmentSize(Long attachmentSize) {
-        return attachmentSize == null || attachmentSize <= 0 ? null : attachmentSize;
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }
