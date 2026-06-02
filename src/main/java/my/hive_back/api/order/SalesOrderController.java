@@ -6,15 +6,20 @@ import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import my.hive.common.annotation.CollectLog;
+import my.hive.common.annotation.RequirePermission;
 import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
 import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.order.model.dto.SalesOrderAddRequest;
+import my.hive_back.module.order.model.dto.OrderFlowPrintTaskRequest;
 import my.hive_back.module.order.model.dto.SalesOrderUpdateRequest;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.order.model.dto.SalesOrderListRequest;
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import my.hive_back.module.order.model.vo.SalesOrderStatusLogVO;
+import my.hive_back.module.order.model.vo.OrderFlowPrintTaskVO;
 import my.hive_back.module.order.model.vo.SalesOrderVO;
+import my.hive_back.module.order.service.OrderFlowPrintService;
 import my.hive_back.module.order.service.SalesOrderService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
@@ -34,6 +39,9 @@ public class SalesOrderController {
 
     @Resource
     private SalesOrderService salesOrderService;
+
+    @Resource
+    private OrderFlowPrintService orderFlowPrintService;
 
     /**
      * 订单列表查询：GET + 复杂对象参数（需要@Valid触发对象内部校验）
@@ -90,6 +98,15 @@ public class SalesOrderController {
         return Result.success(vo);
     }
 
+    @PostMapping("/orders/{flowCode}/flow-advance")
+    @CollectLog(module = "order", action = "mini_scan_advance_sales", bizType = "sales_order", description = "小程序扫码推进销售订单", recordArgs = false)
+    public Result<SalesOrderVO> advanceOrderByFlowCode(@NotBlank @PathVariable String flowCode) {
+        SalesOrder order = salesOrderService.advanceByFlowCode(flowCode);
+        SalesOrderVO vo = new SalesOrderVO();
+        BeanUtils.copyProperties(order, vo);
+        return Result.success(vo);
+    }
+
     @GetMapping("/orders/status-log/{orderId}")
     public Result<List<SalesOrderStatusLogVO>> getSalesOrderStatusLog(@NotBlank @PathVariable String orderId) {
         List<SalesOrderStatusLogVO> logs = salesOrderService.selectSalesOrderStatusLog(orderId).stream().map(log -> {
@@ -122,5 +139,12 @@ public class SalesOrderController {
     public Result<Void> addSalesOrder(@Valid @RequestBody SalesOrderAddRequest request) {
         salesOrderService.addSalesOrder(request);
         return Result.success(null);
+    }
+
+    @PostMapping("/orders/flow-print-task")
+    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限生成销售订单流转码")
+    @CollectLog(module = "order", action = "mini_create_sales_flow_print_task", bizType = "sales_order", bizNo = "#request.orderId", description = "小程序创建销售订单流转码打印任务")
+    public Result<OrderFlowPrintTaskVO> createSalesFlowPrintTask(@Valid @RequestBody OrderFlowPrintTaskRequest request) {
+        return Result.success(orderFlowPrintService.createSalesTask(request));
     }
 }

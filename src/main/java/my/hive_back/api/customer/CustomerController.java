@@ -8,6 +8,7 @@ import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import my.hive.common.annotation.CollectLog;
 import my.hive.common.annotation.RequirePermission;
+import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
 import my.hive_back.common.tenant.RequireTenantFeature;
@@ -44,7 +45,7 @@ public class CustomerController {
     @PostMapping("/add")
     @RequirePermission(value = PermissionCodeEnum.CODE_CUSTOMER_ADD, message = "您没有权限新增客户")
     @CollectLog(module = "customer", action = "mini_create", bizType = "customer", bizNo = "#request.customerName", description = "小程序新增客户")
-    public Result<Void> addCustomer(@RequestBody CustomerAddRequest request) {
+    public Result<Void> addCustomer(@Valid @RequestBody CustomerAddRequest request) {
         customerService.addCustomer(request);
         return Result.success(null);
     }
@@ -52,6 +53,7 @@ public class CustomerController {
     @GetMapping("/page")
     @RequirePermission(value = PermissionCodeEnum.CODE_CUSTOMER_PAGE, message = "您没有权限查看客户列表")
     public Result<PageResult<CustomerPageVO>> getCustomerPage(@Valid CustomerPageRequest request) {
+        String tenantCode = TenantPermissionContext.getTenantCode();
         Page<Customer> page = Optional.ofNullable(customerService.pageSearchCustomer(request))
                 .orElse(new Page<>()); // 若返回null，初始化空分页对象
         // 4. 组装 VO (统计项目数和最新合作项目)
@@ -63,6 +65,7 @@ public class CustomerController {
             // 查询该客户下的所有项目 (倒序排，最新的在前面)
             List<CustomerProject> projects = customerProjectMapper.selectList(
                     new LambdaQueryWrapper<CustomerProject>()
+                            .eq(CustomerProject::getTenantCode, tenantCode)
                             .eq(CustomerProject::getCustomerId, customer.getId())
                             .orderByDesc(CustomerProject::getId)
             );

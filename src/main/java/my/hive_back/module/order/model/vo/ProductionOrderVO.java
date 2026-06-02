@@ -3,6 +3,7 @@ package my.hive_back.module.order.model.vo;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 /**
  * ProductionOrderVO 属于小程序后端订单模块，定义出参结构。
  */
@@ -17,6 +18,8 @@ public class ProductionOrderVO {
 
     private String status;
 
+    private String orderCategory;
+
     private String modelCode;
 
     private Float weight;
@@ -25,12 +28,24 @@ public class ProductionOrderVO {
 
     private Integer quantity;
 
-    /** 当前生产工序：0-整经，1-浆纱，2-织造，3-验布，4-卷布 */
+    /** 当前生产工序：ProcessEnum */
     private Integer process;
+
+    private String processText;
+
+    private String currentProcessText;
+
+    private String completedProcessText;
+
+    private Integer processProgressPercent;
+
+    private List<ProductionProcessStepVO> processSteps;
 
     private String customerName;
 
     private String projectName;
+
+    private String brandName;
 
     private LocalDateTime deliveryDate;
 

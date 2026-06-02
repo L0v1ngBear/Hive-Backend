@@ -128,6 +128,9 @@ public class InventoryService {
     @RequirePermission(value = PermissionCodeEnum.CODE_INVENTORY_CLOTH_IN, message = "您没有权限执行布匹入库")
     public ClothInfoVO inCloth(@Valid InventoryInRequest inventoryInRequest) {
         InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.getCode(inventoryInRequest.getInType());
+        if (inTypeEnum == InventoryInTypeEnum.IMAGE_RECOGNITION && !Boolean.TRUE.equals(inventoryInRequest.getManualVerified())) {
+            throw new BusinessException("图片识别入库请先完成人工校验");
+        }
         String barcode;
 
         switch (inTypeEnum) {
@@ -171,7 +174,7 @@ public class InventoryService {
         vo.setCandidates(List.of(candidate));
         vo.setMessage(hasCandidate
                 ? "图片已上传，系统已带出可疑字段，请人工核对后确认入库。"
-                : "图片已上传。当前未接入正式 OCR，请人工补全型号、规格和米数后确认入库。");
+                : "图片已上传，请确认型号、规格和米数后完成入库。");
         return vo;
     }
 

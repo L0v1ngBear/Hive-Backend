@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import my.hive.common.annotation.CollectLog;
 import my.hive.common.dto.Result;
+import my.hive_back.module.auth.model.dto.JoinOrganizationRequest;
 import my.hive_back.module.auth.model.dto.LoginRequest;
 import my.hive_back.module.auth.model.dto.WechatLoginRequest;
 import my.hive_back.module.auth.model.vo.LoginVO;
@@ -39,6 +40,12 @@ public class AuthController {
     @CollectLog(module = "auth", action = "wechat_login", bizType = "account", description = "小程序微信手机号一键登录", recordResult = false)
     public Result<LoginVO> wechatLogin(@Valid @RequestBody WechatLoginRequest request) {
         return Result.success(authService.wechatLogin(request));
+    }
+
+    @PostMapping("/join-organization")
+    @CollectLog(module = "auth", action = "join_organization", bizType = "account", description = "小程序用户通过组织码加入组织", recordResult = false)
+    public Result<LoginVO> joinOrganization(@Valid @RequestBody JoinOrganizationRequest request) {
+        return Result.success(authService.joinOrganization(request));
     }
 
     @GetMapping("/me")

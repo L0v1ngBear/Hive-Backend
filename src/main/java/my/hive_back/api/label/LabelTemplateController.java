@@ -37,6 +37,7 @@ public class LabelTemplateController {
     private LabelTemplateService labelTemplateService;
 
     @GetMapping("/list")
+    @RequirePermission(value = PermissionCodeEnum.CODE_LABEL_TEMPLATE_LIST, message = "您没有权限查看标签模板")
     public Result<List<LabelTemplateVO>> list(@RequestParam(required = false) String printType) {
         return Result.success(labelTemplateService.list(printType));
     }
@@ -47,11 +48,13 @@ public class LabelTemplateController {
     }
 
     @GetMapping("/default")
+    @RequirePermission(value = PermissionCodeEnum.CODE_LABEL_TEMPLATE_DETAIL, message = "您没有权限查看默认标签模板")
     public Result<LabelTemplateVO> defaultTemplate(@RequestParam(required = false, defaultValue = "label") String printType) {
         return Result.success(labelTemplateService.defaultTemplate(printType));
     }
 
     @GetMapping("/{id}")
+    @RequirePermission(value = PermissionCodeEnum.CODE_LABEL_TEMPLATE_DETAIL, message = "您没有权限查看标签模板详情")
     public Result<LabelTemplateVO> detail(@PathVariable Long id) {
         return Result.success(labelTemplateService.detail(id));
     }

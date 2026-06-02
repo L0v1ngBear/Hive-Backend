@@ -1,5 +1,6 @@
 package my.hive_back.module.approval.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import jakarta.annotation.Resource;
 import my.hive_back.module.approval.mapper.ApprovalAuditorCandidateMapper;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 
@@ -19,6 +21,29 @@ public class ApprovalAuditorCandidateService {
 
     @Resource
     private ApprovalAuditorCandidateMapper approvalAuditorCandidateMapper;
+
+    public List<Long> findActiveAuditorIds(String tenantCode, String approvalType, String approvalCode) {
+        if (!StringUtils.hasText(tenantCode) || !StringUtils.hasText(approvalType) || !StringUtils.hasText(approvalCode)) {
+            return List.of();
+        }
+        List<ApprovalAuditorCandidate> rows = approvalAuditorCandidateMapper.selectList(
+                new LambdaQueryWrapper<ApprovalAuditorCandidate>()
+                        .eq(ApprovalAuditorCandidate::getTenantCode, tenantCode)
+                        .eq(ApprovalAuditorCandidate::getApprovalType, approvalType)
+                        .eq(ApprovalAuditorCandidate::getApprovalCode, approvalCode)
+                        .eq(ApprovalAuditorCandidate::getStatus, STATUS_ACTIVE)
+                        .orderByAsc(ApprovalAuditorCandidate::getId));
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<Long> auditorIds = new ArrayList<>();
+        for (ApprovalAuditorCandidate row : rows) {
+            if (row.getAuditorId() != null && row.getAuditorId() > 0 && !auditorIds.contains(row.getAuditorId())) {
+                auditorIds.add(row.getAuditorId());
+            }
+        }
+        return auditorIds;
+    }
 
     public void replaceActiveCandidates(String tenantCode, String approvalType, String approvalCode, List<Long> auditorIds) {
         closeActiveCandidates(tenantCode, approvalType, approvalCode);

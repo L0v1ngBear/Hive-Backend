@@ -20,8 +20,8 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
     int updateStatus(SalesOrder order, String oldStatus);
 
     @Select("""
-            SELECT order_id, tenant_code, status, customer_name, project_name, goods_desc,
-                   total_amount, total_quantity, delivery_date, express_company, express_no,
+            SELECT order_id, tenant_code, status, order_category, customer_name, project_name, brand_name, goods_desc,
+                   total_quantity, delivery_date, express_company, express_no,
                    is_invoice, creator, updater, create_time, update_time
             FROM sales_order
             WHERE order_id = #{orderId}

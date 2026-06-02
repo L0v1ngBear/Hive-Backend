@@ -26,6 +26,10 @@ public class SalesOrderVO {
      */
     private String projectName;
 
+    private String brandName;
+
+    private String orderCategory;
+
 
     private String deliveryDate;
 

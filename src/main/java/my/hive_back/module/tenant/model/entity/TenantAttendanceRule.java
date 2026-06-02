@@ -1,11 +1,14 @@
 package my.hive_back.module.tenant.model.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * TenantAttendanceRule 属于小程序后端租户模块，定义持久化实体结构，用于表字段映射。
@@ -72,4 +75,7 @@ public class TenantAttendanceRule {
      * 允许打卡的 Wi-Fi 名称，当前作为预留字段。
      */
     private String wifiSsid;
+
+    @TableField(exist = false)
+    private List<TenantAttendanceLocation> locations = new ArrayList<>();
 }

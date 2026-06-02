@@ -10,7 +10,9 @@ import jakarta.validation.constraints.NotBlank;
 import my.hive.common.annotation.RequirePermission;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
+import my.hive.common.order.OrderFlowCodeUtil;
 import my.hive_back.common.utils.CodeGeneratorUtil;
+import my.hive_back.module.order.OrderCategoryEnum;
 import my.hive_back.module.order.OrderOperateTypeEnum;
 import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.ProcessEnum;
@@ -21,14 +23,18 @@ import my.hive_back.module.order.model.entity.ProductionOrder;
 import my.hive_back.module.order.model.entity.ProductionOrderStatusLog;
 import my.hive_back.module.order.mapper.ProductionOrderMapper;
 import my.hive_back.module.order.mapper.ProductionOrderStatusLogMapper;
+import my.hive_back.module.order.model.vo.ProductionOrderVO;
+import my.hive_back.module.order.model.vo.ProductionProcessStepVO;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
 import my.hive_back.module.wechat.service.WechatSubscribeNotificationService;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +50,7 @@ public class ProductionOrderService {
     private static final long DEFAULT_PAGE_SIZE = 20L;
     private static final long MAX_PAGE_SIZE = 200L;
     private static final String STATUS_PRODUCING = OrderStatusEnum.PRODUCING.getCode();
+    private static final String STATUS_PENDING_SHIP = OrderStatusEnum.PENDING_SHIP.getCode();
     private static final Set<String> VALID_STATUS = Set.of(
             OrderStatusEnum.PENDING_CONFIRM.getCode(),
             OrderStatusEnum.PENDING_MATERIAL.getCode(),
@@ -76,6 +83,19 @@ public class ProductionOrderService {
     @Resource
     private WechatSubscribeNotificationService wechatSubscribeNotificationService;
 
+    @Value("${ORDER_FLOW_CODE_SECRET:${AUTH_TOKEN_SECRET:hive-local-order-flow-secret}}")
+    private String orderFlowCodeSecret;
+
+    public ProductionOrderVO toVO(ProductionOrder order) {
+        ProductionOrderVO vo = new ProductionOrderVO();
+        if (order == null) {
+            return vo;
+        }
+        BeanUtils.copyProperties(order, vo);
+        fillProductionProcessView(vo, order.getStatus(), order.getProcess());
+        return vo;
+    }
+
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, message = "您没有权限查询生产订单列表")
     public Page<ProductionOrder> selectProductionOrder(ProductionOrderListRequest request) {
         LambdaQueryWrapper<ProductionOrder> queryWrapper = new LambdaQueryWrapper<>();
@@ -83,6 +103,9 @@ public class ProductionOrderService {
 
         if (StringUtils.isNotBlank(request.getStatus())) {
             queryWrapper.eq(ProductionOrder::getStatus, request.getStatus());
+        }
+        if (StringUtils.isNotBlank(request.getOrderCategory())) {
+            queryWrapper.eq(ProductionOrder::getOrderCategory, OrderCategoryEnum.normalize(request.getOrderCategory()));
         }
 
         if (StringUtils.isNotBlank(request.getKeyWord())) {
@@ -93,6 +116,8 @@ public class ProductionOrderService {
                     .like(ProductionOrder::getCustomerName, keyWord)
                     .or()
                     .like(ProductionOrder::getProjectName, keyWord)
+                    .or()
+                    .like(ProductionOrder::getBrandName, keyWord)
                     .or()
                     .like(ProductionOrder::getModelCode, keyWord));
         }
@@ -167,6 +192,76 @@ public class ProductionOrderService {
 
     @Transactional(rollbackFor = Exception.class)
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限更新生产订单状态")
+    public ProductionOrder advanceByFlowCode(String flowCode) {
+        String orderId = resolveOrderIdFromFlowCode(flowCode);
+        ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
+                .eq(ProductionOrder::getOrderId, orderId)
+                .last("LIMIT 1"));
+        if (order == null) {
+            throw new BusinessException(400, "订单不存在");
+        }
+
+        ProductionOrderUpdateRequest request = new ProductionOrderUpdateRequest();
+        request.setOperateType(OrderOperateTypeEnum.SCAN_CHANGE.getCode());
+
+        String currentStatus = StringUtils.isNotBlank(order.getStatus())
+                ? order.getStatus().trim()
+                : OrderStatusEnum.PENDING_CONFIRM.getCode();
+        if (OrderStatusEnum.COMPLETED.getCode().equals(currentStatus)) {
+            throw new BusinessException(400, "订单已完成，无需继续流转");
+        }
+
+        if (STATUS_PRODUCING.equals(currentStatus)) {
+            Integer currentProcess = order.getProcess();
+            Integer finalProcess = ProcessEnum.FINISHED_SHIPPING.getCode();
+            if (currentProcess == null || currentProcess < finalProcess) {
+                int nextProcess = currentProcess == null ? 0 : currentProcess + 1;
+                ProcessEnum next = ProcessEnum.getByCode(nextProcess);
+                request.setStatus(STATUS_PRODUCING);
+                request.setProcess(nextProcess);
+                request.setRemark("扫码完成工序：" + next.getName());
+                return updateStatusAndProcess(orderId, request);
+            }
+
+            request.setStatus(STATUS_PENDING_SHIP);
+            request.setRemark("扫码完成全部生产工序，订单进入" + statusLabel(STATUS_PENDING_SHIP));
+            return updateStatusAndProcess(orderId, request);
+        }
+
+        String nextStatus = resolveNextProductionStatus(currentStatus);
+        if (!StringUtils.isNotBlank(nextStatus)) {
+            throw new BusinessException(400, "当前状态无法继续流转");
+        }
+        request.setStatus(nextStatus);
+        if (STATUS_PRODUCING.equals(nextStatus)) {
+            request.setProcess(0);
+            request.setRemark("扫码进入生产，并完成工序：" + ProcessEnum.MATERIAL_INBOUND.getName());
+        } else {
+            request.setRemark("扫码推进订单至" + statusLabel(nextStatus));
+        }
+        return updateStatusAndProcess(orderId, request);
+    }
+
+    private String resolveOrderIdFromFlowCode(String rawFlowCode) {
+        try {
+            OrderFlowCodeUtil.Parsed parsed = OrderFlowCodeUtil.parse(rawFlowCode);
+            if (!"production".equals(parsed.orderType())) {
+                throw new BusinessException(400, "请扫描生产订单流转码");
+            }
+            if (!OrderFlowCodeUtil.matches(orderFlowCodeSecret, TenantPermissionContext.getTenantCode(), parsed)) {
+                throw new BusinessException(400, "订单流转码无效，请重新打印后再扫码");
+            }
+            return parsed.orderId();
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(400, "订单流转码无效，请重新打印后再扫码");
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限更新生产订单状态")
     public ProductionOrder updateStatusAndProcess(String orderId, ProductionOrderUpdateRequest request) {
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
                 .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
@@ -198,9 +293,26 @@ public class ProductionOrderService {
             }
 
             if (STATUS_PRODUCING.equals(targetStatus) && !STATUS_PRODUCING.equals(order.getStatus())) {
-                order.setProcess(0);
+                Integer requestedProcess = request.getProcess();
+                if (requestedProcess != null && requestedProcess > 0) {
+                    throw new BusinessException(400, "生产工序必须从原料入库开始");
+                }
+                order.setProcess(requestedProcess);
+                request.setProcess(null);
+            } else if (STATUS_PENDING_SHIP.equals(targetStatus) && STATUS_PRODUCING.equals(order.getStatus())) {
+                Integer requestedProcess = request.getProcess();
+                Integer currentProcess = order.getProcess();
+                Integer finalProcess = ProcessEnum.FINISHED_SHIPPING.getCode();
+                if (requestedProcess != null && !Objects.equals(requestedProcess, currentProcess)) {
+                    throw new BusinessException(400, "流转待发货时不能同时变更生产工序");
+                }
+                if (!Objects.equals(currentProcess, finalProcess)) {
+                    throw new BusinessException(400, "请先完成成品发货工序");
+                }
+                request.setProcess(null);
             } else if (!STATUS_PRODUCING.equals(targetStatus)) {
                 order.setProcess(null);
+                request.setProcess(null);
             }
             order.setStatus(targetStatus);
         }
@@ -216,6 +328,12 @@ public class ProductionOrderService {
             }
             if (oldProcess != null && request.getProcess() < oldProcess) {
                 throw new BusinessException(400, "生产工序不能回退");
+            }
+            if (oldProcess == null && request.getProcess() > 0) {
+                throw new BusinessException(400, "生产工序必须从原料入库开始");
+            }
+            if (oldProcess != null && request.getProcess() > oldProcess + 1) {
+                throw new BusinessException(400, "生产工序不能跳级流转");
             }
             order.setProcess(request.getProcess());
         }
@@ -248,8 +366,11 @@ public class ProductionOrderService {
             throw new BusinessException(409, "订单状态已被其他人修改，操作失败，请刷新后重试");
         }
 
-        if (!Objects.equals(oldStatus, order.getStatus()) || !Objects.equals(oldProcess, order.getProcess())) {
+        boolean changed = !Objects.equals(oldStatus, order.getStatus()) || !Objects.equals(oldProcess, order.getProcess());
+        if (changed || StringUtils.isNotBlank(request.getRemark())) {
             insertStatusLog(orderId, oldStatus, oldProcess, order.getStatus(), order.getProcess(), request);
+        }
+        if (changed) {
             notifyProductionOrderChanged(order, oldStatus, oldProcess);
         }
 
@@ -268,6 +389,7 @@ public class ProductionOrderService {
         BeanUtils.copyProperties(request, productionOrder);
         productionOrder.setOrderId(codeGeneratorUtil.generateProductionOrderCode());
         productionOrder.setTenantCode(TenantPermissionContext.getTenantCode());
+        productionOrder.setOrderCategory(OrderCategoryEnum.normalize(productionOrder.getOrderCategory()));
         productionOrder.setCreator(resolveCurrentUserIdText());
         productionOrder.setUpdater(resolveCurrentUserIdText());
 
@@ -387,6 +509,67 @@ public class ProductionOrderService {
         } catch (IllegalArgumentException ex) {
             return "\u672a\u77e5\u5de5\u5e8f";
         }
+    }
+
+    private void fillProductionProcessView(ProductionOrderVO vo, String status, Integer process) {
+        ProcessEnum[] processEnums = ProcessEnum.values();
+        int total = processEnums.length;
+        int completedIndex = resolveCompletedProcessIndex(status, process, total);
+        int currentIndex = resolveCurrentProcessIndex(status, completedIndex, total);
+        List<ProductionProcessStepVO> steps = Arrays.stream(processEnums)
+                .map(item -> {
+                    ProductionProcessStepVO step = new ProductionProcessStepVO();
+                    step.setCode(item.getCode());
+                    step.setName(item.getName());
+                    step.setDone(completedIndex >= item.getCode());
+                    step.setCurrent(currentIndex == item.getCode());
+                    return step;
+                })
+                .toList();
+        String completedText = completedIndex >= 0 ? processEnums[completedIndex].getName() : "";
+        String currentText = currentIndex >= 0 ? processEnums[currentIndex].getName() : "";
+        if (STATUS_PRODUCING.equals(status) && currentIndex < 0) {
+            currentText = "生产工序已完成";
+        }
+        if (!STATUS_PRODUCING.equals(status) && currentIndex < 0 && completedIndex >= total - 1) {
+            currentText = "生产工序已完成";
+        }
+        vo.setCompletedProcessText(completedText);
+        vo.setCurrentProcessText(currentText);
+        vo.setProcessText(StringUtils.isNotBlank(currentText) ? currentText : completedText);
+        vo.setProcessProgressPercent(total <= 0 ? 0 : Math.max(0, Math.min(100, Math.round(((completedIndex + 1) * 100f) / total))));
+        vo.setProcessSteps(steps);
+    }
+
+    private int resolveCompletedProcessIndex(String status, Integer process, int total) {
+        if (total <= 0) {
+            return -1;
+        }
+        if (OrderStatusEnum.PENDING_SHIP.getCode().equals(status)
+                || OrderStatusEnum.SHIPPED.getCode().equals(status)
+                || OrderStatusEnum.COMPLETED.getCode().equals(status)) {
+            return total - 1;
+        }
+        if (!STATUS_PRODUCING.equals(status) || process == null) {
+            return -1;
+        }
+        return Math.max(-1, Math.min(total - 1, process));
+    }
+
+    private int resolveCurrentProcessIndex(String status, int completedIndex, int total) {
+        if (!STATUS_PRODUCING.equals(status) || total <= 0) {
+            return -1;
+        }
+        int nextIndex = completedIndex + 1;
+        return nextIndex >= 0 && nextIndex < total ? nextIndex : -1;
+    }
+
+    private String resolveNextProductionStatus(String currentStatus) {
+        int index = PRODUCTION_STATUS_CODES.indexOf(currentStatus);
+        if (index < 0 || index >= PRODUCTION_STATUS_CODES.size() - 1) {
+            return "";
+        }
+        return PRODUCTION_STATUS_CODES.get(index + 1);
     }
 
 }

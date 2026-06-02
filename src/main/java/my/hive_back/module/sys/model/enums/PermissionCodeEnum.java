@@ -34,6 +34,8 @@ public enum PermissionCodeEnum {
     DOCUMENT_LIST("document:list"),
     DOCUMENT_MOVE("document:move"),
     DOCUMENT_RENAME("document:rename"),
+    EQUIPMENT_INSPECTION_SUBMIT("equipment:inspection:submit"),
+    EQUIPMENT_LIST("equipment:list"),
     INVENTORY("inventory"),
     INVENTORY_ALL("inventory:*"),
     INVENTORY_BARCODE_SEARCH("inventory:barcode:search"),
@@ -88,6 +90,8 @@ public enum PermissionCodeEnum {
     public static final String CODE_DOCUMENT_LIST = "document:list";
     public static final String CODE_DOCUMENT_MOVE = "document:move";
     public static final String CODE_DOCUMENT_RENAME = "document:rename";
+    public static final String CODE_EQUIPMENT_INSPECTION_SUBMIT = "equipment:inspection:submit";
+    public static final String CODE_EQUIPMENT_LIST = "equipment:list";
     public static final String CODE_INVENTORY = "inventory";
     public static final String CODE_INVENTORY_ALL = "inventory:*";
     public static final String CODE_INVENTORY_BARCODE_SEARCH = "inventory:barcode:search";

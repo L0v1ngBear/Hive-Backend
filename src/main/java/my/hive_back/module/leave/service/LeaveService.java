@@ -11,6 +11,7 @@ import my.hive_back.module.attendance.PunchStatusEnum;
 import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
 import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
+import my.hive_back.module.approval.service.ApprovalDefaultAuditorService;
 import my.hive_back.module.leave.ApprovalActionEnum;
 import my.hive_back.module.leave.LeaveStatusEnum;
 import my.hive_back.module.leave.mapper.LeaveMapper;
@@ -69,6 +70,9 @@ public class LeaveService {
 
     @Resource
     private ApprovalAuditorCandidateService approvalAuditorCandidateService;
+
+    @Resource
+    private ApprovalDefaultAuditorService approvalDefaultAuditorService;
 
     public boolean isInApprovalLeave(LocalDateTime punchStartTime, LocalDateTime punchEndTime) {
         Long userId = TenantPermissionContext.getUserId();
@@ -129,14 +133,13 @@ public class LeaveService {
         approval.setStatus(LeaveStatusEnum.PENDING.getCode());
         leaveMapper.insert(approval);
 
-        triggerApprovalFlow(approval);
+        triggerApprovalFlow(approval, request.getAuditorId());
         notifyLeavePendingApprover(approval);
         return leaveCode;
     }
 
-    private void triggerApprovalFlow(UserLeave approval) {
-        Long directManagerId = userService.getManagerId(approval.getApplyUserId());
-        assignAuditors(approval, directManagerId);
+    private void triggerApprovalFlow(UserLeave approval, Long auditorId) {
+        assignAuditors(approval, auditorId, true);
         leaveMapper.updateById(approval);
     }
 
@@ -390,34 +393,32 @@ public class LeaveService {
     }
 
     private void assignAuditors(UserLeave approval, Long primaryAuditorId) {
-        List<Long> auditorIds = resolveParallelAuditorIds(
+        assignAuditors(approval, primaryAuditorId, false);
+    }
+
+    private void assignAuditors(UserLeave approval, Long primaryAuditorId, boolean strictPrimary) {
+        Long auditorId = resolveSingleAuditorId(
                 approval.getTenantCode(),
                 approval.getApplyUserId(),
                 primaryAuditorId,
-                PermissionCodeEnum.CODE_APPROVAL_LEAVE_AUDIT
+                APPROVAL_TYPE_LEAVE,
+                PermissionCodeEnum.CODE_APPROVAL_LEAVE_AUDIT,
+                strictPrimary
         );
-        approval.setAuditorId(auditorIds.get(0));
-        approval.setAuditorIds(joinAuditorIds(auditorIds));
+        approval.setAuditorId(auditorId);
+        approval.setAuditorIds(null);
         approvalAuditorCandidateService.replaceActiveCandidates(
-                approval.getTenantCode(), APPROVAL_TYPE_LEAVE, approval.getLeaveCode(), auditorIds);
+                approval.getTenantCode(), APPROVAL_TYPE_LEAVE, approval.getLeaveCode(), List.of(auditorId));
     }
 
-    private List<Long> resolveParallelAuditorIds(String tenantCode,
-                                                 Long applyUserId,
-                                                 Long primaryAuditorId,
-                                                 String permissionCode) {
-        LinkedHashSet<Long> ids = new LinkedHashSet<>();
-        addCandidateAuditor(ids, primaryAuditorId, applyUserId);
-        if (StringUtils.hasText(tenantCode) && StringUtils.hasText(permissionCode)) {
-            List<Long> permissionAuditorIds = userMapper.selectActiveApproverIdsByPermission(tenantCode, permissionCode);
-            if (permissionAuditorIds != null) {
-                permissionAuditorIds.forEach(id -> addCandidateAuditor(ids, id, applyUserId));
-            }
-        }
-        if (ids.isEmpty()) {
-            throw new BusinessException("未找到可用审批人，请先配置直属负责人或审批角色权限");
-        }
-        return ids.stream().limit(MAX_PARALLEL_APPROVERS).toList();
+    private Long resolveSingleAuditorId(String tenantCode,
+                                        Long applyUserId,
+                                        Long primaryAuditorId,
+                                        String approvalType,
+                                        String permissionCode,
+                                        boolean strictPrimary) {
+        return approvalDefaultAuditorService.resolveAuditorId(
+                tenantCode, approvalType, applyUserId, primaryAuditorId, permissionCode, strictPrimary);
     }
 
     private void addCandidateAuditor(LinkedHashSet<Long> ids, Long auditorId, Long applyUserId) {

@@ -1,6 +1,7 @@
 package my.hive_back.module.customer.model.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import my.hive_back.module.customer.model.entity.CustomerContact;
 import my.hive_back.module.customer.model.entity.CustomerProject;
@@ -15,7 +16,7 @@ public class CustomerAddRequest {
     @NotBlank(message = "客户名称不能为空")
     private String customerName;
 
-    @NotBlank(message = "客户类型不能为空")
+    @NotNull(message = "客户类型不能为空")
     private Integer customerType;
 
     @NotBlank(message = "施工区域不能为空")

@@ -10,10 +10,15 @@ import my.hive.common.utils.TimeUtil;
 import my.hive_back.common.enums.BinaryFlagEnum;
 import my.hive_back.module.attendance.PunchStatusEnum;
 import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
+import my.hive_back.module.attendance.mapper.EmployeeAttendanceLocationMapper;
 import my.hive_back.module.attendance.model.dto.AttendancePunchRequest;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
+import my.hive_back.module.tenant.mapper.TenantAttendanceLocationMapper;
 import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
+import my.hive_back.module.tenant.model.entity.TenantAttendanceLocation;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
+import my.hive_back.module.user.mapper.UserMapper;
+import my.hive_back.module.user.model.entity.User;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -25,7 +30,9 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.concurrent.TimeUnit;
 /**
  * AttendanceService 属于小程序后端考勤模块，实现核心业务编排与规则逻辑。
@@ -41,6 +48,15 @@ public class AttendanceService {
 
     @Resource
     private TenantAttendanceRuleMapper tenantAttendanceRuleMapper;
+
+    @Resource
+    private TenantAttendanceLocationMapper tenantAttendanceLocationMapper;
+
+    @Resource
+    private UserMapper userMapper;
+
+    @Resource
+    private EmployeeAttendanceLocationMapper employeeAttendanceLocationMapper;
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
@@ -73,6 +89,13 @@ public class AttendanceService {
     }
 
     private void doPunch(AttendancePunchRequest request, String tenantCode, Long userId, LocalTime nowTime, String punchId) {
+        User user = userMapper.selectById(userId);
+        if (user == null || user.getTenantCode() == null || !tenantCode.equals(user.getTenantCode())) {
+            throw new BusinessException("当前用户不存在或无权打卡");
+        }
+        if (Integer.valueOf(0).equals(user.getAttendanceRequired())) {
+            throw new BusinessException("该员工已设置为免打卡，无需打卡");
+        }
         TenantAttendanceRule rule = getCompanyAttendanceRule(tenantCode);
         if (!isWorkDay(rule, LocalDate.now())) {
             throw new BusinessException("今天不是考勤规则中的工作日，无需打卡");
@@ -80,11 +103,7 @@ public class AttendanceService {
 
         Double distance = null;
         if (BinaryFlagEnum.YES.matches(rule.getEnableGps())) {
-            // 基础校验：距离校验。管理端关闭 GPS 围栏后，小程序可不校验位置。
-            distance = calculateDistance(rule.getLatitude(), rule.getLongitude(), request.getUserLat(), request.getUserLng());
-            if (distance > safeRadius(rule.getRadius())) {
-                throw new BusinessException("超出打卡范围");
-            }
+            distance = validateLocation(rule, request, tenantCode, userId);
         }
 
         AttendanceRecord record = attendanceRecordMapper.selectOne(
@@ -141,6 +160,8 @@ public class AttendanceService {
             }
             cacheAttendanceRule(tenantCode, rule);
         }
+        List<TenantAttendanceLocation> locations = tenantAttendanceLocationMapper.selectActiveByTenantCode(tenantCode);
+        rule.setLocations(locations == null ? List.of() : locations);
         return rule;
     }
 
@@ -170,10 +191,48 @@ public class AttendanceService {
     /**
      * 计算球面距离（Haversine formula）
      */
-    private Double calculateDistance(Double companyLat, Double companyLng, Double userLat, Double userLng) {
-        if (!isValidLatitude(userLat) || !isValidLongitude(userLng)) {
+    private Double validateLocation(TenantAttendanceRule rule, AttendancePunchRequest request, String tenantCode, Long userId) {
+        if (!isValidLatitude(request.getUserLat()) || !isValidLongitude(request.getUserLng())) {
             throw new BusinessException("定位坐标不合法，请重新获取当前位置");
         }
+        List<TenantAttendanceLocation> activeLocations = rule.getLocations() == null ? List.of() : rule.getLocations();
+        List<Long> assignedLocationIds = employeeAttendanceLocationMapper.selectLocationIds(tenantCode, userId);
+        Set<Long> assignedIdSet = assignedLocationIds == null ? Set.of() : assignedLocationIds.stream()
+                .filter(id -> id != null && id > 0)
+                .collect(Collectors.toSet());
+        boolean hasExplicitAssignment = !assignedIdSet.isEmpty();
+        List<TenantAttendanceLocation> locations = hasExplicitAssignment
+                ? activeLocations.stream()
+                        .filter(location -> location != null && assignedIdSet.contains(location.getId()))
+                        .toList()
+                : activeLocations;
+        Double nearestDistance = null;
+        boolean hasValidLocation = false;
+        for (TenantAttendanceLocation location : locations) {
+            if (location == null || !isValidLatitude(location.getLatitude()) || !isValidLongitude(location.getLongitude())) {
+                continue;
+            }
+            hasValidLocation = true;
+            double distance = calculateDistance(location.getLatitude(), location.getLongitude(), request.getUserLat(), request.getUserLng());
+            nearestDistance = nearestDistance == null ? distance : Math.min(nearestDistance, distance);
+            if (distance <= safeRadius(location.getRadius())) {
+                return distance;
+            }
+        }
+        if (!hasValidLocation && hasExplicitAssignment) {
+            throw new BusinessException("未找到已分配的有效打卡点，请联系管理员");
+        }
+        if (!hasValidLocation) {
+            double distance = calculateDistance(rule.getLatitude(), rule.getLongitude(), request.getUserLat(), request.getUserLng());
+            if (distance <= safeRadius(rule.getRadius())) {
+                return distance;
+            }
+            nearestDistance = distance;
+        }
+        throw new BusinessException(nearestDistance == null ? "超出打卡范围" : "超出打卡范围，最近打卡点约" + Math.round(nearestDistance) + "米");
+    }
+
+    private Double calculateDistance(Double companyLat, Double companyLng, Double userLat, Double userLng) {
         if (!isValidLatitude(companyLat) || !isValidLongitude(companyLng)) {
             throw new BusinessException("考勤配置异常：请先设置公司打卡点");
         }

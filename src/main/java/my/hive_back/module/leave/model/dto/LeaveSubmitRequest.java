@@ -5,32 +5,24 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-/**
- * LeaveSubmitRequest 属于小程序后端请假模块，定义入参结构。
- */
+
 @Data
 public class LeaveSubmitRequest {
-    /**
-     * 请假类型：1-事假，2-病假，3-年假，4-调休等
-     */
-    @NotNull
+
+    @NotNull(message = "请假类型不能为空")
     private Integer leaveType;
 
-    /**
-     * 请假开始时间
-     */
-    @NotNull
+    @NotNull(message = "请假开始时间不能为空")
     private LocalDateTime startTime;
 
-    /**
-     * 请假结束时间
-     */
-    @NotNull
+    @NotNull(message = "请假结束时间不能为空")
     private LocalDateTime endTime;
 
-    /**
-     * 请假事由
-     */
-    @NotBlank
+    @NotBlank(message = "请假事由不能为空")
     private String reason;
+
+    /**
+     * 可手动指定审批人；为空时走当前租户的默认审批负责人。
+     */
+    private Long auditorId;
 }

@@ -93,7 +93,10 @@ public class StaticsScheduler {
             XxlJobHelper.log("attendance daily stat started, date={}", dateStr);
 
             List<User> userList = userMapper.selectList(new LambdaQueryWrapper<User>()
-                    .eq(User::getStatus, 1));
+                    .eq(User::getStatus, 1)
+                    .and(wrapper -> wrapper.isNull(User::getAttendanceRequired)
+                            .or()
+                            .eq(User::getAttendanceRequired, 1)));
             if (userList == null || userList.isEmpty()) {
                 XxlJobHelper.log("attendance daily stat finished: no active users");
                 systemEventPublisher.info("ATTENDANCE_DAILY_STAT", "考勤日统计完成", "没有需要统计的在职员工",

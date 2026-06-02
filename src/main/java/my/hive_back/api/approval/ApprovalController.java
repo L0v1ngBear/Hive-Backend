@@ -13,6 +13,7 @@ import my.hive_back.common.storage.BusinessImageAttachmentService;
 import my.hive_back.common.storage.BusinessImageAttachmentVO;
 import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.approval.model.dto.OrderApprovalAuditRequest;
+import my.hive_back.module.approval.model.vo.ApprovalAuditorOptionVO;
 import my.hive_back.module.approval.model.vo.ApprovalSummaryVO;
 import my.hive_back.module.approval.model.vo.OrderApprovalVO;
 import my.hive_back.module.approval.service.ApprovalCenterService;
@@ -72,6 +73,13 @@ public class ApprovalController {
     @GetMapping("/summary")
     public Result<ApprovalSummaryVO> summary() {
         return Result.success(approvalCenterService.summary());
+    }
+
+    @GetMapping("/auditors")
+    public Result<List<ApprovalAuditorOptionVO>> listAuditors(@RequestParam String type,
+                                                              @RequestParam(required = false) String keyword,
+                                                              @RequestParam(defaultValue = "20") Integer limit) {
+        return Result.success(approvalCenterService.listAuditorOptions(type, keyword, limit));
     }
 
     @PostMapping("/leave/submit")

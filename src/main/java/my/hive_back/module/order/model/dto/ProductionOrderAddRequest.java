@@ -39,6 +39,12 @@ public class ProductionOrderAddRequest {
     @Schema(description = "项目名称")
     private String projectName;
 
+    @Schema(description = "品牌名称")
+    private String brandName;
+
+    @Schema(description = "订单小项类型：sample_room-样板间，bulk-大货，replenishment-补单")
+    private String orderCategory;
+
     @NotNull(message = "预计交付日期不能为空")
     @Future(message = "交付日期必须是将来某个时间")
     @Schema(description = "预计交付日期")

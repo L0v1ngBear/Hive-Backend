@@ -11,6 +11,7 @@ import java.util.List;
 @Data
 public class CustomerDetailVO {
     private Long id;
+    private String customerName;
     private String companyName;
     private Integer customerType;
     private String constructionArea;

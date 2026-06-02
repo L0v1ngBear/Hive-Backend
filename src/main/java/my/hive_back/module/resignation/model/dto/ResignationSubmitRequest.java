@@ -8,9 +8,6 @@ import lombok.Data;
 
 import java.time.LocalDate;
 
-/**
- * 离职审批提交参数。
- */
 @Data
 public class ResignationSubmitRequest {
 
@@ -21,6 +18,11 @@ public class ResignationSubmitRequest {
     @NotBlank(message = "离职原因不能为空")
     @Size(max = 500, message = "离职原因不能超过500字")
     private String reason;
+
+    /**
+     * 可手动指定审批人；为空时走当前租户的默认审批负责人。
+     */
+    private Long auditorId;
 
     @Size(max = 500, message = "交接说明不能超过500字")
     private String handoverNote;

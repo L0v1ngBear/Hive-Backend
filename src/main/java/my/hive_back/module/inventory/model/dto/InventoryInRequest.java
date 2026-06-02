@@ -26,4 +26,9 @@ public class InventoryInRequest {
     // 入库类型
     @NotBlank
     private String inType;
+
+    /**
+     * 图片识别入库必须人工核对后提交，后端兜底拦截未校验请求。
+     */
+    private Boolean manualVerified;
 }

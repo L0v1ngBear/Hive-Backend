@@ -84,6 +84,12 @@ public class User {
      * 状态 (0: 离职, 1: 在职， 2：试用)
      */
     private Integer status;
+
+    /**
+     * 是否需要打卡：1需要，0免打卡。
+     */
+    private Integer attendanceRequired;
+
     /**
      * 更新时间
      */

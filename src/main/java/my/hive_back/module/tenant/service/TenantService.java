@@ -6,12 +6,18 @@ import jakarta.annotation.Resource;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
 import my.hive.common.redis.HiveRedisKeyBuilder;
+import my.hive_back.module.attendance.mapper.EmployeeAttendanceLocationMapper;
+import my.hive_back.module.tenant.mapper.TenantAttendanceLocationMapper;
 import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
+import my.hive_back.module.tenant.model.entity.TenantAttendanceLocation;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * TenantService belongs to the mini-program backend tenant module.
@@ -27,6 +33,12 @@ public class TenantService {
 
     @Resource
     private TenantAttendanceRuleMapper tenantLocationMapper;
+
+    @Resource
+    private TenantAttendanceLocationMapper tenantAttendanceLocationMapper;
+
+    @Resource
+    private EmployeeAttendanceLocationMapper employeeAttendanceLocationMapper;
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
@@ -53,7 +65,32 @@ public class TenantService {
         if (tenantLocation == null) {
             throw new BusinessException("租户考勤规则未配置，请联系管理员");
         }
+        tenantLocation.setLocations(filterAssignedLocations(loadLocations(tenantCode), tenantCode, TenantPermissionContext.getUserId()));
         return tenantLocation;
+    }
+
+    private List<TenantAttendanceLocation> loadLocations(String tenantCode) {
+        List<TenantAttendanceLocation> locations = tenantAttendanceLocationMapper.selectActiveByTenantCode(tenantCode);
+        return locations == null ? List.of() : locations;
+    }
+
+    private List<TenantAttendanceLocation> filterAssignedLocations(List<TenantAttendanceLocation> locations, String tenantCode, Long userId) {
+        if (userId == null) {
+            return locations;
+        }
+        List<Long> assignedLocationIds = employeeAttendanceLocationMapper.selectLocationIds(tenantCode, userId);
+        if (assignedLocationIds == null || assignedLocationIds.isEmpty()) {
+            return locations;
+        }
+        Set<Long> assignedIdSet = assignedLocationIds.stream()
+                .filter(id -> id != null && id > 0)
+                .collect(Collectors.toSet());
+        if (assignedIdSet.isEmpty()) {
+            return locations;
+        }
+        return locations.stream()
+                .filter(location -> location != null && assignedIdSet.contains(location.getId()))
+                .toList();
     }
 
     private TenantAttendanceRule getCachedAttendanceRule(String tenantCode) {

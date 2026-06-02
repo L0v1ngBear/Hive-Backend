@@ -14,7 +14,7 @@ public class SalesOrderUpdateRequest {
 
     @NotBlank(message = "目标状态不能为空")
     @Pattern(
-            regexp = "^(pending_confirm|pending_pay|pending_material|producing|pending_ship|shipped|completed)$",
+            regexp = "^(budgeting|budget_completed|pending_confirm|pending_pay|pending_material|producing|pending_ship|shipped|completed)$",
             message = "目标状态不合法"
     )
     private String status;

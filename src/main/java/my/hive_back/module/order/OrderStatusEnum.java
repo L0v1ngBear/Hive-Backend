@@ -24,6 +24,16 @@ public enum OrderStatusEnum {
     PENDING_MATERIAL("pending_material", 2, "备料中"),
 
     /**
+     * 预算中
+     */
+    BUDGETING("budgeting", 20, "预算中"),
+
+    /**
+     * 预算完成
+     */
+    BUDGET_COMPLETED("budget_completed", 21, "预算完成"),
+
+    /**
      * 生产中
      */
     PRODUCING("producing", 3, "生产中"),

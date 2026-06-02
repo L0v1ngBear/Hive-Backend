@@ -22,8 +22,10 @@ import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.model.entity.ProductionOrder;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
+import my.hive_back.module.todo.mapper.TodoNotificationMapper;
 import my.hive_back.module.todo.model.dto.TodoPageRequest;
 import my.hive_back.module.todo.model.vo.TodoItemVO;
+import my.hive_back.module.todo.model.vo.TodoNotificationRow;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -63,6 +65,9 @@ public class TodoService {
     @Resource
     private BadProductMapper badProductMapper;
 
+    @Resource
+    private TodoNotificationMapper todoNotificationMapper;
+
     public PageResult<TodoItemVO> page(TodoPageRequest request) {
         List<TodoItemVO> allTodos = listAll(request.getType());
         long pageNum = normalize(request.getPageNum(), 1L);
@@ -92,6 +97,7 @@ public class TodoService {
         String userIdText = currentUserIdText();
         long total = 0L;
         if (userId != null) {
+            total += nvl(todoNotificationMapper.countPending(tenantCode, userId));
             total += leaveMapper.selectCount(new LambdaQueryWrapper<UserLeave>()
                     .eq(UserLeave::getTenantCode, tenantCode)
                     .eq(UserLeave::getAuditorId, userId)
@@ -145,6 +151,9 @@ public class TodoService {
         String userIdText = currentUserIdText();
         List<TodoItemVO> todos = new ArrayList<>();
 
+        if (matchesNotificationType(type) && userId != null) {
+            todos.addAll(buildNotificationTodos(tenantCode, userId, type, limitPerCategory));
+        }
         if (matches(type, "approval") && userId != null) {
             todos.addAll(buildLeaveTodos(tenantCode, userId, limitPerCategory));
             todos.addAll(buildFinanceTodos(tenantCode, userId, limitPerCategory));
@@ -162,6 +171,23 @@ public class TodoService {
 
         todos.sort(Comparator.comparing(TodoItemVO::getSortTime).reversed());
         return todos;
+    }
+
+    private List<TodoItemVO> buildNotificationTodos(String tenantCode, Long userId, String type, Integer limit) {
+        int safeLimit = limit == null || limit <= 0 ? MAX_PAGE_SIZE : Math.min(limit, MAX_PAGE_SIZE);
+        return todoNotificationMapper.selectPending(tenantCode, userId, safeLimit).stream()
+                .filter(item -> matchesNotificationFilter(type, item))
+                .map(item -> buildTodo(
+                        "notification-" + item.getId(),
+                        resolveNotificationTodoType(item),
+                        resolveNotificationTag(item),
+                        firstText(item.getTitle(), "业务提醒"),
+                        firstText(item.getContent(), "请进入对应业务页面处理"),
+                        item.getBizId(),
+                        resolveMiniRoute(item),
+                        firstNotNull(item.getUpdateTime(), item.getCreateTime())
+                ))
+                .toList();
     }
 
     private List<TodoItemVO> buildLeaveTodos(String tenantCode, Long userId, Integer limit) {
@@ -314,6 +340,64 @@ public class TodoService {
                 || targetType.equalsIgnoreCase(requestType);
     }
 
+    private boolean matchesNotificationType(String requestType) {
+        return matches(requestType, "notification") || matches(requestType, "warning");
+    }
+
+    private boolean matchesNotificationFilter(String requestType, TodoNotificationRow item) {
+        if (matches(requestType, "notification")) {
+            return true;
+        }
+        return "warning".equalsIgnoreCase(requestType) && isWarningNotification(item);
+    }
+
+    private boolean isWarningNotification(TodoNotificationRow item) {
+        if (item == null) {
+            return false;
+        }
+        String level = item.getLevel();
+        String bizType = item.getBizType();
+        return "warning".equalsIgnoreCase(level)
+                || "critical".equalsIgnoreCase(level)
+                || (bizType != null && bizType.toUpperCase().contains("WARNING"));
+    }
+
+    private String resolveNotificationTodoType(TodoNotificationRow item) {
+        return isWarningNotification(item) ? "warning" : "notification";
+    }
+
+    private String resolveNotificationTag(TodoNotificationRow item) {
+        if (item == null) {
+            return "提醒";
+        }
+        if ("INVENTORY_WARNING".equalsIgnoreCase(item.getBizType())) {
+            return "库存预警";
+        }
+        if ("ORDER_STALE_WARNING".equalsIgnoreCase(item.getBizType())) {
+            return "订单预警";
+        }
+        if ("AI_ADVICE".equalsIgnoreCase(item.getBizType())) {
+            return "经营建议";
+        }
+        return isWarningNotification(item) ? "预警" : "提醒";
+    }
+
+    private String resolveMiniRoute(TodoNotificationRow item) {
+        if (item == null) {
+            return "/pages/index/index";
+        }
+        if ("INVENTORY_WARNING".equalsIgnoreCase(item.getBizType())) {
+            return "/pages/inventory/inventory";
+        }
+        if ("ORDER_STALE_WARNING".equalsIgnoreCase(item.getBizType())) {
+            return "/pages/order/order";
+        }
+        if (item.getRoute() != null && item.getRoute().startsWith("/pages/")) {
+            return item.getRoute();
+        }
+        return "/pages/index/index";
+    }
+
     private boolean hasAnyPermission(String... permCodes) {
         for (String permCode : permCodes) {
             if (TenantPermissionContext.hasPermission(permCode)) {
@@ -335,6 +419,14 @@ public class TodoService {
 
     private LocalDateTime firstNotNull(LocalDateTime first, LocalDateTime second) {
         return first != null ? first : second;
+    }
+
+    private String firstText(String first, String fallback) {
+        return first == null || first.isBlank() ? fallback : first;
+    }
+
+    private long nvl(Long value) {
+        return value == null ? 0L : value;
     }
 
     private long normalize(Long value, long defaultValue) {

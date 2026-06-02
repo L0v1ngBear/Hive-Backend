@@ -15,6 +15,7 @@ public enum TenantFeatureEnum {
     MODULE_APPROVAL("module.approval"),
     MODULE_ATTENDANCE("module.attendance"),
     MODULE_EMPLOYEE("module.employee"),
+    MODULE_EQUIPMENT("module.equipment"),
     MODULE_ROLE("module.role"),
     MODULE_LABEL("module.label"),
     MODULE_DOCUMENT("module.document"),
@@ -32,6 +33,7 @@ public enum TenantFeatureEnum {
     public static final String CODE_MODULE_APPROVAL = "module.approval";
     public static final String CODE_MODULE_ATTENDANCE = "module.attendance";
     public static final String CODE_MODULE_EMPLOYEE = "module.employee";
+    public static final String CODE_MODULE_EQUIPMENT = "module.equipment";
     public static final String CODE_MODULE_ROLE = "module.role";
     public static final String CODE_MODULE_LABEL = "module.label";
     public static final String CODE_MODULE_DOCUMENT = "module.document";

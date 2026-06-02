@@ -28,5 +28,9 @@ public class OrderApprovalVO {
 
     private LocalDateTime createTime;
 
+    private Long auditorId;
+
+    private String auditorName;
+
     private Boolean canAudit;
 }

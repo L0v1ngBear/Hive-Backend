@@ -26,4 +26,6 @@ public class LoginVO {
     private String tenantName;
 
     private String responseKey;
+
+    private Boolean needJoinOrganization;
 }

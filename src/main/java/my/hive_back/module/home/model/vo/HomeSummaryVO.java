@@ -32,6 +32,7 @@ public class HomeSummaryVO {
         private String name;
         private String departmentName;
         private String position;
+        private Boolean joinedOrganization;
     }
 
     @Data
@@ -46,5 +47,8 @@ public class HomeSummaryVO {
         private Boolean badProduct;
         private Boolean knowledge;
         private Boolean customer;
+        private Boolean document;
+        private Boolean labelTemplate;
+        private Boolean equipmentInspection;
     }
 }

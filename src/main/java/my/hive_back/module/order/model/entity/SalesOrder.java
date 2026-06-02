@@ -6,7 +6,6 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @TableName("sales_order")
@@ -32,6 +31,9 @@ public class SalesOrder {
      */
     private String status;
 
+    @TableField("order_category")
+    private String orderCategory;
+
     /**
      * 客户名称
      */
@@ -43,17 +45,14 @@ public class SalesOrder {
     @TableField("project_name")
     private String projectName;
 
+    @TableField("brand_name")
+    private String brandName;
+
     /**
      * 聚合后的商品说明，方便管理端列表快速展示订单内容。
      */
     @TableField("goods_desc")
     private String goodsDesc;
-
-    /**
-     * 聚合后的订单总金额。
-     */
-    @TableField("total_amount")
-    private BigDecimal totalAmount;
 
     /**
      * 聚合后的订单总数量。

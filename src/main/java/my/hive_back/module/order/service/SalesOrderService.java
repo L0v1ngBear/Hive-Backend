@@ -12,8 +12,10 @@ import lombok.extern.slf4j.Slf4j;
 import my.hive.common.annotation.RequirePermission;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
+import my.hive.common.order.OrderFlowCodeUtil;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.module.order.IsInvoiceEnum;
+import my.hive_back.module.order.OrderCategoryEnum;
 import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.mapper.SalesOrderDetailMapper;
 import my.hive_back.module.order.mapper.SalesOrderMapper;
@@ -28,6 +30,7 @@ import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
 import my.hive_back.module.wechat.service.WechatSubscribeNotificationService;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -52,6 +55,8 @@ public class SalesOrderService {
     private static final long DEFAULT_PAGE_SIZE = 20L;
     private static final long MAX_PAGE_SIZE = 200L;
     private static final List<String> SALES_STATUS_CODES = List.of(
+            OrderStatusEnum.BUDGETING.getCode(),
+            OrderStatusEnum.BUDGET_COMPLETED.getCode(),
             OrderStatusEnum.PENDING_CONFIRM.getCode(),
             OrderStatusEnum.PENDING_PAY.getCode(),
             OrderStatusEnum.PENDING_MATERIAL.getCode(),
@@ -60,6 +65,7 @@ public class SalesOrderService {
             OrderStatusEnum.SHIPPED.getCode(),
             OrderStatusEnum.COMPLETED.getCode()
     );
+    private static final String CATEGORY_DRAWING_BUDGET = OrderCategoryEnum.DRAWING_BUDGET.getCode();
 
     @Resource
     private SalesOrderMapper salesOrderMapper;
@@ -82,6 +88,9 @@ public class SalesOrderService {
     @Resource
     private WechatSubscribeNotificationService wechatSubscribeNotificationService;
 
+    @Value("${ORDER_FLOW_CODE_SECRET:${AUTH_TOKEN_SECRET:hive-local-order-flow-secret}}")
+    private String orderFlowCodeSecret;
+
     @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_LIST, message = "您没有权限查询销售订单列表")
     public Page<SalesOrderVO> selectSalesOrder(SalesOrderListRequest request) {
         // 1. 分页参数默认值处理（防御性编程）
@@ -96,6 +105,9 @@ public class SalesOrderService {
         if (StringUtils.isNotBlank(request.getStatus())) {
             queryWrapper.eq(SalesOrder::getStatus, request.getStatus());
         }
+        if (StringUtils.isNotBlank(request.getOrderCategory())) {
+            queryWrapper.eq(SalesOrder::getOrderCategory, OrderCategoryEnum.normalize(request.getOrderCategory()));
+        }
         // 关键词：订单号/客户名 模糊查询（OR 关系）
         String keyWord = request.getKeyWord();
         if (StringUtils.isNotBlank(keyWord)) {
@@ -103,6 +115,8 @@ public class SalesOrderService {
                     .like(SalesOrder::getOrderId, keyWord)
                     .or()
                     .like(SalesOrder::getCustomerName, keyWord)
+                    .or()
+                    .like(SalesOrder::getBrandName, keyWord)
             );
         }
         // 排序
@@ -240,6 +254,52 @@ public class SalesOrderService {
 
 
     @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限更新销售订单状态")
+    public SalesOrder advanceByFlowCode(@NotBlank String flowCode) {
+        String orderId = resolveOrderIdFromFlowCode(flowCode);
+        SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
+                .eq(SalesOrder::getOrderId, orderId)
+                .last("LIMIT 1"));
+        if (order == null) {
+            throw new BusinessException(400, "销售订单不存在");
+        }
+        String currentStatus = StringUtils.isNotBlank(order.getStatus())
+                ? order.getStatus().trim()
+                : OrderStatusEnum.PENDING_CONFIRM.getCode();
+        if (OrderStatusEnum.PENDING_PAY.getCode().equals(currentStatus)) {
+            throw new BusinessException(400, "待收款订单转生产中需要先通过订单审批");
+        }
+        String nextStatus = resolveNextSalesStatus(currentStatus);
+        if (StringUtils.isBlank(nextStatus)) {
+            throw new BusinessException(400, "当前状态无法继续流转");
+        }
+        if (OrderStatusEnum.SHIPPED.getCode().equals(nextStatus)) {
+            throw new BusinessException(400, "发货前需要先补充物流信息");
+        }
+        SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
+        request.setStatus(nextStatus);
+        return updateStatusAndProcessInternal(orderId, request, false, "扫码推进订单至" + statusLabel(nextStatus));
+    }
+
+    private String resolveOrderIdFromFlowCode(String rawFlowCode) {
+        try {
+            OrderFlowCodeUtil.Parsed parsed = OrderFlowCodeUtil.parse(rawFlowCode);
+            if (!"sales".equals(parsed.orderType())) {
+                throw new BusinessException(400, "请扫描销售订单流转码");
+            }
+            if (!OrderFlowCodeUtil.matches(orderFlowCodeSecret, TenantPermissionContext.getTenantCode(), parsed)) {
+                throw new BusinessException(400, "订单流转码无效，请重新打印后再扫码");
+            }
+            return parsed.orderId();
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(400, "订单流转码无效，请重新打印后再扫码");
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限添加销售订单")
     public void addSalesOrder(@Valid SalesOrderAddRequest request) {
         SalesOrder order = new SalesOrder();
@@ -251,17 +311,18 @@ public class SalesOrderService {
         order.setOrderId(orderId);
         order.setIsInvoice(IsInvoiceEnum.NO.getCode());
         order.setTenantCode(TenantPermissionContext.getTenantCode());
-        order.setStatus(OrderStatusEnum.PENDING_CONFIRM.getCode());
+        order.setOrderCategory(OrderCategoryEnum.normalize(request.getOrderCategory()));
+        order.setStatus(defaultSalesStatus(order.getOrderCategory()));
         order.setCreator(resolveCurrentUserIdText());
         order.setUpdater(resolveCurrentUserIdText());
         order.setGoodsDesc(buildGoodsDesc(request.getItems()));
-        order.setTotalAmount(BigDecimal.ZERO);
         order.setTotalQuantity(sumSalesQuantity(request.getItems()));
         salesOrderMapper.insert(order);
         insertSalesStatusLog(order, null, order.getStatus(), "create", "创建销售订单");
 
 
-        request.getItems().forEach(item -> {
+        List<SalesOrderAddRequest.OrderItemDTO> normalizedItems = normalizeOrderItems(request.getItems());
+        normalizedItems.forEach(item -> {
             SalesOrderDetail detail = new SalesOrderDetail();
             detail.setOrderId(order.getOrderId());
             detail.setTenantCode(TenantPermissionContext.getTenantCode());
@@ -269,9 +330,9 @@ public class SalesOrderService {
             salesOrderDetailMapper.insert(detail);
         });
 
-        // 需要创建生产订单
-        if (createProductionOrder == 1) {
-            request.getItems().forEach(item -> {
+        // 图纸预算订单只走预算状态，不进入生产单和审批中心。
+        if (createProductionOrder == 1 && !isDrawingBudgetOrder(order.getOrderCategory())) {
+            normalizedItems.stream().filter(item -> StringUtils.isNotBlank(item.getModelCode())).forEach(item -> {
                 ProductionOrderAddRequest productionOrderRequest = new ProductionOrderAddRequest();
                 BeanUtils.copyProperties(request, productionOrderRequest);
                 BeanUtils.copyProperties(item, productionOrderRequest);
@@ -283,17 +344,49 @@ public class SalesOrderService {
     }
 
     private String buildGoodsDesc(List<SalesOrderAddRequest.OrderItemDTO> items) {
-        return items.stream()
-                .map(item -> item.getModelCode().trim() + " / " + numberText(item.getWeight()) + "克 / " + numberText(item.getSpec()) + "规格 × " + item.getQuantity().stripTrailingZeros().toPlainString())
+        List<SalesOrderAddRequest.OrderItemDTO> normalizedItems = normalizeOrderItems(items);
+        if (normalizedItems.isEmpty()) {
+            return null;
+        }
+        return normalizedItems.stream()
+                .map(item -> {
+                    String weight = numberText(item.getWeight());
+                    String spec = numberText(item.getSpec());
+                    return safeText(item.getModelCode(), "未填写型号")
+                            + " / " + (StringUtils.isNotBlank(weight) ? weight + "克" : "未填写克重")
+                            + " / " + (StringUtils.isNotBlank(spec) ? spec + "规格" : "未填写规格")
+                            + " × " + (item.getQuantity() == null ? "未填写数量" : item.getQuantity().stripTrailingZeros().toPlainString());
+                })
                 .collect(Collectors.joining("；"));
     }
 
     private Integer sumSalesQuantity(List<SalesOrderAddRequest.OrderItemDTO> items) {
-        BigDecimal total = items.stream()
+        BigDecimal total = normalizeOrderItems(items).stream()
                 .map(SalesOrderAddRequest.OrderItemDTO::getQuantity)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         return total.intValue();
+    }
+
+    private List<SalesOrderAddRequest.OrderItemDTO> normalizeOrderItems(List<SalesOrderAddRequest.OrderItemDTO> items) {
+        if (items == null || items.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return items.stream()
+                .filter(Objects::nonNull)
+                .filter(this::hasOrderItemContent)
+                .toList();
+    }
+
+    private boolean hasOrderItemContent(SalesOrderAddRequest.OrderItemDTO item) {
+        return StringUtils.isNotBlank(item.getModelCode())
+                || item.getQuantity() != null
+                || item.getWeight() != null
+                || item.getSpec() != null;
+    }
+
+    private String safeText(String value, String fallback) {
+        return StringUtils.isNotBlank(value) ? value.trim() : fallback;
     }
 
     private String numberText(Number value) {
@@ -345,9 +438,7 @@ public class SalesOrderService {
         } catch (IllegalArgumentException ex) {
             throw new BusinessException(400, "订单状态不合法");
         }
-        if (!oldStatusEnum.canFlowTo(targetStatusEnum)) {
-            throw new BusinessException(400, "订单状态只能向后流转，不能回退或重复提交");
-        }
+        validateSalesStatusTransition(order.getOrderCategory(), oldStatusEnum, targetStatusEnum);
         if (!approvalBypass
                 && OrderStatusEnum.PENDING_PAY.getCode().equals(oldStatus)
                 && OrderStatusEnum.PRODUCING.getCode().equals(targetStatus)) {
@@ -485,5 +576,53 @@ public class SalesOrderService {
         } catch (IllegalArgumentException ex) {
             return status;
         }
+    }
+
+    private String defaultSalesStatus(String orderCategory) {
+        return isDrawingBudgetOrder(orderCategory)
+                ? OrderStatusEnum.BUDGETING.getCode()
+                : OrderStatusEnum.PENDING_CONFIRM.getCode();
+    }
+
+    private void validateSalesStatusTransition(String orderCategory,
+                                               OrderStatusEnum oldStatusEnum,
+                                               OrderStatusEnum targetStatusEnum) {
+        if (oldStatusEnum == null || targetStatusEnum == null) {
+            throw new BusinessException(400, "订单状态不合法");
+        }
+        boolean drawingBudget = isDrawingBudgetOrder(orderCategory);
+        if (drawingBudget) {
+            if (!isBudgetStatus(oldStatusEnum.getCode()) || !isBudgetStatus(targetStatusEnum.getCode())) {
+                throw new BusinessException(400, "图纸预算订单只能在预算中和预算完成之间流转");
+            }
+            if (!OrderStatusEnum.BUDGETING.getCode().equals(oldStatusEnum.getCode())
+                    || !OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(targetStatusEnum.getCode())) {
+                throw new BusinessException(400, "图纸预算订单只能从预算中流转到预算完成");
+            }
+            return;
+        }
+        if (isBudgetStatus(oldStatusEnum.getCode()) || isBudgetStatus(targetStatusEnum.getCode())) {
+            throw new BusinessException(400, "普通订单不能使用预算状态");
+        }
+        if (!oldStatusEnum.canFlowTo(targetStatusEnum)) {
+            throw new BusinessException(400, "订单状态只能向后流转，不能回退或重复提交");
+        }
+    }
+
+    private boolean isDrawingBudgetOrder(String orderCategory) {
+        return CATEGORY_DRAWING_BUDGET.equals(OrderCategoryEnum.normalize(orderCategory));
+    }
+
+    private boolean isBudgetStatus(String status) {
+        return OrderStatusEnum.BUDGETING.getCode().equals(status)
+                || OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(status);
+    }
+
+    private String resolveNextSalesStatus(String currentStatus) {
+        int index = SALES_STATUS_CODES.indexOf(currentStatus);
+        if (index < 0 || index >= SALES_STATUS_CODES.size() - 1) {
+            return "";
+        }
+        return SALES_STATUS_CODES.get(index + 1);
     }
 }

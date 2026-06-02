@@ -10,7 +10,7 @@ public class ProductionOrderUpdateRequest {
 
     private String status;
 
-    @Range(min = 0, max = 4, message = "工序索引超出范围")
+    @Range(min = 0, max = 9, message = "工序索引超出范围")
     private Integer process;
 
     /** 操作类型：status_change / process_change / scan_change 等 */

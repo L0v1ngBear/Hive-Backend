@@ -6,17 +6,22 @@ import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import my.hive.common.annotation.CollectLog;
+import my.hive.common.annotation.RequirePermission;
 import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
 import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.order.model.dto.ProductionOrderUpdateRequest;
+import my.hive_back.module.order.model.dto.OrderFlowPrintTaskRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderAddRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderListRequest;
 import my.hive_back.module.order.model.entity.ProductionOrder;
 import my.hive_back.module.order.model.entity.ProductionOrderStatusLog;
 import my.hive_back.module.order.model.vo.ProductionOrderVO;
+import my.hive_back.module.order.model.vo.OrderFlowPrintTaskVO;
 import my.hive_back.module.order.model.vo.ProductionOrderStatusLogVO;
+import my.hive_back.module.order.service.OrderFlowPrintService;
 import my.hive_back.module.order.service.ProductionOrderService;
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -37,6 +42,9 @@ public class ProductionOrderController {
     @Resource
     private ProductionOrderService productionOrderService;
 
+    @Resource
+    private OrderFlowPrintService orderFlowPrintService;
+
     /**
      * 生产订单列表查询
      * 补充：@Valid 触发复杂对象内部校验
@@ -52,11 +60,9 @@ public class ProductionOrderController {
                 setSize(page.getSize());
                 setTotal(page.getTotal());
                 setPages(page.getPages());
-                setData(page.getRecords().stream().map(order -> {
-                    ProductionOrderVO vo = new ProductionOrderVO();
-                    BeanUtils.copyProperties(order, vo);
-                    return vo;
-                }).collect(Collectors.toList()));
+                setData(page.getRecords().stream()
+                        .map(order -> productionOrderService.toVO(order))
+                        .collect(Collectors.toList()));
             }
         };
         return Result.success(pageResultVO);
@@ -78,9 +84,7 @@ public class ProductionOrderController {
             @PathVariable("orderId") String orderId) {
 
         ProductionOrder order = productionOrderService.selectProductionOrderDetail(orderId);
-        ProductionOrderVO vo = new ProductionOrderVO();
-        BeanUtils.copyProperties(order, vo);
-        return Result.success(vo);
+        return Result.success(productionOrderService.toVO(order));
     }
 
     @GetMapping("/orders/status-log/{orderId}")
@@ -108,9 +112,14 @@ public class ProductionOrderController {
 
         ProductionOrder order = productionOrderService.updateStatusAndProcess(orderId, request);
 
-        ProductionOrderVO vo = new ProductionOrderVO();
-        BeanUtils.copyProperties(order, vo);
-        return Result.success(vo);
+        return Result.success(productionOrderService.toVO(order));
+    }
+
+    @PostMapping("/orders/{flowCode}/flow-advance")
+    @CollectLog(module = "order", action = "mini_scan_advance_production", bizType = "production_order", description = "小程序扫码推进生产订单", recordArgs = false)
+    public Result<ProductionOrderVO> advanceOrderByFlowCode(@NotBlank @PathVariable String flowCode) {
+        ProductionOrder order = productionOrderService.advanceByFlowCode(flowCode);
+        return Result.success(productionOrderService.toVO(order));
     }
 
     @PostMapping("/orders/add")
@@ -118,5 +127,12 @@ public class ProductionOrderController {
     public Result<Void> addProductionOrder(@RequestBody ProductionOrderAddRequest request) {
         productionOrderService.addProductionOrder(request);
         return Result.success(null);
+    }
+
+    @PostMapping("/orders/flow-print-task")
+    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限生成生产订单流转码")
+    @CollectLog(module = "order", action = "mini_create_production_flow_print_task", bizType = "production_order", bizNo = "#request.orderId", description = "小程序创建生产订单流转码打印任务")
+    public Result<OrderFlowPrintTaskVO> createProductionFlowPrintTask(@Valid @RequestBody OrderFlowPrintTaskRequest request) {
+        return Result.success(orderFlowPrintService.createProductionTask(request));
     }
 }

@@ -45,6 +45,7 @@ public class CustomerService {
         String tenantCode = TenantPermissionContext.getTenantCode();
 
         Long count = customerMapper.selectCount(new LambdaQueryWrapper<Customer>()
+                .eq(Customer::getTenantCode, tenantCode)
                 .eq(Customer::getCustomerName, request.getCustomerName()));
         if (count > 0) {
             throw new BusinessException("该客户已存在，请勿重复添加");
@@ -88,6 +89,7 @@ public class CustomerService {
         String keyword = request.getKeyword();
         String tenantCode = TenantPermissionContext.getTenantCode();
         LambdaQueryWrapper<Customer> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Customer::getTenantCode, tenantCode);
 
         if (StringUtils.isNotBlank(keyword)) {
             String safeKeyword = keyword.trim();
@@ -104,18 +106,25 @@ public class CustomerService {
     }
 
     public CustomerDetailVO getCustomer(Long id) {
-        Customer customer = customerMapper.selectById(id);
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        Customer customer = customerMapper.selectOne(new LambdaQueryWrapper<Customer>()
+                .eq(Customer::getId, id)
+                .eq(Customer::getTenantCode, tenantCode)
+                .last("LIMIT 1"));
         if (customer == null) {
             throw new BusinessException("客户不存在");
         }
 
         List<CustomerContact> customerContactList = customerContactMapper.selectList(new LambdaQueryWrapper<CustomerContact>()
+                .eq(CustomerContact::getTenantCode, tenantCode)
                 .eq(CustomerContact::getCustomerId, id));
         List<CustomerProject> customerProjectList = customerProjectMapper.selectList(new LambdaQueryWrapper<CustomerProject>()
+                .eq(CustomerProject::getTenantCode, tenantCode)
                 .eq(CustomerProject::getCustomerId, id));
 
         CustomerDetailVO customerDetailVO = new CustomerDetailVO();
         BeanUtils.copyProperties(customer, customerDetailVO);
+        customerDetailVO.setCompanyName(customer.getCustomerName());
         customerDetailVO.setContacts(customerContactList);
         customerDetailVO.setProjects(customerProjectList);
         return customerDetailVO;

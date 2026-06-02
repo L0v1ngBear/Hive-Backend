@@ -33,6 +33,9 @@ public class ProductionOrder {
     @TableField("status")
     private String status;
 
+    @TableField("order_category")
+    private String orderCategory;
+
     /**
      * 面料型号（如T800-210）
      */
@@ -62,7 +65,7 @@ public class ProductionOrder {
     private Integer quantity;
 
     /**
-     * 当前生产工序：ProductionProcessEnum 0-整经，1-浆纱，2-织造，3-验布，4-卷布
+     * 当前生产工序：ProcessEnum
      */
     @TableField("process")
     private Integer process;
@@ -73,6 +76,9 @@ public class ProductionOrder {
 
     @TableField("project_name")
     private String projectName;
+
+    @TableField("brand_name")
+    private String brandName;
 
     /**
      * 预计交付日期

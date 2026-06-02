@@ -7,6 +7,7 @@ import my.hive.common.exception.BusinessException;
 import my.hive_back.common.security.InternalUploadUrlValidator;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
+import my.hive_back.module.approval.service.ApprovalDefaultAuditorService;
 import my.hive_back.module.finance.mapper.FinanceApprovalMapper;
 import my.hive_back.module.finance.model.dto.FinanceAuditRequest;
 import my.hive_back.module.finance.model.dto.FinanceSubmitRequest;
@@ -56,11 +57,13 @@ public class FinanceApprovalService {
     @Resource
     private ApprovalAuditorCandidateService approvalAuditorCandidateService;
 
+    @Resource
+    private ApprovalDefaultAuditorService approvalDefaultAuditorService;
+
     @Transactional(rollbackFor = Exception.class)
     public String submit(FinanceSubmitRequest request) {
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = TenantPermissionContext.getTenantCode();
-        Long managerId = userService.getManagerId(userId);
 
         FinanceApproval approval = new FinanceApproval();
         approval.setApprovalCode(codeGeneratorUtil.generateFinanceApprovalCode());
@@ -73,7 +76,7 @@ public class FinanceApprovalService {
         approval.setAttachmentUrl(InternalUploadUrlValidator.normalizeOptionalFinanceAttachment(request.getAttachmentUrl(), tenantCode));
         approval.setAttachmentSize(safeAttachmentSize(request.getAttachmentSize()));
         approval.setStatus(STATUS_PENDING);
-        assignAuditors(approval, managerId);
+        assignAuditors(approval, request.getAuditorId(), true);
         financeApprovalMapper.insert(approval);
         notifyFinancePendingApprover(approval);
         return approval.getApprovalCode();
@@ -215,34 +218,32 @@ public class FinanceApprovalService {
     }
 
     private void assignAuditors(FinanceApproval approval, Long primaryAuditorId) {
-        List<Long> auditorIds = resolveParallelAuditorIds(
+        assignAuditors(approval, primaryAuditorId, false);
+    }
+
+    private void assignAuditors(FinanceApproval approval, Long primaryAuditorId, boolean strictPrimary) {
+        Long auditorId = resolveSingleAuditorId(
                 approval.getTenantCode(),
                 approval.getApplyUserId(),
                 primaryAuditorId,
-                PermissionCodeEnum.CODE_APPROVAL_FINANCE_AUDIT
+                APPROVAL_TYPE_FINANCE,
+                PermissionCodeEnum.CODE_APPROVAL_FINANCE_AUDIT,
+                strictPrimary
         );
-        approval.setAuditorId(auditorIds.get(0));
-        approval.setAuditorIds(joinAuditorIds(auditorIds));
+        approval.setAuditorId(auditorId);
+        approval.setAuditorIds(null);
         approvalAuditorCandidateService.replaceActiveCandidates(
-                approval.getTenantCode(), APPROVAL_TYPE_FINANCE, approval.getApprovalCode(), auditorIds);
+                approval.getTenantCode(), APPROVAL_TYPE_FINANCE, approval.getApprovalCode(), List.of(auditorId));
     }
 
-    private List<Long> resolveParallelAuditorIds(String tenantCode,
-                                                 Long applyUserId,
-                                                 Long primaryAuditorId,
-                                                 String permissionCode) {
-        LinkedHashSet<Long> ids = new LinkedHashSet<>();
-        addCandidateAuditor(ids, primaryAuditorId, applyUserId);
-        if (StringUtils.hasText(tenantCode) && StringUtils.hasText(permissionCode)) {
-            List<Long> permissionAuditorIds = userMapper.selectActiveApproverIdsByPermission(tenantCode, permissionCode);
-            if (permissionAuditorIds != null) {
-                permissionAuditorIds.forEach(id -> addCandidateAuditor(ids, id, applyUserId));
-            }
-        }
-        if (ids.isEmpty()) {
-            throw new BusinessException("未找到可用审批人，请先配置直属负责人或审批角色权限");
-        }
-        return ids.stream().limit(MAX_PARALLEL_APPROVERS).toList();
+    private Long resolveSingleAuditorId(String tenantCode,
+                                        Long applyUserId,
+                                        Long primaryAuditorId,
+                                        String approvalType,
+                                        String permissionCode,
+                                        boolean strictPrimary) {
+        return approvalDefaultAuditorService.resolveAuditorId(
+                tenantCode, approvalType, applyUserId, primaryAuditorId, permissionCode, strictPrimary);
     }
 
     private void addCandidateAuditor(LinkedHashSet<Long> ids, Long auditorId, Long applyUserId) {

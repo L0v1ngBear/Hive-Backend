@@ -132,7 +132,7 @@ hive:
     allowed-codes: ${HIVE_ALLOWED_TENANT_CODES:TENANT_001,TENANT_002}
     max-count: ${HIVE_TENANT_MAX_COUNT:2}
   single-tenant:
-    enabled: ${HIVE_SINGLE_TENANT_ENABLED:true}
+    enabled: ${HIVE_SINGLE_TENANT_ENABLED:false}
     code: ${HIVE_SINGLE_TENANT_CODE:TENANT_001}
     name: ${HIVE_SINGLE_TENANT_NAME:当前组织}
   redis:

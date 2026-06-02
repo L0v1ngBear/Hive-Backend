@@ -21,6 +21,8 @@ public class BaseOrderListRequest {
      */
     private String keyWord;
 
+    private String orderCategory;
+
     /**
      * 当前页码，从 1 开始。
      */

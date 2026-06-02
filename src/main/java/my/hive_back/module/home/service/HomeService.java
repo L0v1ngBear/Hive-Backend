@@ -40,11 +40,18 @@ public class HomeService {
 
         Tenant tenant = tenantMapper.selectByTenantCode(tenantCode);
         User user = userMapper.selectById(userId);
+        boolean joinedOrganization = user != null && normalizeTenantCode(user.getTenantCode()) != null;
 
         HomeSummaryVO vo = new HomeSummaryVO();
-        vo.setTenantInfo(buildTenantInfo(tenant));
-        vo.setUserInfo(buildUserInfo(user));
-        vo.setFunctionEnable(buildFunctionEnable());
+        vo.setTenantInfo(joinedOrganization ? buildTenantInfo(tenant) : new HomeSummaryVO.TenantInfo());
+        vo.setUserInfo(buildUserInfo(user, joinedOrganization));
+        vo.setFunctionEnable(joinedOrganization ? buildFunctionEnable() : emptyFunctionEnable());
+
+        if (!joinedOrganization) {
+            vo.setTodoCount(0);
+            vo.setTodoList(List.of());
+            return vo;
+        }
 
         List<TodoItemVO> todoItems = todoService.listHomeTodos(6);
         vo.setTodoCount(todoService.countAll());
@@ -61,13 +68,14 @@ public class HomeService {
         return tenantInfo;
     }
 
-    private HomeSummaryVO.UserInfo buildUserInfo(User user) {
+    private HomeSummaryVO.UserInfo buildUserInfo(User user, boolean joinedOrganization) {
         HomeSummaryVO.UserInfo userInfo = new HomeSummaryVO.UserInfo();
+        userInfo.setJoinedOrganization(joinedOrganization);
         if (user != null) {
             userInfo.setId(user.getId());
             userInfo.setName(user.getName());
-            userInfo.setDepartmentName(resolveJoinedDepartment(user.getDepartmentName()));
-            userInfo.setPosition(resolveJoinedPosition(user.getPosition()));
+            userInfo.setDepartmentName(joinedOrganization ? resolveJoinedDepartment(user.getDepartmentName()) : LEGACY_STANDALONE_DEPARTMENT);
+            userInfo.setPosition(joinedOrganization ? resolveJoinedPosition(user.getPosition()) : LEGACY_STANDALONE_POSITION);
         }
         return userInfo;
     }
@@ -112,6 +120,27 @@ public class HomeService {
         functionEnable.setBadProduct(hasAnyPermission("*", "badproduct:*", "badproduct:list", "badproduct:save", "badproduct:process"));
         functionEnable.setKnowledge(false);
         functionEnable.setCustomer(hasAnyPermission("customer", "customer:*", "customer:page", "customer:detail", "customer:add"));
+        functionEnable.setDocument(hasAnyPermission("document", "document:*", "document:list", "document:folder:create", "document:file:upload"));
+        functionEnable.setLabelTemplate(hasAnyPermission("label", "label:*", "label:template:list", "label:template:detail", "label:template:default"));
+        functionEnable.setEquipmentInspection(hasAnyPermission("equipment", "equipment:*", "equipment:list", "equipment:inspection:submit"));
+        return functionEnable;
+    }
+
+    private HomeSummaryVO.FunctionEnable emptyFunctionEnable() {
+        HomeSummaryVO.FunctionEnable functionEnable = new HomeSummaryVO.FunctionEnable();
+        functionEnable.setAttendance(false);
+        functionEnable.setOrder(false);
+        functionEnable.setSalesOrder(false);
+        functionEnable.setInventory(false);
+        functionEnable.setApproval(false);
+        functionEnable.setNotice(false);
+        functionEnable.setFile(false);
+        functionEnable.setBadProduct(false);
+        functionEnable.setKnowledge(false);
+        functionEnable.setCustomer(false);
+        functionEnable.setDocument(false);
+        functionEnable.setLabelTemplate(false);
+        functionEnable.setEquipmentInspection(false);
         return functionEnable;
     }
 
@@ -123,6 +152,13 @@ public class HomeService {
         }
         Set<String> currentPerms = TenantPermissionContext.getPermCodes();
         return currentPerms != null && currentPerms.contains("*");
+    }
+
+    private String normalizeTenantCode(String tenantCode) {
+        if (tenantCode == null || tenantCode.trim().isEmpty()) {
+            return null;
+        }
+        return tenantCode.trim();
     }
 
 }
