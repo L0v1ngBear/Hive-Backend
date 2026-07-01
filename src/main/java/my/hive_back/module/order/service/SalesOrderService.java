@@ -14,6 +14,8 @@ import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
 import my.hive.common.order.OrderFlowCodeUtil;
 import my.hive_back.common.utils.CodeGeneratorUtil;
+import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
+import my.hive_back.module.approval.service.ApprovalDefaultAuditorService;
 import my.hive_back.module.order.IsInvoiceEnum;
 import my.hive_back.module.order.OrderCategoryEnum;
 import my.hive_back.module.order.OrderStatusEnum;
@@ -40,6 +42,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -63,9 +66,17 @@ public class SalesOrderService {
             OrderStatusEnum.PRODUCING.getCode(),
             OrderStatusEnum.PENDING_SHIP.getCode(),
             OrderStatusEnum.SHIPPED.getCode(),
-            OrderStatusEnum.COMPLETED.getCode()
+            OrderStatusEnum.COMPLETED.getCode(),
+            OrderStatusEnum.PENDING_CANCEL.getCode(),
+            OrderStatusEnum.CANCELLED.getCode()
     );
     private static final String CATEGORY_DRAWING_BUDGET = OrderCategoryEnum.DRAWING_BUDGET.getCode();
+    private static final String CATEGORY_SPECIAL_ORDER = OrderCategoryEnum.SPECIAL_ORDER.getCode();
+    private static final String APPROVAL_TYPE_ORDER = "ORDER";
+    private static final String ORDER_TYPE_SALES = "sales";
+    private static final String OPERATE_TYPE_ROLLBACK_PENDING = "rollback_pending";
+    private static final String OPERATE_TYPE_ROLLBACK_APPROVED = "rollback_approved";
+    private static final int MAX_PARALLEL_APPROVERS = 10;
 
     @Resource
     private SalesOrderMapper salesOrderMapper;
@@ -88,6 +99,12 @@ public class SalesOrderService {
     @Resource
     private WechatSubscribeNotificationService wechatSubscribeNotificationService;
 
+    @Resource
+    private ApprovalAuditorCandidateService approvalAuditorCandidateService;
+
+    @Resource
+    private ApprovalDefaultAuditorService approvalDefaultAuditorService;
+
     @Value("${ORDER_FLOW_CODE_SECRET:${AUTH_TOKEN_SECRET:hive-local-order-flow-secret}}")
     private String orderFlowCodeSecret;
 
@@ -100,13 +117,17 @@ public class SalesOrderService {
 
         // 2. 构建查询条件（核心：空值判断 + OR 模糊查询）
         LambdaQueryWrapper<SalesOrder> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode());
         // 状态：非空才拼接
         if (StringUtils.isNotBlank(request.getStatus())) {
             queryWrapper.eq(SalesOrder::getStatus, request.getStatus());
         }
         if (StringUtils.isNotBlank(request.getOrderCategory())) {
             queryWrapper.eq(SalesOrder::getOrderCategory, OrderCategoryEnum.normalize(request.getOrderCategory()));
+        }
+        if (request.getIsInvoice() != null) {
+            queryWrapper.eq(SalesOrder::getIsInvoice, request.getIsInvoice() == IsInvoiceEnum.YES.getCode()
+                    ? IsInvoiceEnum.YES.getCode()
+                    : IsInvoiceEnum.NO.getCode());
         }
         // 关键词：订单号/客户名 模糊查询（OR 关系）
         String keyWord = request.getKeyWord();
@@ -136,7 +157,6 @@ public class SalesOrderService {
                 .collect(Collectors.toList());
         List<SalesOrderDetail> detailList = salesOrderDetailMapper.selectList(
                 new LambdaQueryWrapper<SalesOrderDetail>()
-                        .eq(SalesOrderDetail::getTenantCode, TenantPermissionContext.getTenantCode())
                         .in(SalesOrderDetail::getOrderId, orderIds)
         );
 
@@ -169,15 +189,26 @@ public class SalesOrderService {
 
     @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_LIST, message = "您没有权限查询销售订单统计")
     public Map<String, Long> countSalesOrderStatuses() {
-        String tenantCode = TenantPermissionContext.getTenantCode();
         Map<String, Long> result = new LinkedHashMap<>();
-        result.put("total", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getTenantCode, tenantCode))));
+        result.put("total", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<>())));
         for (String status : SALES_STATUS_CODES) {
             result.put(status, safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
-                    .eq(SalesOrder::getTenantCode, tenantCode)
                     .eq(SalesOrder::getStatus, status))));
         }
+        result.put("category_drawing_budget", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderCategory, OrderCategoryEnum.DRAWING_BUDGET.getCode()))));
+        result.put("category_sample_room", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderCategory, OrderCategoryEnum.SAMPLE_ROOM.getCode()))));
+        result.put("category_bulk", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderCategory, OrderCategoryEnum.BULK.getCode()))));
+        result.put("category_replenishment", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderCategory, OrderCategoryEnum.REPLENISHMENT.getCode()))));
+        result.put("category_special_order", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderCategory, OrderCategoryEnum.SPECIAL_ORDER.getCode()))));
+        result.put("invoice_paid", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getIsInvoice, IsInvoiceEnum.YES.getCode()))));
+        result.put("invoice_unpaid", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getIsInvoice, IsInvoiceEnum.NO.getCode()))));
         return result;
     }
 
@@ -203,7 +234,6 @@ public class SalesOrderService {
     public SalesOrderVO getByIdandTenantId(String orderId) {
         // 1. 查询主表订单信息
         SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrder::getOrderId, orderId));
         if (order == null) {
             throw new BusinessException(400, "订单不存在"); // 根据你的异常类调整
@@ -212,7 +242,6 @@ public class SalesOrderService {
         // 2. 查询对应的明细列表
         List<SalesOrderDetail> detailList = salesOrderDetailMapper.selectList(
                 new LambdaQueryWrapper<SalesOrderDetail>()
-                        .eq(SalesOrderDetail::getTenantCode, TenantPermissionContext.getTenantCode())
                         .eq(SalesOrderDetail::getOrderId, orderId)
         );
 
@@ -247,7 +276,6 @@ public class SalesOrderService {
     @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_DETAIL, message = "您没有权限查询销售订单状态变更日志")
     public List<SalesOrderStatusLog> selectSalesOrderStatusLog(@NotBlank String orderId) {
         return salesOrderStatusLogMapper.selectList(new LambdaQueryWrapper<SalesOrderStatusLog>()
-                .eq(SalesOrderStatusLog::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrderStatusLog::getOrderId, orderId)
                 .orderByAsc(SalesOrderStatusLog::getCreateTime));
     }
@@ -258,7 +286,6 @@ public class SalesOrderService {
     public SalesOrder advanceByFlowCode(@NotBlank String flowCode) {
         String orderId = resolveOrderIdFromFlowCode(flowCode);
         SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrder::getOrderId, orderId)
                 .last("LIMIT 1"));
         if (order == null) {
@@ -268,7 +295,7 @@ public class SalesOrderService {
                 ? order.getStatus().trim()
                 : OrderStatusEnum.PENDING_CONFIRM.getCode();
         if (OrderStatusEnum.PENDING_PAY.getCode().equals(currentStatus)) {
-            throw new BusinessException(400, "待收款订单转生产中需要先通过订单审批");
+            throw new BusinessException(400, "待收款订单转备料中需要先通过订单审批");
         }
         String nextStatus = resolveNextSalesStatus(currentStatus);
         if (StringUtils.isBlank(nextStatus)) {
@@ -331,11 +358,14 @@ public class SalesOrderService {
         });
 
         // 图纸预算订单只走预算状态，不进入生产单和审批中心。
-        if (createProductionOrder == 1 && !isDrawingBudgetOrder(order.getOrderCategory())) {
+        if (createProductionOrder == 1 && canAutoCreateProductionOrder(order.getOrderCategory())) {
             normalizedItems.stream().filter(item -> StringUtils.isNotBlank(item.getModelCode())).forEach(item -> {
                 ProductionOrderAddRequest productionOrderRequest = new ProductionOrderAddRequest();
                 BeanUtils.copyProperties(request, productionOrderRequest);
-                BeanUtils.copyProperties(item, productionOrderRequest);
+                productionOrderRequest.setModelCode(item.getModelCode());
+                productionOrderRequest.setSpec(item.getSpec());
+                productionOrderRequest.setQuantity(item.getQuantity() == null ? null : item.getQuantity().intValue());
+                productionOrderRequest.setWeight(null);
                 productionOrderService.addProductionOrder(productionOrderRequest, order.getOrderId());
             });
         }
@@ -350,10 +380,10 @@ public class SalesOrderService {
         }
         return normalizedItems.stream()
                 .map(item -> {
-                    String weight = numberText(item.getWeight());
+                    String category = safeText(item.getWeight(), "");
                     String spec = numberText(item.getSpec());
                     return safeText(item.getModelCode(), "未填写型号")
-                            + " / " + (StringUtils.isNotBlank(weight) ? weight + "克" : "未填写克重")
+                            + " / " + (StringUtils.isNotBlank(category) ? category : "未填写类别")
                             + " / " + (StringUtils.isNotBlank(spec) ? spec + "规格" : "未填写规格")
                             + " × " + (item.getQuantity() == null ? "未填写数量" : item.getQuantity().stripTrailingZeros().toPlainString());
                 })
@@ -381,7 +411,7 @@ public class SalesOrderService {
     private boolean hasOrderItemContent(SalesOrderAddRequest.OrderItemDTO item) {
         return StringUtils.isNotBlank(item.getModelCode())
                 || item.getQuantity() != null
-                || item.getWeight() != null
+                || StringUtils.isNotBlank(item.getWeight())
                 || item.getSpec() != null;
     }
 
@@ -403,11 +433,144 @@ public class SalesOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public SalesOrder approvePendingPayToProducing(@NotBlank String orderId, String remark) {
+    public SalesOrder approvePendingPayToMaterial(@NotBlank String orderId, String remark) {
         SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
-        request.setStatus(OrderStatusEnum.PRODUCING.getCode());
+        request.setStatus(OrderStatusEnum.PENDING_MATERIAL.getCode());
         return updateStatusAndProcessInternal(orderId, request, true,
-                StringUtils.isNotBlank(remark) ? remark.trim() : "审批通过，待收款订单转生产中");
+                StringUtils.isNotBlank(remark) ? remark.trim() : "审批通过，待收款订单转备料中");
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public SalesOrder approvePendingConfirmToPay(@NotBlank String orderId, String remark) {
+        SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
+        request.setStatus(OrderStatusEnum.PENDING_PAY.getCode());
+        return updateStatusAndProcessInternal(orderId, request, true,
+                StringUtils.isNotBlank(remark) ? remark.trim() : "审批通过，订单创建生效");
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public SalesOrder approvePendingCancelToCancelled(@NotBlank String orderId, String remark) {
+        SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
+        request.setStatus(OrderStatusEnum.CANCELLED.getCode());
+        return updateStatusAndProcessInternal(orderId, request, true,
+                StringUtils.isNotBlank(remark) ? remark.trim() : "审批通过，订单已取消");
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public SalesOrder rejectPendingCancel(@NotBlank String orderId, String remark) {
+        SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderId, orderId)
+                .last("LIMIT 1"));
+        if (order == null) {
+            throw new BusinessException(400, "销售订单不存在");
+        }
+        if (!OrderStatusEnum.PENDING_CANCEL.getCode().equals(order.getStatus())) {
+            throw new BusinessException(400, "当前订单不是取消审核中，不能驳回取消申请");
+        }
+        String oldStatus = order.getStatus();
+        String restoredStatus = resolveStatusBeforePendingCancel(orderId);
+        LambdaUpdateWrapper<SalesOrder> updateWrapper = new LambdaUpdateWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderId, orderId)
+                .eq(SalesOrder::getStatus, oldStatus)
+                .set(SalesOrder::getStatus, restoredStatus)
+                .set(SalesOrder::getUpdateTime, LocalDateTime.now());
+        if (salesOrderMapper.update(null, updateWrapper) == 0) {
+            throw new BusinessException(409, "订单状态已被其他操作更新，请刷新后重试");
+        }
+        order.setStatus(restoredStatus);
+        order.setUpdateTime(LocalDateTime.now());
+        String finalRemark = StringUtils.isNotBlank(remark) ? remark.trim() : "取消订单审核未通过，订单恢复原状态";
+        insertSalesStatusLog(order, oldStatus, restoredStatus, "status_change", finalRemark);
+        notifySalesOrderChanged(order, oldStatus);
+        return order;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限提交销售订单回退审批")
+    public SalesOrder submitRollbackApproval(@NotBlank String orderId, SalesOrderUpdateRequest request) {
+        SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderId, orderId)
+                .last("LIMIT 1"));
+        if (order == null) {
+            throw new BusinessException(400, "销售订单不存在");
+        }
+        String currentStatus = normalizeStatus(order.getStatus());
+        String targetStatus = request != null && StringUtils.isNotBlank(request.getStatus())
+                ? normalizeStatus(request.getStatus())
+                : resolvePreviousSalesStatus(order);
+        validateSalesRollbackTarget(order, currentStatus, targetStatus);
+
+        String approvalCode = orderApprovalCode(ORDER_TYPE_SALES, order.getOrderId());
+        if (!approvalAuditorCandidateService.findPendingAuditorIds(
+                order.getTenantCode(), APPROVAL_TYPE_ORDER, approvalCode).isEmpty()) {
+            throw new BusinessException(400, "该订单已有待处理审批，请审批完成后再操作");
+        }
+
+        List<Long> auditorIds = normalizeApprovalAuditorIds(request == null ? null : request.getAuditorIds());
+        if (auditorIds.isEmpty()) {
+            auditorIds = approvalDefaultAuditorService.resolveAuditorIds(
+                    order.getTenantCode(),
+                    APPROVAL_TYPE_ORDER,
+                    TenantPermissionContext.getUserId(),
+                    null,
+                    null,
+                    PermissionCodeEnum.CODE_SALES_ORDER_STATUS,
+                    false);
+        }
+        List<Long> permittedIds = userMapper.selectActiveApproverIdsByPermission(
+                order.getTenantCode(), PermissionCodeEnum.CODE_SALES_ORDER_STATUS);
+        for (Long auditorId : auditorIds) {
+            if (permittedIds == null || !permittedIds.contains(auditorId)) {
+                throw new BusinessException(400, "所选审批人没有销售订单审批权限");
+            }
+        }
+
+        String remark = request == null ? null : trimToNull(request.getRemark());
+        insertSalesStatusLog(order, currentStatus, targetStatus, OPERATE_TYPE_ROLLBACK_PENDING,
+                StringUtils.isNotBlank(remark)
+                        ? remark
+                        : "提交订单回退审批：" + statusLabel(currentStatus) + " → " + statusLabel(targetStatus));
+        approvalAuditorCandidateService.replaceActiveCandidates(
+                order.getTenantCode(), APPROVAL_TYPE_ORDER, approvalCode, auditorIds);
+        return order;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public SalesOrder approveRollback(@NotBlank String orderId, String remark) {
+        SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderId, orderId)
+                .last("LIMIT 1"));
+        if (order == null) {
+            throw new BusinessException(400, "销售订单不存在");
+        }
+        SalesOrderStatusLog rollbackLog = findPendingSalesRollbackLog(order.getOrderId());
+        if (rollbackLog == null) {
+            throw new BusinessException(400, "未找到待审批的订单回退申请");
+        }
+        String oldStatus = normalizeStatus(order.getStatus());
+        String sourceStatus = normalizeStatus(rollbackLog.getOldStatus());
+        String targetStatus = normalizeStatus(rollbackLog.getNewStatus());
+        if (!Objects.equals(oldStatus, sourceStatus)) {
+            throw new BusinessException(409, "订单状态已变化，请重新提交回退审批");
+        }
+        validateSalesRollbackTarget(order, oldStatus, targetStatus);
+
+        LambdaUpdateWrapper<SalesOrder> updateWrapper = new LambdaUpdateWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderId, order.getOrderId())
+                .eq(SalesOrder::getStatus, oldStatus)
+                .set(SalesOrder::getStatus, targetStatus)
+                .set(SalesOrder::getUpdater, resolveCurrentUserIdText())
+                .set(SalesOrder::getUpdateTime, LocalDateTime.now());
+        if (salesOrderMapper.update(null, updateWrapper) == 0) {
+            throw new BusinessException(409, "订单状态已被其他操作更新，请刷新后重试");
+        }
+        order.setStatus(targetStatus);
+        order.setUpdater(resolveCurrentUserIdText());
+        order.setUpdateTime(LocalDateTime.now());
+        insertSalesStatusLog(order, oldStatus, targetStatus, OPERATE_TYPE_ROLLBACK_APPROVED,
+                StringUtils.isNotBlank(remark) ? remark.trim() : "订单回退审批通过");
+        notifySalesOrderChanged(order, oldStatus);
+        return order;
     }
 
     private SalesOrder updateStatusAndProcessInternal(String orderId,
@@ -416,7 +579,6 @@ public class SalesOrderService {
                                                       String logRemark) {
         // 1. 查询当前销售订单
         SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrder::getOrderId, orderId));
 
         if (order == null) {
@@ -427,6 +589,11 @@ public class SalesOrderService {
         // 记录修改前的原始状态，用于最后的 CAS 并发安全校验
         String oldStatus = order.getStatus();
         String targetStatus = request.getStatus();
+        if (!approvalBypass
+                && OrderStatusEnum.CANCELLED.getCode().equals(targetStatus)
+                && !OrderStatusEnum.PENDING_CANCEL.getCode().equals(oldStatus)) {
+            targetStatus = OrderStatusEnum.PENDING_CANCEL.getCode();
+        }
         if (StringUtils.isBlank(targetStatus)) {
             throw new BusinessException(400, "目标状态不能为空");
         }
@@ -440,9 +607,15 @@ public class SalesOrderService {
         }
         validateSalesStatusTransition(order.getOrderCategory(), oldStatusEnum, targetStatusEnum);
         if (!approvalBypass
+                && CATEGORY_SPECIAL_ORDER.equals(OrderCategoryEnum.normalize(order.getOrderCategory()))
+                && OrderStatusEnum.PENDING_CONFIRM.getCode().equals(oldStatus)
+                && OrderStatusEnum.PENDING_PAY.getCode().equals(targetStatus)) {
+            throw new BusinessException(400, "特殊订单需要先通过订单审核，审核通过后才能创建成功");
+        }
+        if (!approvalBypass
                 && OrderStatusEnum.PENDING_PAY.getCode().equals(oldStatus)
-                && OrderStatusEnum.PRODUCING.getCode().equals(targetStatus)) {
-            throw new BusinessException(400, "待收款订单转生产中需要先通过订单审批");
+                && OrderStatusEnum.PENDING_MATERIAL.getCode().equals(targetStatus)) {
+            throw new BusinessException(400, "待收款订单转备料中需要先通过订单审批");
         }
 
         // 2. 核心业务逻辑：状态与物流信息校验
@@ -476,7 +649,6 @@ public class SalesOrderService {
 
         // 3. 并发安全更新（CAS核心改造点）
         LambdaUpdateWrapper<SalesOrder> updateWrapper = new LambdaUpdateWrapper<SalesOrder>()
-                .eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrder::getOrderId, orderId);
 
         // 校验旧状态
@@ -497,6 +669,10 @@ public class SalesOrderService {
         if (!Objects.equals(oldStatus, order.getStatus())) {
             insertSalesStatusLog(order, oldStatus, order.getStatus(), "status_change", logRemark);
             notifySalesOrderChanged(order, oldStatus);
+            if (OrderStatusEnum.PENDING_PAY.getCode().equals(oldStatus)
+                    && OrderStatusEnum.PENDING_MATERIAL.getCode().equals(order.getStatus())) {
+                productionOrderService.syncLinkedSalesOrderToPendingMaterial(order.getOrderId(), logRemark);
+            }
         }
 
         return order;
@@ -514,6 +690,138 @@ public class SalesOrderService {
         log.setOperatorName(resolveCurrentUserName());
         log.setCreateTime(LocalDateTime.now());
         salesOrderStatusLogMapper.insert(log);
+    }
+
+    public SalesOrderStatusLog findPendingSalesRollbackLog(String orderId) {
+        if (StringUtils.isBlank(orderId)) {
+            return null;
+        }
+        return salesOrderStatusLogMapper.selectOne(new LambdaQueryWrapper<SalesOrderStatusLog>()
+                .eq(SalesOrderStatusLog::getOrderId, orderId.trim())
+                .eq(SalesOrderStatusLog::getOperateType, OPERATE_TYPE_ROLLBACK_PENDING)
+                .orderByDesc(SalesOrderStatusLog::getId)
+                .last("LIMIT 1"));
+    }
+
+    public boolean hasPendingSalesRollbackApproval(String orderId) {
+        SalesOrder order = StringUtils.isNotBlank(orderId) ? salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderId, orderId.trim())
+                .last("LIMIT 1")) : null;
+        if (order == null) {
+            return false;
+        }
+        SalesOrderStatusLog log = findPendingSalesRollbackLog(order.getOrderId());
+        if (log == null || !Objects.equals(normalizeStatus(order.getStatus()), normalizeStatus(log.getOldStatus()))) {
+            return false;
+        }
+        return !approvalAuditorCandidateService.findPendingAuditorIds(
+                order.getTenantCode(), APPROVAL_TYPE_ORDER, orderApprovalCode(ORDER_TYPE_SALES, order.getOrderId())).isEmpty();
+    }
+
+    private String orderApprovalCode(String orderType, String orderId) {
+        if (StringUtils.isBlank(orderId)) {
+            throw new BusinessException(400, "订单编号不能为空");
+        }
+        String type = ORDER_TYPE_SALES.equalsIgnoreCase(orderType) ? ORDER_TYPE_SALES : ORDER_TYPE_SALES;
+        return type + ":" + orderId.trim();
+    }
+
+    private String normalizeStatus(String status) {
+        return StringUtils.isBlank(status) ? null : status.trim();
+    }
+
+    private void validateSalesRollbackTarget(SalesOrder order, String currentStatus, String targetStatus) {
+        if (StringUtils.isBlank(currentStatus) || StringUtils.isBlank(targetStatus)) {
+            throw new BusinessException(400, "订单回退状态不能为空");
+        }
+        if (OrderStatusEnum.PENDING_CANCEL.getCode().equals(currentStatus)
+                || OrderStatusEnum.CANCELLED.getCode().equals(currentStatus)
+                || OrderStatusEnum.PENDING_CANCEL.getCode().equals(targetStatus)
+                || OrderStatusEnum.CANCELLED.getCode().equals(targetStatus)) {
+            throw new BusinessException(400, "取消审核中或已取消订单不能提交回退审批");
+        }
+        String expectedTarget = resolvePreviousSalesStatus(order);
+        if (!Objects.equals(expectedTarget, targetStatus)) {
+            throw new BusinessException(400, "订单只能回退到上一步状态：" + statusLabel(expectedTarget));
+        }
+    }
+
+    private String resolvePreviousSalesStatus(SalesOrder order) {
+        String currentStatus = normalizeStatus(order == null ? null : order.getStatus());
+        if (StringUtils.isBlank(currentStatus)) {
+            throw new BusinessException(400, "当前订单状态不能为空");
+        }
+        boolean drawingBudget = isDrawingBudgetOrder(order.getOrderCategory());
+        if (drawingBudget) {
+            if (OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(currentStatus)) {
+                return OrderStatusEnum.BUDGETING.getCode();
+            }
+            throw new BusinessException(400, "图纸预算订单当前状态不能回退");
+        }
+        if (isBudgetStatus(currentStatus)) {
+            throw new BusinessException(400, "普通订单不能使用预算状态回退");
+        }
+        if (OrderStatusEnum.PENDING_PAY.getCode().equals(currentStatus)) {
+            return OrderStatusEnum.PENDING_CONFIRM.getCode();
+        }
+        if (OrderStatusEnum.PENDING_MATERIAL.getCode().equals(currentStatus)) {
+            return OrderStatusEnum.PENDING_PAY.getCode();
+        }
+        if (OrderStatusEnum.PRODUCING.getCode().equals(currentStatus)) {
+            return OrderStatusEnum.PENDING_MATERIAL.getCode();
+        }
+        if (OrderStatusEnum.PENDING_SHIP.getCode().equals(currentStatus)) {
+            return OrderStatusEnum.PRODUCING.getCode();
+        }
+        if (OrderStatusEnum.SHIPPED.getCode().equals(currentStatus)) {
+            return OrderStatusEnum.PENDING_SHIP.getCode();
+        }
+        if (OrderStatusEnum.COMPLETED.getCode().equals(currentStatus)) {
+            return OrderStatusEnum.SHIPPED.getCode();
+        }
+        throw new BusinessException(400, "当前订单状态不能回退");
+    }
+
+    private List<Long> normalizeApprovalAuditorIds(List<Long> auditorIds) {
+        if (auditorIds == null || auditorIds.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        Long currentUserId = TenantPermissionContext.getUserId();
+        for (Long auditorId : auditorIds) {
+            if (auditorId == null || auditorId <= 0) {
+                continue;
+            }
+            if (currentUserId != null && currentUserId.equals(auditorId)) {
+                throw new BusinessException(400, "审批人不能选择提交人本人");
+            }
+            ids.add(auditorId);
+        }
+        if (ids.size() > MAX_PARALLEL_APPROVERS) {
+            throw new BusinessException(400, "审批人不能超过 " + MAX_PARALLEL_APPROVERS + " 人");
+        }
+        return new ArrayList<>(ids);
+    }
+
+    private String trimToNull(String value) {
+        return StringUtils.isBlank(value) ? null : value.trim();
+    }
+
+    private String resolveStatusBeforePendingCancel(String orderId) {
+        SalesOrderStatusLog latestCancelLog = salesOrderStatusLogMapper.selectOne(new LambdaQueryWrapper<SalesOrderStatusLog>()
+                .eq(SalesOrderStatusLog::getOrderId, orderId)
+                .eq(SalesOrderStatusLog::getNewStatus, OrderStatusEnum.PENDING_CANCEL.getCode())
+                .orderByDesc(SalesOrderStatusLog::getId)
+                .last("LIMIT 1"));
+        if (latestCancelLog == null || StringUtils.isBlank(latestCancelLog.getOldStatus())) {
+            throw new BusinessException(400, "缺少取消申请来源状态，无法驳回取消申请");
+        }
+        String restoredStatus = latestCancelLog.getOldStatus().trim();
+        if (OrderStatusEnum.PENDING_CANCEL.getCode().equals(restoredStatus)
+                || OrderStatusEnum.CANCELLED.getCode().equals(restoredStatus)) {
+            throw new BusinessException(400, "取消申请来源状态异常，无法驳回取消申请");
+        }
+        return restoredStatus;
     }
 
     private SalesOrderStatusLogVO toSalesLogVO(SalesOrderStatusLog log) {
@@ -550,10 +858,20 @@ public class SalesOrderService {
         }
         wechatSubscribeNotificationService.sendTodoAfterCommit(
                 creatorId,
+                currentOperatorName(),
                 "销售订单状态更新",
                 order.getOrderId() + "：" + statusLabel(oldStatus) + " → " + statusLabel(order.getStatus()),
                 "/pages/orderDetail/orderDetail?type=sales&orderId=" + order.getOrderId()
         );
+    }
+
+    private String currentOperatorName() {
+        Long userId = TenantPermissionContext.getUserId();
+        if (userId == null) {
+            return "系统提醒";
+        }
+        User user = userMapper.selectById(userId);
+        return user == null || user.getName() == null || user.getName().isBlank() ? "系统提醒" : user.getName();
     }
 
     private Long parseUserId(String value) {
@@ -590,6 +908,18 @@ public class SalesOrderService {
         if (oldStatusEnum == null || targetStatusEnum == null) {
             throw new BusinessException(400, "订单状态不合法");
         }
+        if (OrderStatusEnum.PENDING_CANCEL == targetStatusEnum) {
+            if (OrderStatusEnum.CANCELLED == oldStatusEnum) {
+                throw new BusinessException(400, "已取消的订单不能重复提交取消审核");
+            }
+            return;
+        }
+        if (OrderStatusEnum.CANCELLED == targetStatusEnum) {
+            if (OrderStatusEnum.PENDING_CANCEL != oldStatusEnum) {
+                throw new BusinessException(400, "取消订单需要先通过订单审核");
+            }
+            return;
+        }
         boolean drawingBudget = isDrawingBudgetOrder(orderCategory);
         if (drawingBudget) {
             if (!isBudgetStatus(oldStatusEnum.getCode()) || !isBudgetStatus(targetStatusEnum.getCode())) {
@@ -604,9 +934,17 @@ public class SalesOrderService {
         if (isBudgetStatus(oldStatusEnum.getCode()) || isBudgetStatus(targetStatusEnum.getCode())) {
             throw new BusinessException(400, "普通订单不能使用预算状态");
         }
-        if (!oldStatusEnum.canFlowTo(targetStatusEnum)) {
+        if (targetStatusEnum.getIndex() <= oldStatusEnum.getIndex()) {
             throw new BusinessException(400, "订单状态只能向后流转，不能回退或重复提交");
         }
+        if (targetStatusEnum.getIndex() > oldStatusEnum.getIndex() + 1) {
+            throw new BusinessException(400, "订单状态只能推进到下一阶段，不能跳级流转");
+        }
+    }
+
+    private boolean canAutoCreateProductionOrder(String orderCategory) {
+        String normalized = OrderCategoryEnum.normalize(orderCategory);
+        return !CATEGORY_DRAWING_BUDGET.equals(normalized) && !CATEGORY_SPECIAL_ORDER.equals(normalized);
     }
 
     private boolean isDrawingBudgetOrder(String orderCategory) {
@@ -619,6 +957,11 @@ public class SalesOrderService {
     }
 
     private String resolveNextSalesStatus(String currentStatus) {
+        if (OrderStatusEnum.COMPLETED.getCode().equals(currentStatus)
+                || OrderStatusEnum.PENDING_CANCEL.getCode().equals(currentStatus)
+                || OrderStatusEnum.CANCELLED.getCode().equals(currentStatus)) {
+            return "";
+        }
         int index = SALES_STATUS_CODES.indexOf(currentStatus);
         if (index < 0 || index >= SALES_STATUS_CODES.size() - 1) {
             return "";

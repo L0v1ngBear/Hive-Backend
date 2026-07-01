@@ -1,9 +1,7 @@
 package my.hive_back.module.home.model.vo;
 
 import lombok.Data;
-import my.hive_back.module.todo.model.vo.TodoItemVO;
 
-import java.util.List;
 /**
  * HomeSummaryVO 属于小程序后端首页模块，定义出参结构。
  */
@@ -17,8 +15,6 @@ public class HomeSummaryVO {
     private FunctionEnable functionEnable;
 
     private Integer todoCount;
-
-    private List<TodoItemVO> todoList;
 
     @Data
     public static class TenantInfo {

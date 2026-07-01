@@ -17,8 +17,8 @@ import java.util.Set;
 public class BoundedTenantProperties {
 
     private String mode = "BOUNDED";
-    private String defaultCode = "TENANT_001";
-    private String allowedCodes = "TENANT_001,TENANT_002";
+    private String defaultCode = "";
+    private String allowedCodes = "";
     private int maxCount = 2;
 
     public List<String> allowedTenantCodes() {
@@ -31,7 +31,7 @@ public class BoundedTenantProperties {
         }
         String defaultTenantCode = defaultTenantCode();
         if (codes.isEmpty()) {
-            codes.add(defaultTenantCode);
+            throw new IllegalStateException("hive.tenant.allowed-codes must be explicitly configured in bounded mode");
         }
         if (!codes.contains(defaultTenantCode)) {
             codes.add(defaultTenantCode);
@@ -44,7 +44,10 @@ public class BoundedTenantProperties {
 
     public String defaultTenantCode() {
         String normalized = normalizeTenantCode(defaultCode);
-        return normalized == null || normalized.isBlank() ? "TENANT_001" : normalized;
+        if (normalized == null || normalized.isBlank()) {
+            throw new IllegalStateException("hive.tenant.default-code must be explicitly configured in bounded mode");
+        }
+        return normalized;
     }
 
     public boolean isTenantAllowed(String tenantCode) {

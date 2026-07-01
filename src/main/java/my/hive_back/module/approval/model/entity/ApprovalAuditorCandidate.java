@@ -24,6 +24,12 @@ public class ApprovalAuditorCandidate {
 
     private Integer status;
 
+    private Integer auditStatus;
+
+    private String auditComment;
+
+    private LocalDateTime auditTime;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

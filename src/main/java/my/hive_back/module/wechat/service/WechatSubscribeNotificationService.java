@@ -20,10 +20,14 @@ public class WechatSubscribeNotificationService {
     private WechatSubscribeService wechatSubscribeService;
 
     public void sendTodoAfterCommit(Long userId, String title, String content, String pagePath) {
+        sendTodoAfterCommit(userId, null, title, content, pagePath);
+    }
+
+    public void sendTodoAfterCommit(Long userId, String operatorName, String title, String content, String pagePath) {
         if (userId == null) {
             return;
         }
-        Runnable task = () -> safeSendTodo(userId, title, content, pagePath);
+        Runnable task = () -> safeSendTodo(userId, operatorName, title, content, pagePath);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -36,9 +40,9 @@ public class WechatSubscribeNotificationService {
         }
     }
 
-    private void safeSendTodo(Long userId, String title, String content, String pagePath) {
+    private void safeSendTodo(Long userId, String operatorName, String title, String content, String pagePath) {
         try {
-            wechatSubscribeService.sendTodoReminder(userId, title, content, pagePath);
+            wechatSubscribeService.sendTodoReminder(userId, operatorName, title, content, pagePath);
         } catch (Exception e) {
             log.warn("微信订阅消息发送失败，不影响主业务 userId={} title={} pagePath={}", userId, title, pagePath, e);
         }

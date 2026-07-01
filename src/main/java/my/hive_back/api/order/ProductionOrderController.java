@@ -115,6 +115,16 @@ public class ProductionOrderController {
         return Result.success(productionOrderService.toVO(order));
     }
 
+    @PostMapping("/orders/{orderId}/rollback")
+    @CollectLog(module = "order", action = "mini_submit_production_rollback", bizType = "production_order", bizNo = "#orderId", description = "小程序提交生产订单回退审批")
+    public Result<ProductionOrderVO> submitRollbackApproval(
+            @NotBlank @PathVariable String orderId,
+            @RequestBody(required = false) ProductionOrderUpdateRequest request) {
+        ProductionOrder order = productionOrderService.submitRollbackApproval(
+                orderId, request == null ? new ProductionOrderUpdateRequest() : request);
+        return Result.success(productionOrderService.toVO(order));
+    }
+
     @PostMapping("/orders/{flowCode}/flow-advance")
     @CollectLog(module = "order", action = "mini_scan_advance_production", bizType = "production_order", description = "小程序扫码推进生产订单", recordArgs = false)
     public Result<ProductionOrderVO> advanceOrderByFlowCode(@NotBlank @PathVariable String flowCode) {

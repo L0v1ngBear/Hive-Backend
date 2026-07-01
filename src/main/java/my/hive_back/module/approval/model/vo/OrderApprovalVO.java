@@ -30,6 +30,8 @@ public class OrderApprovalVO {
 
     private Long auditorId;
 
+    private String auditorIds;
+
     private String auditorName;
 
     private Boolean canAudit;

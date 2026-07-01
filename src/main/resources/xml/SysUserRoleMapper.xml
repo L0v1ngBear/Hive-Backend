@@ -3,22 +3,32 @@
 <mapper namespace="my.hive_back.module.sys.model.mapper.SysUserRoleMapper">
 
     <select id="selectPermCodesByUserIdAndTenantCode" resultType="java.lang.String">
-        SELECT DISTINCT p.perm_code
-        FROM sys_user_role ur
-                 INNER JOIN sys_role r ON ur.role_id = r.id
-            AND r.tenant_code = #{tenantCode}
-            AND r.is_deleted = 0
-            -- 关联 角色-权限 中间表
-                 INNER JOIN sys_role_permission rp ON r.id = rp.role_id
-            AND rp.is_deleted = 0
-            -- 关联 权限字典表
-                 INNER JOIN sys_permission p ON rp.permission_id = p.id
-            AND p.is_deleted = 0
-        WHERE ur.user_id = #{userId}
-          AND ur.tenant_code = #{tenantCode}
-          AND ur.is_deleted = 0
-          AND p.perm_code IS NOT NULL
-          AND p.perm_code != ''
+        SELECT DISTINCT effective_perm.perm_code
+        FROM (
+            SELECT p.perm_code AS perm_code
+            FROM sys_user_role ur
+                     INNER JOIN sys_role r ON ur.role_id = r.id
+                AND r.tenant_code = #{tenantCode}
+                AND r.is_deleted = 0
+                     INNER JOIN sys_role_permission rp ON r.id = rp.role_id
+                AND rp.is_deleted = 0
+                     INNER JOIN sys_permission p ON rp.permission_id = p.id
+                AND p.is_deleted = 0
+            WHERE ur.user_id = #{userId}
+              AND ur.tenant_code = #{tenantCode}
+              AND ur.is_deleted = 0
+            UNION ALL
+            SELECT CASE WHEN up.effect = 'DENY' THEN CONCAT('!', p.perm_code) ELSE p.perm_code END AS perm_code
+            FROM sys_user_permission up
+                     INNER JOIN sys_permission p ON p.id = up.permission_id
+                AND p.is_deleted = 0
+            WHERE up.user_id = #{userId}
+              AND up.tenant_code = #{tenantCode}
+              AND up.is_deleted = 0
+              AND up.effect IN ('GRANT', 'DENY')
+        ) effective_perm
+        WHERE effective_perm.perm_code IS NOT NULL
+          AND effective_perm.perm_code != ''
     </select>
 
 </mapper>

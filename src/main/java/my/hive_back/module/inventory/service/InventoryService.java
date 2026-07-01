@@ -497,7 +497,6 @@ public class InventoryService {
         LocalDateTime dbStartDate = today.minusDays(6).atStartOfDay();
         LocalDateTime dbEndDate = today.atStartOfDay();
         LambdaQueryWrapper<InventoryTrendStatics> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(InventoryTrendStatics::getTenantCode, tenantCode);
         wrapper.ge(InventoryTrendStatics::getStatDate, dbStartDate);
         wrapper.lt(InventoryTrendStatics::getStatDate, dbEndDate);
         wrapper.orderByAsc(InventoryTrendStatics::getStatDate);

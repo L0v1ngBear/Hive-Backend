@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Data
 public class ResignationSubmitRequest {
@@ -23,6 +24,8 @@ public class ResignationSubmitRequest {
      * 可手动指定审批人；为空时走当前租户的默认审批负责人。
      */
     private Long auditorId;
+
+    private List<Long> auditorIds;
 
     @Size(max = 500, message = "交接说明不能超过500字")
     private String handoverNote;

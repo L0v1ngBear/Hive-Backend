@@ -6,6 +6,7 @@ public enum OrderCategoryEnum {
     SAMPLE_ROOM("sample_room"),
     BULK("bulk"),
     REPLENISHMENT("replenishment"),
+    SPECIAL_ORDER("special_order"),
     DRAWING_BUDGET("drawing_budget");
 
     private final String code;

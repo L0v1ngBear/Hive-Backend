@@ -99,7 +99,7 @@ public class TenantInterceptor implements HandlerInterceptor {
                 tenantCode = defaultTenantCode();
             }
             userId = authUserInfo.getUserId();
-        } else if (allowLegacyHeader) {
+        } else if (allowLegacyHeader && isLocalRequest(request)) {
             tenantCode = normalizeTenantCode(request.getHeader("Tenant-Code"));
             String userIdStr = request.getHeader("User-Id");
 
@@ -153,7 +153,7 @@ public class TenantInterceptor implements HandlerInterceptor {
     }
 
     private void maybeRenewToken(HttpServletResponse response, AuthUserInfo authUserInfo) {
-        if (!tokenRenewEnabled || response.isCommitted() || !TokenUtil.shouldRenew(authUserInfo, tokenRenewBeforeMinutes)) {
+        if (!tokenRenewEnabled || response.isCommitted()) {
             return;
         }
         String tenantCode = normalizeTenantCode(authUserInfo.getTenantCode());
@@ -263,6 +263,14 @@ public class TenantInterceptor implements HandlerInterceptor {
 
     private String defaultTenantCode() {
         return boundedTenantProperties.defaultTenantCode();
+    }
+
+    private boolean isLocalRequest(HttpServletRequest request) {
+        String remoteAddr = request.getRemoteAddr();
+        return "127.0.0.1".equals(remoteAddr)
+                || "0:0:0:0:0:0:0:1".equals(remoteAddr)
+                || "::1".equals(remoteAddr)
+                || "localhost".equalsIgnoreCase(remoteAddr);
     }
 
     private boolean isValidTenantCode(String tenantCode) {

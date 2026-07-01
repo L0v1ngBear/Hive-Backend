@@ -23,6 +23,8 @@ public class BaseOrderListRequest {
 
     private String orderCategory;
 
+    private Integer isInvoice;
+
     /**
      * 当前页码，从 1 开始。
      */

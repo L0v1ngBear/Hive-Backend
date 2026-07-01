@@ -45,7 +45,6 @@ public class TodoService {
     private static final ZoneId ZONE_ID = ZoneId.of("Asia/Shanghai");
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
-    private static final int HOME_CATEGORY_LIMIT = 8;
 
     @Resource
     private LeaveMapper leaveMapper;
@@ -84,10 +83,6 @@ public class TodoService {
         return result;
     }
 
-    public List<TodoItemVO> listHomeTodos(int limit) {
-        return listAll("all", HOME_CATEGORY_LIMIT).stream().limit(limit).toList();
-    }
-
     public int countAll() {
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = currentTenantCode();
@@ -99,17 +94,14 @@ public class TodoService {
         if (userId != null) {
             total += nvl(todoNotificationMapper.countPending(tenantCode, userId));
             total += leaveMapper.selectCount(new LambdaQueryWrapper<UserLeave>()
-                    .eq(UserLeave::getTenantCode, tenantCode)
                     .eq(UserLeave::getAuditorId, userId)
                     .eq(UserLeave::getStatus, LeaveStatusEnum.PENDING.getCode()));
             total += financeApprovalMapper.selectCount(new LambdaQueryWrapper<FinanceApproval>()
-                    .eq(FinanceApproval::getTenantCode, tenantCode)
                     .eq(FinanceApproval::getAuditorId, userId)
                     .eq(FinanceApproval::getStatus, FinanceApprovalStatusEnum.PENDING.getCode()));
         }
         if (hasAnyPermission(PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, PermissionCodeEnum.CODE_PRODUCTION_ORDER_ALL, PermissionCodeEnum.CODE_ALL)) {
             total += productionOrderMapper.selectCount(new LambdaQueryWrapper<ProductionOrder>()
-                    .eq(ProductionOrder::getTenantCode, tenantCode)
                     .and(wrapper -> wrapper.eq(ProductionOrder::getCreator, userIdText)
                             .or()
                             .eq(ProductionOrder::getUpdater, userIdText))
@@ -117,7 +109,6 @@ public class TodoService {
         }
         if (hasAnyPermission(PermissionCodeEnum.CODE_SALES_ORDER_LIST, PermissionCodeEnum.CODE_SALES_ORDER_ALL, PermissionCodeEnum.CODE_ALL)) {
             total += salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
-                    .eq(SalesOrder::getTenantCode, tenantCode)
                     .and(wrapper -> wrapper.eq(SalesOrder::getCreator, userIdText)
                             .or()
                             .eq(SalesOrder::getUpdater, userIdText))
@@ -125,13 +116,11 @@ public class TodoService {
         }
         if (hasAnyPermission(PermissionCodeEnum.CODE_INVENTORY, PermissionCodeEnum.CODE_INVENTORY_ALL, PermissionCodeEnum.CODE_INVENTORY_CLOTH_OUT, PermissionCodeEnum.CODE_ALL) && userId != null) {
             total += outboundOrderMapper.selectCount(new LambdaQueryWrapper<OutboundOrder>()
-                    .eq(OutboundOrder::getTenantCode, tenantCode)
                     .eq(OutboundOrder::getOperatorId, userId)
                     .eq(OutboundOrder::getPrintStatus, BinaryFlagEnum.NO.getCode()));
         }
         if (hasAnyPermission(PermissionCodeEnum.CODE_BADPRODUCT_ALL, PermissionCodeEnum.CODE_BADPRODUCT_LIST, PermissionCodeEnum.CODE_BADPRODUCT_PROCESS, PermissionCodeEnum.CODE_ALL) && userId != null) {
             total += badProductMapper.selectCount(new LambdaQueryWrapper<BadProductRecord>()
-                    .eq(BadProductRecord::getTenantCode, tenantCode)
                     .eq(BadProductRecord::getCreatorId, userId)
                     .eq(BadProductRecord::getStatus, BadProductStatusEnum.PENDING.getCode()));
         }
@@ -192,7 +181,6 @@ public class TodoService {
 
     private List<TodoItemVO> buildLeaveTodos(String tenantCode, Long userId, Integer limit) {
         List<UserLeave> leaves = leaveMapper.selectList(withLimit(new LambdaQueryWrapper<UserLeave>()
-                .eq(UserLeave::getTenantCode, tenantCode)
                 .eq(UserLeave::getAuditorId, userId)
                 .eq(UserLeave::getStatus, LeaveStatusEnum.PENDING.getCode())
                 .orderByDesc(UserLeave::getCreateTime), limit));
@@ -211,7 +199,6 @@ public class TodoService {
 
     private List<TodoItemVO> buildFinanceTodos(String tenantCode, Long userId, Integer limit) {
         List<FinanceApproval> approvals = financeApprovalMapper.selectList(withLimit(new LambdaQueryWrapper<FinanceApproval>()
-                .eq(FinanceApproval::getTenantCode, tenantCode)
                 .eq(FinanceApproval::getAuditorId, userId)
                 .eq(FinanceApproval::getStatus, FinanceApprovalStatusEnum.PENDING.getCode())
                 .orderByDesc(FinanceApproval::getCreateTime), limit));
@@ -233,7 +220,6 @@ public class TodoService {
             return List.of();
         }
         List<ProductionOrder> orders = productionOrderMapper.selectList(withLimit(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, tenantCode)
                 .and(wrapper -> wrapper.eq(ProductionOrder::getCreator, userId)
                         .or()
                         .eq(ProductionOrder::getUpdater, userId))
@@ -257,7 +243,6 @@ public class TodoService {
             return List.of();
         }
         List<SalesOrder> orders = salesOrderMapper.selectList(withLimit(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getTenantCode, tenantCode)
                 .and(wrapper -> wrapper.eq(SalesOrder::getCreator, userId)
                         .or()
                         .eq(SalesOrder::getUpdater, userId))
@@ -281,7 +266,6 @@ public class TodoService {
             return List.of();
         }
         List<OutboundOrder> orders = outboundOrderMapper.selectList(withLimit(new LambdaQueryWrapper<OutboundOrder>()
-                .eq(OutboundOrder::getTenantCode, tenantCode)
                 .eq(OutboundOrder::getOperatorId, userId)
                 .eq(OutboundOrder::getPrintStatus, BinaryFlagEnum.NO.getCode())
                 .orderByDesc(OutboundOrder::getCreateTime), limit));
@@ -303,7 +287,6 @@ public class TodoService {
             return List.of();
         }
         List<BadProductRecord> records = badProductMapper.selectList(withLimit(new LambdaQueryWrapper<BadProductRecord>()
-                .eq(BadProductRecord::getTenantCode, tenantCode)
                 .eq(BadProductRecord::getCreatorId, userId)
                 .eq(BadProductRecord::getStatus, BadProductStatusEnum.PENDING.getCode())
                 .orderByDesc(BadProductRecord::getCreateTime), limit));

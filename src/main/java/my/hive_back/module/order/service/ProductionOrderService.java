@@ -12,6 +12,8 @@ import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
 import my.hive.common.order.OrderFlowCodeUtil;
 import my.hive_back.common.utils.CodeGeneratorUtil;
+import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
+import my.hive_back.module.approval.service.ApprovalDefaultAuditorService;
 import my.hive_back.module.order.OrderCategoryEnum;
 import my.hive_back.module.order.OrderOperateTypeEnum;
 import my.hive_back.module.order.OrderStatusEnum;
@@ -34,7 +36,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +55,11 @@ public class ProductionOrderService {
     private static final long MAX_PAGE_SIZE = 200L;
     private static final String STATUS_PRODUCING = OrderStatusEnum.PRODUCING.getCode();
     private static final String STATUS_PENDING_SHIP = OrderStatusEnum.PENDING_SHIP.getCode();
+    private static final String APPROVAL_TYPE_ORDER = "ORDER";
+    private static final String ORDER_TYPE_PRODUCTION = "production";
+    private static final String OPERATE_TYPE_ROLLBACK_PENDING = "rollback_pending";
+    private static final String OPERATE_TYPE_ROLLBACK_APPROVED = "rollback_approved";
+    private static final int MAX_PARALLEL_APPROVERS = 10;
     private static final Set<String> VALID_STATUS = Set.of(
             OrderStatusEnum.PENDING_CONFIRM.getCode(),
             OrderStatusEnum.PENDING_MATERIAL.getCode(),
@@ -83,6 +92,12 @@ public class ProductionOrderService {
     @Resource
     private WechatSubscribeNotificationService wechatSubscribeNotificationService;
 
+    @Resource
+    private ApprovalAuditorCandidateService approvalAuditorCandidateService;
+
+    @Resource
+    private ApprovalDefaultAuditorService approvalDefaultAuditorService;
+
     @Value("${ORDER_FLOW_CODE_SECRET:${AUTH_TOKEN_SECRET:hive-local-order-flow-secret}}")
     private String orderFlowCodeSecret;
 
@@ -99,7 +114,6 @@ public class ProductionOrderService {
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, message = "您没有权限查询生产订单列表")
     public Page<ProductionOrder> selectProductionOrder(ProductionOrderListRequest request) {
         LambdaQueryWrapper<ProductionOrder> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode());
 
         if (StringUtils.isNotBlank(request.getStatus())) {
             queryWrapper.eq(ProductionOrder::getStatus, request.getStatus());
@@ -131,13 +145,10 @@ public class ProductionOrderService {
 
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, message = "您没有权限查询生产订单统计")
     public Map<String, Long> countProductionOrderStatuses() {
-        String tenantCode = TenantPermissionContext.getTenantCode();
         Map<String, Long> result = new LinkedHashMap<>();
-        result.put("total", safeCount(productionOrderMapper.selectCount(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, tenantCode))));
+        result.put("total", safeCount(productionOrderMapper.selectCount(new LambdaQueryWrapper<>())));
         for (String status : PRODUCTION_STATUS_CODES) {
             result.put(status, safeCount(productionOrderMapper.selectCount(new LambdaQueryWrapper<ProductionOrder>()
-                    .eq(ProductionOrder::getTenantCode, tenantCode)
                     .eq(ProductionOrder::getStatus, status))));
         }
         return result;
@@ -161,7 +172,6 @@ public class ProductionOrderService {
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_DETAIL, message = "您没有权限查询生产订单详情")
     public ProductionOrder selectProductionOrderDetail(String orderId) {
         ProductionOrder productionOrder = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId));
 
         if (productionOrder == null) {
@@ -174,7 +184,6 @@ public class ProductionOrderService {
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LOG, message = "您没有权限查询生产订单状态变更日志")
     public List<ProductionOrderStatusLog> selectOrderStausLog(@NotBlank String orderId) {
         LambdaQueryWrapper<ProductionOrderStatusLog> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(ProductionOrderStatusLog::getTenantCode, TenantPermissionContext.getTenantCode());
         queryWrapper.eq(ProductionOrderStatusLog::getOrderId, orderId);
         queryWrapper.orderByAsc(ProductionOrderStatusLog::getCreateTime);
         return statusLogMapper.selectList(queryWrapper);
@@ -195,7 +204,6 @@ public class ProductionOrderService {
     public ProductionOrder advanceByFlowCode(String flowCode) {
         String orderId = resolveOrderIdFromFlowCode(flowCode);
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId)
                 .last("LIMIT 1"));
         if (order == null) {
@@ -264,7 +272,6 @@ public class ProductionOrderService {
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限更新生产订单状态")
     public ProductionOrder updateStatusAndProcess(String orderId, ProductionOrderUpdateRequest request) {
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId));
 
         if (order == null) {
@@ -341,7 +348,6 @@ public class ProductionOrderService {
         order.setUpdater(resolveCurrentUserIdText());
 
         LambdaUpdateWrapper<ProductionOrder> updateWrapper = new LambdaUpdateWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId);
 
         if (oldStatus == null) {
@@ -378,6 +384,104 @@ public class ProductionOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限提交生产订单回退审批")
+    public ProductionOrder submitRollbackApproval(@NotBlank String orderId, ProductionOrderUpdateRequest request) {
+        ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getOrderId, orderId)
+                .last("LIMIT 1"));
+        if (order == null) {
+            throw new BusinessException(400, "生产订单不存在");
+        }
+        String currentStatus = normalizeStatus(order.getStatus());
+        String targetStatus = request != null && StringUtils.isNotBlank(request.getStatus())
+                ? normalizeStatus(request.getStatus())
+                : resolvePreviousProductionStatus(order);
+        validateProductionRollbackTarget(currentStatus, targetStatus);
+
+        String approvalCode = orderApprovalCode(order.getOrderId());
+        if (!approvalAuditorCandidateService.findPendingAuditorIds(
+                order.getTenantCode(), APPROVAL_TYPE_ORDER, approvalCode).isEmpty()) {
+            throw new BusinessException(400, "该订单已有待处理审批，请审批完成后再操作");
+        }
+
+        List<Long> auditorIds = normalizeApprovalAuditorIds(request == null ? null : request.getAuditorIds());
+        if (auditorIds.isEmpty()) {
+            auditorIds = approvalDefaultAuditorService.resolveAuditorIds(
+                    order.getTenantCode(),
+                    APPROVAL_TYPE_ORDER,
+                    TenantPermissionContext.getUserId(),
+                    null,
+                    null,
+                    PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS,
+                    false);
+        }
+        List<Long> permittedIds = userMapper.selectActiveApproverIdsByPermission(
+                order.getTenantCode(), PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS);
+        for (Long auditorId : auditorIds) {
+            if (permittedIds == null || !permittedIds.contains(auditorId)) {
+                throw new BusinessException(400, "所选审批人没有生产订单审批权限");
+            }
+        }
+
+        String remark = request == null ? null : trimToNull(request.getRemark());
+        insertProductionRollbackLog(order, currentStatus, targetStatus, OPERATE_TYPE_ROLLBACK_PENDING,
+                StringUtils.isNotBlank(remark)
+                        ? remark
+                        : "提交生产订单回退审批：" + statusLabel(currentStatus) + " → " + statusLabel(targetStatus));
+        approvalAuditorCandidateService.replaceActiveCandidates(
+                order.getTenantCode(), APPROVAL_TYPE_ORDER, approvalCode, auditorIds);
+        return order;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ProductionOrder approveRollback(@NotBlank String orderId, String remark) {
+        ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getOrderId, orderId)
+                .last("LIMIT 1"));
+        if (order == null) {
+            throw new BusinessException(400, "生产订单不存在");
+        }
+        ProductionOrderStatusLog rollbackLog = findPendingProductionRollbackLog(order.getOrderId());
+        if (rollbackLog == null) {
+            throw new BusinessException(400, "未找到待审批的生产订单回退申请");
+        }
+        String oldStatus = normalizeStatus(order.getStatus());
+        String sourceStatus = normalizeStatus(rollbackLog.getOldStatus());
+        String targetStatus = normalizeStatus(rollbackLog.getNewStatus());
+        if (!Objects.equals(oldStatus, sourceStatus)) {
+            throw new BusinessException(409, "订单状态已变化，请重新提交回退审批");
+        }
+        validateProductionRollbackTarget(oldStatus, targetStatus);
+        Integer oldProcess = order.getProcess();
+        Integer targetProcess = resolveProductionRollbackProcess(oldStatus, targetStatus, oldProcess);
+
+        LambdaUpdateWrapper<ProductionOrder> updateWrapper = new LambdaUpdateWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getOrderId, order.getOrderId())
+                .eq(ProductionOrder::getStatus, oldStatus)
+                .set(ProductionOrder::getStatus, targetStatus)
+                .set(ProductionOrder::getProcess, targetProcess)
+                .set(ProductionOrder::getUpdater, resolveCurrentUserIdText())
+                .set(ProductionOrder::getUpdateTime, LocalDateTime.now());
+        if (oldProcess == null) {
+            updateWrapper.isNull(ProductionOrder::getProcess);
+        } else {
+            updateWrapper.eq(ProductionOrder::getProcess, oldProcess);
+        }
+        int updatedRows = productionOrderMapper.update(null, updateWrapper);
+        if (updatedRows == 0) {
+            throw new BusinessException(409, "订单状态已被其他操作更新，请刷新后重试");
+        }
+        order.setStatus(targetStatus);
+        order.setProcess(targetProcess);
+        order.setUpdater(resolveCurrentUserIdText());
+        order.setUpdateTime(LocalDateTime.now());
+        insertProductionRollbackLog(order, oldStatus, targetStatus, OPERATE_TYPE_ROLLBACK_APPROVED,
+                StringUtils.isNotBlank(remark) ? remark.trim() : "生产订单回退审批通过");
+        notifyProductionOrderChanged(order, oldStatus, oldProcess);
+        return order;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限添加生产订单")
     public void addProductionOrder(ProductionOrderAddRequest request) {
         this.addProductionOrder(request, null);
@@ -400,6 +504,39 @@ public class ProductionOrderService {
         productionOrderMapper.insert(productionOrder);
     }
 
+    public void syncLinkedSalesOrderToPendingMaterial(String salesOrderId, String remark) {
+        if (StringUtils.isBlank(salesOrderId)) {
+            return;
+        }
+        List<ProductionOrder> linkedOrders = productionOrderMapper.selectList(new LambdaQueryWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getSalesOrderId, salesOrderId));
+        for (ProductionOrder order : linkedOrders) {
+            String oldStatus = order.getStatus();
+            Integer oldProcess = order.getProcess();
+            if (!OrderStatusEnum.PENDING_CONFIRM.getCode().equals(oldStatus)) {
+                continue;
+            }
+            order.setStatus(OrderStatusEnum.PENDING_MATERIAL.getCode());
+            order.setProcess(null);
+            order.setUpdater(resolveCurrentUserIdText());
+            LambdaUpdateWrapper<ProductionOrder> updateWrapper = new LambdaUpdateWrapper<ProductionOrder>()
+                    .eq(ProductionOrder::getOrderId, order.getOrderId())
+                    .eq(ProductionOrder::getStatus, oldStatus)
+                    .set(ProductionOrder::getStatus, order.getStatus())
+                    .set(ProductionOrder::getProcess, order.getProcess())
+                    .set(ProductionOrder::getUpdater, order.getUpdater())
+                    .set(ProductionOrder::getUpdateTime, LocalDateTime.now());
+            int updatedRows = productionOrderMapper.update(null, updateWrapper);
+            if (updatedRows == 0) {
+                continue;
+            }
+            ProductionOrderUpdateRequest request = new ProductionOrderUpdateRequest();
+            request.setRemark(StringUtils.isNotBlank(remark) ? remark : "销售订单审批通过，同步进入备料中");
+            insertStatusLog(order.getOrderId(), oldStatus, oldProcess, order.getStatus(), order.getProcess(), request);
+            notifyProductionOrderChanged(order, oldStatus, oldProcess);
+        }
+    }
+
     private void insertStatusLog(String orderId,
                                  String oldStatus,
                                  Integer oldProcess,
@@ -417,6 +554,121 @@ public class ProductionOrderService {
         statusLog.setOperatorName(resolveCurrentUserName());
         statusLog.setCreateTime(LocalDateTime.now());
         statusLogMapper.insert(statusLog);
+    }
+
+    private void insertProductionRollbackLog(ProductionOrder order,
+                                             String oldStatus,
+                                             String newStatus,
+                                             String operateType,
+                                             String remark) {
+        ProductionOrderStatusLog statusLog = new ProductionOrderStatusLog();
+        statusLog.setTenantCode(order.getTenantCode());
+        statusLog.setOrderId(order.getOrderId());
+        statusLog.setOldStatus(oldStatus);
+        statusLog.setNewStatus(newStatus);
+        statusLog.setOperateType(operateType);
+        statusLog.setRemark(remark);
+        statusLog.setOperator(String.valueOf(TenantPermissionContext.getUserId()));
+        statusLog.setOperatorName(resolveCurrentUserName());
+        statusLog.setCreateTime(LocalDateTime.now());
+        statusLogMapper.insert(statusLog);
+    }
+
+    public ProductionOrderStatusLog findPendingProductionRollbackLog(String orderId) {
+        if (StringUtils.isBlank(orderId)) {
+            return null;
+        }
+        return statusLogMapper.selectOne(new LambdaQueryWrapper<ProductionOrderStatusLog>()
+                .eq(ProductionOrderStatusLog::getOrderId, orderId.trim())
+                .eq(ProductionOrderStatusLog::getOperateType, OPERATE_TYPE_ROLLBACK_PENDING)
+                .orderByDesc(ProductionOrderStatusLog::getId)
+                .last("LIMIT 1"));
+    }
+
+    public boolean hasPendingProductionRollbackApproval(String orderId) {
+        ProductionOrder order = StringUtils.isNotBlank(orderId) ? productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getOrderId, orderId.trim())
+                .last("LIMIT 1")) : null;
+        if (order == null) {
+            return false;
+        }
+        ProductionOrderStatusLog log = findPendingProductionRollbackLog(order.getOrderId());
+        if (log == null || !Objects.equals(normalizeStatus(order.getStatus()), normalizeStatus(log.getOldStatus()))) {
+            return false;
+        }
+        return !approvalAuditorCandidateService.findPendingAuditorIds(
+                order.getTenantCode(), APPROVAL_TYPE_ORDER, orderApprovalCode(order.getOrderId())).isEmpty();
+    }
+
+    private String resolvePreviousProductionStatus(ProductionOrder order) {
+        String currentStatus = normalizeStatus(order == null ? null : order.getStatus());
+        int currentIndex = PRODUCTION_STATUS_CODES.indexOf(currentStatus);
+        if (currentIndex <= 0) {
+            throw new BusinessException(400, "当前生产订单没有可回退的上一状态");
+        }
+        return PRODUCTION_STATUS_CODES.get(currentIndex - 1);
+    }
+
+    private void validateProductionRollbackTarget(String currentStatus, String targetStatus) {
+        String current = normalizeStatus(currentStatus);
+        String target = normalizeStatus(targetStatus);
+        if (StringUtils.isBlank(current) || StringUtils.isBlank(target)) {
+            throw new BusinessException(400, "生产订单回退状态不能为空");
+        }
+        int currentIndex = PRODUCTION_STATUS_CODES.indexOf(current);
+        int targetIndex = PRODUCTION_STATUS_CODES.indexOf(target);
+        if (currentIndex < 0 || targetIndex < 0) {
+            throw new BusinessException(400, "生产订单回退状态不合法");
+        }
+        if (targetIndex != currentIndex - 1) {
+            throw new BusinessException(400, "生产订单只能回退到上一状态");
+        }
+    }
+
+    private Integer resolveProductionRollbackProcess(String currentStatus, String targetStatus, Integer currentProcess) {
+        if (STATUS_PRODUCING.equals(currentStatus) && !STATUS_PRODUCING.equals(targetStatus)) {
+            return null;
+        }
+        if (STATUS_PRODUCING.equals(targetStatus) && currentProcess == null) {
+            return ProcessEnum.FINISHED_SHIPPING.getCode();
+        }
+        return currentProcess;
+    }
+
+    private List<Long> normalizeApprovalAuditorIds(List<Long> auditorIds) {
+        if (auditorIds == null || auditorIds.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        Long currentUserId = TenantPermissionContext.getUserId();
+        for (Long auditorId : auditorIds) {
+            if (auditorId == null || auditorId <= 0) {
+                continue;
+            }
+            if (currentUserId != null && currentUserId.equals(auditorId)) {
+                throw new BusinessException(400, "审批人不能选择提交人本人");
+            }
+            ids.add(auditorId);
+        }
+        if (ids.size() > MAX_PARALLEL_APPROVERS) {
+            throw new BusinessException(400, "审批人不能超过 " + MAX_PARALLEL_APPROVERS + " 人");
+        }
+        return new ArrayList<>(ids);
+    }
+
+    private String orderApprovalCode(String orderId) {
+        if (StringUtils.isBlank(orderId)) {
+            throw new BusinessException(400, "订单编号不能为空");
+        }
+        return ORDER_TYPE_PRODUCTION + ":" + orderId.trim();
+    }
+
+    private String normalizeStatus(String status) {
+        return StringUtils.isBlank(status) ? "" : status.trim();
+    }
+
+    private String trimToNull(String value) {
+        return StringUtils.isBlank(value) ? null : value.trim();
     }
 
     private String resolveOperateType(String oldStatus,
@@ -468,10 +720,20 @@ public class ProductionOrderService {
         }
         wechatSubscribeNotificationService.sendTodoAfterCommit(
                 creatorId,
+                currentOperatorName(),
                 "生产订单状态更新",
                 order.getOrderId() + "：" + buildStatusText(oldStatus, oldProcess) + " → " + buildStatusText(order.getStatus(), order.getProcess()),
                 "/pages/orderDetail/orderDetail?orderId=" + order.getOrderId()
         );
+    }
+
+    private String currentOperatorName() {
+        Long userId = TenantPermissionContext.getUserId();
+        if (userId == null) {
+            return "系统提醒";
+        }
+        User user = userMapper.selectById(userId);
+        return user == null || user.getName() == null || user.getName().isBlank() ? "系统提醒" : user.getName();
     }
 
     private Long parseUserId(String value) {

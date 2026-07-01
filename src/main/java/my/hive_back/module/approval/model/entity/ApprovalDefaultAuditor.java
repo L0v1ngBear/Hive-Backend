@@ -20,6 +20,8 @@ public class ApprovalDefaultAuditor {
 
     private Long auditorId;
 
+    private String auditorIds;
+
     private Integer status;
 
     private LocalDateTime createTime;

@@ -61,6 +61,12 @@ public class WechatSubscribeService {
     @Value("${wechat.mini-program.subscribe.todo-template-id:}")
     private String todoTemplateId;
 
+    @Value("${wechat.mini-program.subscribe.todo-operator-key:}")
+    private String todoOperatorKey;
+
+    @Value("${wechat.mini-program.subscribe.todo-operator-name:系统提醒}")
+    private String todoOperatorName;
+
     @Value("${wechat.mini-program.subscribe.todo-title-key:thing1}")
     private String todoTitleKey;
 
@@ -159,6 +165,10 @@ public class WechatSubscribeService {
      * 给指定用户发送待办提醒。当前作为业务预留入口，后续订单/审批变更时可直接调用。
      */
     public boolean sendTodoReminder(Long userId, String title, String content, String pagePath) {
+        return sendTodoReminder(userId, null, title, content, pagePath);
+    }
+
+    public boolean sendTodoReminder(Long userId, String operatorName, String title, String content, String pagePath) {
         if (!subscribeReady()) {
             log.info("微信订阅消息未启用，跳过待办提醒 userId={}", userId);
             return false;
@@ -176,8 +186,8 @@ public class WechatSubscribeService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("touser", subscribeUser.getOpenid());
         payload.put("template_id", todoTemplateId.trim());
-        payload.put("page", hasText(pagePath) ? pagePath : "pages/todo/todo");
-        payload.put("data", buildTodoTemplateData(title, content));
+        payload.put("page", hasText(pagePath) ? pagePath : "pages/index/index");
+        payload.put("data", buildTodoTemplateData(operatorName, title, content));
         JSONObject response = sendSubscribeMessage(payload);
         Integer errCode = response.getInteger("errcode");
         if (errCode != null && errCode == 0) {
@@ -191,8 +201,11 @@ public class WechatSubscribeService {
         return false;
     }
 
-    private Map<String, Object> buildTodoTemplateData(String title, String content) {
+    private Map<String, Object> buildTodoTemplateData(String operatorName, String title, String content) {
         Map<String, Object> data = new LinkedHashMap<>();
+        if (hasText(todoOperatorKey)) {
+            data.put(todoOperatorKey.trim(), Map.of("value", limit(hasText(operatorName) ? operatorName : todoOperatorName, 10)));
+        }
         data.put(todoTitleKey.trim(), Map.of("value", limit(title, 20)));
         data.put(todoContentKey.trim(), Map.of("value", limit(content, 20)));
         data.put(todoTimeKey.trim(), Map.of("value", LocalDateTime.now().format(SUBSCRIBE_TIME_FORMATTER)));
@@ -336,14 +349,28 @@ public class WechatSubscribeService {
     }
 
     private void requireSubscribeTemplateKeys() {
+        if (hasText(todoOperatorKey)) {
+            requireTemplateKey(todoOperatorKey, "催办人字段");
+        }
         requireTemplateKey(todoTitleKey, "待办标题字段");
         requireTemplateKey(todoContentKey, "待办内容字段");
         requireTemplateKey(todoTimeKey, "待办时间字段");
-        if (todoTitleKey.trim().equals(todoContentKey.trim())
-                || todoTitleKey.trim().equals(todoTimeKey.trim())
-                || todoContentKey.trim().equals(todoTimeKey.trim())) {
+        if (templateKeysDuplicated(todoOperatorKey, todoTitleKey, todoContentKey, todoTimeKey)) {
             throw new BusinessException("微信订阅消息模板字段不能重复");
         }
+    }
+
+    private boolean templateKeysDuplicated(String... keys) {
+        java.util.HashSet<String> seen = new java.util.HashSet<>();
+        for (String key : keys) {
+            if (!hasText(key)) {
+                continue;
+            }
+            if (!seen.add(key.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void requireTemplateKey(String key, String label) {

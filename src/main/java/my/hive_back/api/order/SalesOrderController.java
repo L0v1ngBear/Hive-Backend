@@ -98,6 +98,19 @@ public class SalesOrderController {
         return Result.success(vo);
     }
 
+    @PostMapping("/orders/{orderId}/rollback")
+    @CollectLog(module = "order", action = "mini_submit_sales_rollback", bizType = "sales_order", bizNo = "#orderId", description = "小程序提交销售订单回退审批")
+    public Result<SalesOrderVO> submitRollbackApproval(
+            @NotBlank @PathVariable String orderId,
+            @RequestBody(required = false) SalesOrderUpdateRequest request) {
+
+        SalesOrder order = salesOrderService.submitRollbackApproval(orderId, request);
+
+        SalesOrderVO vo = new SalesOrderVO();
+        BeanUtils.copyProperties(order, vo);
+        return Result.success(vo);
+    }
+
     @PostMapping("/orders/{flowCode}/flow-advance")
     @CollectLog(module = "order", action = "mini_scan_advance_sales", bizType = "sales_order", description = "小程序扫码推进销售订单", recordArgs = false)
     public Result<SalesOrderVO> advanceOrderByFlowCode(@NotBlank @PathVariable String flowCode) {

@@ -77,7 +77,7 @@ public class SalesOrderVO {
         /**
          * 克重
          */
-        private Float weight;
+        private String weight;
 
         /**
          * 规格/幅宽

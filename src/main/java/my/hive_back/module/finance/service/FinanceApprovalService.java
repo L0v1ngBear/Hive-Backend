@@ -76,7 +76,7 @@ public class FinanceApprovalService {
         approval.setAttachmentUrl(InternalUploadUrlValidator.normalizeOptionalFinanceAttachment(request.getAttachmentUrl(), tenantCode));
         approval.setAttachmentSize(safeAttachmentSize(request.getAttachmentSize()));
         approval.setStatus(STATUS_PENDING);
-        assignAuditors(approval, request.getAuditorId(), true);
+        assignAuditors(approval, request.getAuditorId(), request.getAuditorIds(), true);
         financeApprovalMapper.insert(approval);
         notifyFinancePendingApprover(approval);
         return approval.getApprovalCode();
@@ -85,7 +85,6 @@ public class FinanceApprovalService {
     public FinanceApproval getByCode(String approvalCode) {
         String tenantCode = TenantPermissionContext.getTenantCode();
         FinanceApproval approval = financeApprovalMapper.selectOne(new LambdaQueryWrapper<FinanceApproval>()
-                .eq(tenantCode != null, FinanceApproval::getTenantCode, tenantCode)
                 .eq(FinanceApproval::getApprovalCode, approvalCode));
         if (approval == null) {
             throw new BusinessException("财务审批单不存在");
@@ -104,7 +103,6 @@ public class FinanceApprovalService {
             return List.of();
         }
         LambdaQueryWrapper<FinanceApproval> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinanceApproval::getTenantCode, tenantCode);
         if (status != null) {
             queryWrapper.eq(FinanceApproval::getStatus, status);
         }
@@ -138,8 +136,25 @@ public class FinanceApprovalService {
 
         Long previousAuditorId = approval.getAuditorId();
         String previousAuditorIds = approval.getAuditorIds();
-        approval.setAuditComment(request.getComment());
-        if (ApprovalActionEnum.APPROVE.getCode() == request.getAction()) {
+        String auditComment = request.getComment();
+        boolean approve = ApprovalActionEnum.APPROVE.getCode() == request.getAction();
+        boolean candidateFlow = markCandidateDecisionIfPresent(
+                approval.getTenantCode(), APPROVAL_TYPE_FINANCE, approval.getApprovalCode(), currentUserId, approve, auditComment);
+        approval.setAuditComment(auditComment);
+        if (candidateFlow && !approve) {
+            approval.setStatus(STATUS_REJECTED);
+            approvalAuditorCandidateService.closeActiveCandidates(
+                    approval.getTenantCode(), APPROVAL_TYPE_FINANCE, approval.getApprovalCode());
+            financeApprovalMapper.updateById(approval);
+            notifyFinanceAuditChange(approval, previousAuditorId, previousAuditorIds);
+            return;
+        }
+        if (candidateFlow && approvalAuditorCandidateService.hasPendingAuditors(
+                approval.getTenantCode(), APPROVAL_TYPE_FINANCE, approval.getApprovalCode())) {
+            financeApprovalMapper.updateById(approval);
+            return;
+        }
+        if (approve) {
             Long nextManagerId = userService.getManagerId(currentUserId);
             Integer roleLevel = userService.getRoleLevel(currentUserId);
             if (roleLevel != null && roleLevel >= 2 || nextManagerId == null) {
@@ -159,11 +174,13 @@ public class FinanceApprovalService {
     }
 
     private void notifyFinancePendingApprover(FinanceApproval approval) {
+        String applicantName = buildApplicantName(approval.getApplyUserId());
         for (Long auditorId : resolveNotifyAuditorIds(approval.getAuditorId(), approval.getAuditorIds())) {
             wechatSubscribeNotificationService.sendTodoAfterCommit(
                     auditorId,
+                    applicantName,
                     "财务审批待处理",
-                    buildApplicantName(approval.getApplyUserId()) + " 提交了财务单 " + approval.getApprovalCode(),
+                    applicantName + " 提交了财务单 " + approval.getApprovalCode(),
                     "/pages/approval/approval"
             );
         }
@@ -222,28 +239,80 @@ public class FinanceApprovalService {
     }
 
     private void assignAuditors(FinanceApproval approval, Long primaryAuditorId, boolean strictPrimary) {
-        Long auditorId = resolveSingleAuditorId(
+        assignAuditors(approval, primaryAuditorId, null, strictPrimary);
+    }
+
+    private void assignAuditors(FinanceApproval approval, Long primaryAuditorId, List<Long> specifiedAuditorIds, boolean strictPrimary) {
+        List<Long> auditorIds = resolveAuditorIds(
                 approval.getTenantCode(),
                 approval.getApplyUserId(),
                 primaryAuditorId,
+                specifiedAuditorIds,
                 APPROVAL_TYPE_FINANCE,
                 PermissionCodeEnum.CODE_APPROVAL_FINANCE_AUDIT,
                 strictPrimary
         );
-        approval.setAuditorId(auditorId);
-        approval.setAuditorIds(null);
+        applyAuditors(approval, auditorIds);
         approvalAuditorCandidateService.replaceActiveCandidates(
-                approval.getTenantCode(), APPROVAL_TYPE_FINANCE, approval.getApprovalCode(), List.of(auditorId));
+                approval.getTenantCode(), APPROVAL_TYPE_FINANCE, approval.getApprovalCode(), auditorIds);
     }
 
-    private Long resolveSingleAuditorId(String tenantCode,
-                                        Long applyUserId,
-                                        Long primaryAuditorId,
-                                        String approvalType,
-                                        String permissionCode,
-                                        boolean strictPrimary) {
-        return approvalDefaultAuditorService.resolveAuditorId(
+    private List<Long> resolveAuditorIds(String tenantCode,
+                                         Long applyUserId,
+                                         Long primaryAuditorId,
+                                         List<Long> specifiedAuditorIds,
+                                         String approvalType,
+                                         String permissionCode,
+                                         boolean strictPrimary) {
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        if (specifiedAuditorIds != null && !specifiedAuditorIds.isEmpty()) {
+            List<Long> permittedIds = userMapper.selectActiveApproverIdsByPermission(tenantCode, permissionCode);
+            for (Long auditorId : specifiedAuditorIds) {
+                addCandidateAuditor(ids, auditorId, applyUserId);
+            }
+            if (ids.isEmpty()) {
+                throw new BusinessException("审批人不能为空");
+            }
+            if (ids.size() > MAX_PARALLEL_APPROVERS) {
+                throw new BusinessException("审批人最多选择 " + MAX_PARALLEL_APPROVERS + " 人");
+            }
+            if (!permittedIds.containsAll(ids)) {
+                throw new BusinessException("选择的审批人没有对应审批权限");
+            }
+            return new ArrayList<>(ids);
+        }
+        Long auditorId = approvalDefaultAuditorService.resolveAuditorId(
                 tenantCode, approvalType, applyUserId, primaryAuditorId, permissionCode, strictPrimary);
+        addCandidateAuditor(ids, auditorId, applyUserId);
+        if (ids.isEmpty()) {
+            throw new BusinessException("审批人不能为空");
+        }
+        return new ArrayList<>(ids);
+    }
+
+    private void applyAuditors(FinanceApproval approval, List<Long> auditorIds) {
+        approval.setAuditorId(auditorIds.get(0));
+        approval.setAuditorIds(auditorIds.size() > 1 ? joinAuditorIds(auditorIds) : null);
+    }
+
+    private boolean markCandidateDecisionIfPresent(String tenantCode,
+                                                   String approvalType,
+                                                   String approvalCode,
+                                                   Long auditorId,
+                                                   boolean approve,
+                                                   String comment) {
+        if (!approvalAuditorCandidateService.isPendingAuditor(tenantCode, approvalType, approvalCode, auditorId)) {
+            return false;
+        }
+        approvalAuditorCandidateService.markAuditorDecision(
+                tenantCode,
+                approvalType,
+                approvalCode,
+                auditorId,
+                approve,
+                comment
+        );
+        return true;
     }
 
     private void addCandidateAuditor(LinkedHashSet<Long> ids, Long auditorId, Long applyUserId) {

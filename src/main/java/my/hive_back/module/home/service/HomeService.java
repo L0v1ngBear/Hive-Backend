@@ -5,13 +5,11 @@ import my.hive.common.context.TenantPermissionContext;
 import my.hive_back.module.home.model.vo.HomeSummaryVO;
 import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.model.entity.Tenant;
-import my.hive_back.module.todo.model.vo.TodoItemVO;
 import my.hive_back.module.todo.service.TodoService;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.Set;
 /**
  * HomeService 属于小程序后端首页模块，实现核心业务编排与规则逻辑。
@@ -49,13 +47,10 @@ public class HomeService {
 
         if (!joinedOrganization) {
             vo.setTodoCount(0);
-            vo.setTodoList(List.of());
             return vo;
         }
 
-        List<TodoItemVO> todoItems = todoService.listHomeTodos(6);
         vo.setTodoCount(todoService.countAll());
-        vo.setTodoList(todoItems);
         return vo;
     }
 
@@ -150,8 +145,7 @@ public class HomeService {
                 return true;
             }
         }
-        Set<String> currentPerms = TenantPermissionContext.getPermCodes();
-        return currentPerms != null && currentPerms.contains("*");
+        return false;
     }
 
     private String normalizeTenantCode(String tenantCode) {

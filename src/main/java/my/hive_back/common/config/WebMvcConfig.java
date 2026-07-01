@@ -27,7 +27,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
             "/favicon.ico",
             "/error",
             "/auth/login",
-            "/auth/wechat-login"
+            "/auth/wechat-login",
+            "/wechat/subscribe/config"
     };
 
     @Resource

@@ -43,7 +43,7 @@ springdoc:
 auth:
   token:
     secret: ${AUTH_TOKEN_SECRET:hive-mini-dev-token-secret}
-    expire-hours: ${AUTH_TOKEN_EXPIRE_HOURS:24}
+    expire-hours: ${AUTH_TOKEN_EXPIRE_HOURS:720}
     renew-enabled: ${AUTH_TOKEN_RENEW_ENABLED:true}
     renew-before-minutes: ${AUTH_TOKEN_RENEW_BEFORE_MINUTES:120}
   allow-legacy-header: false
@@ -77,6 +77,8 @@ wechat:
     subscribe:
       enabled: ${WECHAT_SUBSCRIBE_ENABLED:${WECHAT_MINI_ENABLED:false}}
       todo-template-id: ${WECHAT_TODO_TEMPLATE_ID:}
+      todo-operator-key: ${WECHAT_TODO_OPERATOR_KEY:}
+      todo-operator-name: ${WECHAT_TODO_OPERATOR_NAME:系统提醒}
       todo-title-key: ${WECHAT_TODO_TITLE_KEY:thing1}
       todo-content-key: ${WECHAT_TODO_CONTENT_KEY:thing2}
       todo-time-key: ${WECHAT_TODO_TIME_KEY:time3}
@@ -128,8 +130,8 @@ hive:
     # BOUNDED = keep tenant_code isolation, but only allow the configured fixed tenants.
     # OPEN is reserved for a future multi-tenant platform and should not be used now.
     mode: ${HIVE_TENANT_MODE:BOUNDED}
-    default-code: ${HIVE_DEFAULT_TENANT_CODE:${HIVE_SINGLE_TENANT_CODE:TENANT_001}}
-    allowed-codes: ${HIVE_ALLOWED_TENANT_CODES:TENANT_001,TENANT_002}
+    default-code: ${HIVE_DEFAULT_TENANT_CODE:${HIVE_SINGLE_TENANT_CODE:}}
+    allowed-codes: ${HIVE_ALLOWED_TENANT_CODES:}
     max-count: ${HIVE_TENANT_MAX_COUNT:2}
   single-tenant:
     enabled: ${HIVE_SINGLE_TENANT_ENABLED:false}

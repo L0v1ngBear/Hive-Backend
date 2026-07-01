@@ -1,5 +1,6 @@
 package my.hive_back.module.inventory.mapper;
 
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import my.hive_back.module.inventory.model.entity.Cloth;
 import my.hive_back.module.inventory.model.vo.InventoryRecordVO;
@@ -14,6 +15,7 @@ import java.util.List;
  */
 public interface ClothMapper extends BaseMapper<Cloth> {
 
+    @InterceptorIgnore(tenantLine = "true")
     @Select({
             "SELECT COUNT(1) FROM (",
             "SELECT model_code FROM cloth ",
@@ -24,6 +26,7 @@ public interface ClothMapper extends BaseMapper<Cloth> {
     })
     Long countWarningModels(@Param("tenantCode") String tenantCode, @Param("threshold") BigDecimal threshold);
 
+    @InterceptorIgnore(tenantLine = "true")
     @Select({
             "SELECT MIN(id) AS id, model_code AS modelCode, ",
             "CAST(COALESCE(SUM(remaining_meters), 0) AS DECIMAL(18, 2)) AS meters, ",

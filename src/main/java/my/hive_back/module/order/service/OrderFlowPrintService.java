@@ -53,7 +53,6 @@ public class OrderFlowPrintService {
     public OrderFlowPrintTaskVO createSalesTask(OrderFlowPrintTaskRequest request) {
         String orderId = requireOrderId(request);
         SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrder::getOrderId, orderId)
                 .last("LIMIT 1"));
         if (order == null) {
@@ -79,7 +78,6 @@ public class OrderFlowPrintService {
     public OrderFlowPrintTaskVO createProductionTask(OrderFlowPrintTaskRequest request) {
         String orderId = requireOrderId(request);
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(ProductionOrder::getOrderId, orderId)
                 .last("LIMIT 1"));
         if (order == null) {
@@ -111,7 +109,6 @@ public class OrderFlowPrintService {
 
     private Map<String, Object> buildSalesPayload(SalesOrder order) {
         SalesOrderDetail firstItem = salesOrderDetailMapper.selectOne(new LambdaQueryWrapper<SalesOrderDetail>()
-                .eq(SalesOrderDetail::getTenantCode, TenantPermissionContext.getTenantCode())
                 .eq(SalesOrderDetail::getOrderId, order.getOrderId())
                 .orderByAsc(SalesOrderDetail::getId)
                 .last("LIMIT 1"));
@@ -171,7 +168,7 @@ public class OrderFlowPrintService {
         String flowScanCode = OrderFlowCodeUtil.buildScanCode(orderType, flowCode, safeOrderId);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("orderId", safeOrderId);
-        payload.put("barcode", safeOrderId);
+        payload.put("barcode", flowScanCode);
         payload.put("flowCode", flowCode);
         payload.put("flowScanCode", flowScanCode);
         payload.put("flowBarcode", flowScanCode);
@@ -212,6 +209,9 @@ public class OrderFlowPrintService {
     }
 
     private String categoryLabel(String category) {
+        if (OrderCategoryEnum.SPECIAL_ORDER.getCode().equals(OrderCategoryEnum.normalize(category))) {
+            return "特殊订单";
+        }
         return switch (OrderCategoryEnum.normalize(category)) {
             case "sample_room" -> "样板间";
             case "replenishment" -> "补单";
@@ -221,7 +221,15 @@ public class OrderFlowPrintService {
     }
 
     private String buildQrPayload(Map<String, Object> payload) {
-        return stringValue(payload.get("flowScanCode"));
+        Map<String, Object> qrPayload = new LinkedHashMap<>();
+        qrPayload.put("version", "1");
+        qrPayload.put("codeType", "order_flow");
+        qrPayload.put("orderType", stringValue(payload.get("orderType")));
+        qrPayload.put("orderId", stringValue(payload.get("orderId")));
+        qrPayload.put("flowCode", stringValue(payload.get("flowCode")));
+        qrPayload.put("flowScanCode", stringValue(payload.get("flowScanCode")));
+        qrPayload.put("generatedAt", stringValue(payload.get("generatedAt")));
+        return toSimpleJson(qrPayload);
     }
 
     private String toSimpleJson(Map<String, Object> source) {

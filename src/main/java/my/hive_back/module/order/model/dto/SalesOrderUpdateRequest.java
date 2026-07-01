@@ -6,6 +6,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * 销售订单状态流转入参。
  */
@@ -14,10 +16,14 @@ public class SalesOrderUpdateRequest {
 
     @NotBlank(message = "目标状态不能为空")
     @Pattern(
-            regexp = "^(budgeting|budget_completed|pending_confirm|pending_pay|pending_material|producing|pending_ship|shipped|completed)$",
+            regexp = "^(budgeting|budget_completed|pending_confirm|pending_pay|pending_material|producing|pending_ship|shipped|completed|pending_cancel|cancelled)$",
             message = "目标状态不合法"
     )
     private String status;
+
+    private String remark;
+
+    private List<Long> auditorIds;
 
     @Valid
     private ExpressInfo expressInfo;

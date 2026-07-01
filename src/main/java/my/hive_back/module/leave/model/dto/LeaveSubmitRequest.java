@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class LeaveSubmitRequest {
@@ -25,4 +26,6 @@ public class LeaveSubmitRequest {
      * 可手动指定审批人；为空时走当前租户的默认审批负责人。
      */
     private Long auditorId;
+
+    private List<Long> auditorIds;
 }

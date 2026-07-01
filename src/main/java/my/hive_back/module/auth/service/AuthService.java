@@ -87,7 +87,7 @@ public class AuthService {
     @Value("${auth.login.max-ip-fail-count:20}")
     private Long maxIpFailCount;
 
-    @Value("${auth.token.expire-hours:24}")
+    @Value("${auth.token.expire-hours:720}")
     private Long tokenExpireHours;
 
     @Value("${hive.single-tenant.name:当前组织}")

@@ -43,7 +43,7 @@ public class SalesOrderDetail {
     /**
      * 销售明细克重字段，对齐小程序新建销售单页面的录入结构。
      */
-    private Float weight;
+    private String weight;
 
     /**
      * 规格描述。

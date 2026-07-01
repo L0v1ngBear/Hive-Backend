@@ -48,8 +48,8 @@ public class SalesOrderAddRequest {
 
         private BigDecimal quantity;
 
-        @Schema(description = "克重")
-        private Float weight;
+        @Schema(description = "商品类别")
+        private String weight;
 
         private Float spec;
 

@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 public class FinanceSubmitRequest {
@@ -24,6 +25,8 @@ public class FinanceSubmitRequest {
      * 可手动指定审批人；为空时走当前租户的默认审批负责人。
      */
     private Long auditorId;
+
+    private List<Long> auditorIds;
 
     private String attachmentName;
 

@@ -169,10 +169,20 @@ public class BadProductService {
         }
         wechatSubscribeNotificationService.sendTodoAfterCommit(
                 entity.getCreatorId(),
+                currentOperatorName(),
                 "质量处理结果",
                 "质量记录 " + entity.getDefectiveId() + " 已处理",
                 "/pages/badProduct/badProduct"
         );
+    }
+
+    private String currentOperatorName() {
+        Long userId = TenantPermissionContext.getUserId();
+        if (userId == null) {
+            return "系统提醒";
+        }
+        User user = userMapper.selectById(userId);
+        return user == null || user.getName() == null || user.getName().isBlank() ? "系统提醒" : user.getName();
     }
 
     private BadProductVO toVO(BadProductRecord entity) {

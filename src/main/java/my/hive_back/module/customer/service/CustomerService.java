@@ -45,7 +45,6 @@ public class CustomerService {
         String tenantCode = TenantPermissionContext.getTenantCode();
 
         Long count = customerMapper.selectCount(new LambdaQueryWrapper<Customer>()
-                .eq(Customer::getTenantCode, tenantCode)
                 .eq(Customer::getCustomerName, request.getCustomerName()));
         if (count > 0) {
             throw new BusinessException("该客户已存在，请勿重复添加");
@@ -89,14 +88,13 @@ public class CustomerService {
         String keyword = request.getKeyword();
         String tenantCode = TenantPermissionContext.getTenantCode();
         LambdaQueryWrapper<Customer> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Customer::getTenantCode, tenantCode);
 
         if (StringUtils.isNotBlank(keyword)) {
             String safeKeyword = keyword.trim();
             wrapper.and(w -> w
                     .like(Customer::getCustomerName, safeKeyword)
-                    .or().apply("id IN (SELECT customer_id FROM customer_project WHERE tenant_code = {0} AND (project_name LIKE CONCAT('%', {1}, '%') OR project_owner LIKE CONCAT('%', {1}, '%')))", tenantCode, safeKeyword)
-                    .or().apply("id IN (SELECT customer_id FROM customer_contact WHERE tenant_code = {0} AND (contact_name LIKE CONCAT('%', {1}, '%') OR contact_phone LIKE CONCAT('%', {1}, '%')))", tenantCode, safeKeyword)
+                    .or().apply("id IN (SELECT customer_id FROM customer_project WHERE (project_name LIKE CONCAT('%', {0}, '%') OR project_owner LIKE CONCAT('%', {0}, '%')))", safeKeyword)
+                    .or().apply("id IN (SELECT customer_id FROM customer_contact WHERE (contact_name LIKE CONCAT('%', {0}, '%') OR contact_phone LIKE CONCAT('%', {0}, '%')))", safeKeyword)
             );
         }
 
@@ -109,17 +107,14 @@ public class CustomerService {
         String tenantCode = TenantPermissionContext.getTenantCode();
         Customer customer = customerMapper.selectOne(new LambdaQueryWrapper<Customer>()
                 .eq(Customer::getId, id)
-                .eq(Customer::getTenantCode, tenantCode)
                 .last("LIMIT 1"));
         if (customer == null) {
             throw new BusinessException("客户不存在");
         }
 
         List<CustomerContact> customerContactList = customerContactMapper.selectList(new LambdaQueryWrapper<CustomerContact>()
-                .eq(CustomerContact::getTenantCode, tenantCode)
                 .eq(CustomerContact::getCustomerId, id));
         List<CustomerProject> customerProjectList = customerProjectMapper.selectList(new LambdaQueryWrapper<CustomerProject>()
-                .eq(CustomerProject::getTenantCode, tenantCode)
                 .eq(CustomerProject::getCustomerId, id));
 
         CustomerDetailVO customerDetailVO = new CustomerDetailVO();

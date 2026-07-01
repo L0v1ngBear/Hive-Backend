@@ -46,7 +46,6 @@ public class DocumentService {
         String tenantCode = requireTenantCode();
         Long normalizedParentId = normalizeParentId(parentId);
         LambdaQueryWrapper<Document> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(Document::getTenantCode, tenantCode);
         queryWrapper.eq(Document::getParentId, normalizedParentId);
         queryWrapper.eq(Document::getIsDeleted, DeleteFlagEnum.NORMAL.getCode());
         queryWrapper.orderByAsc(Document::getType);
@@ -204,7 +203,6 @@ public class DocumentService {
 
     private void ensureNameNotExists(String tenantCode, Long parentId, String name, Long excludeId) {
         LambdaQueryWrapper<Document> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(Document::getTenantCode, tenantCode);
         queryWrapper.eq(Document::getParentId, parentId);
         queryWrapper.eq(Document::getName, name);
         queryWrapper.eq(Document::getIsDeleted, DeleteFlagEnum.NORMAL.getCode());

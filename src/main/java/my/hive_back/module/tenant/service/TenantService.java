@@ -58,7 +58,6 @@ public class TenantService {
         TenantAttendanceRule tenantLocation = getCachedAttendanceRule(tenantCode);
         if (tenantLocation == null) {
             tenantLocation = tenantLocationMapper.selectOne(new LambdaQueryWrapper<TenantAttendanceRule>()
-                    .eq(TenantAttendanceRule::getTenantCode, tenantCode)
                     .last("LIMIT 1"));
             cacheAttendanceRule(tenantCode, tenantLocation);
         }

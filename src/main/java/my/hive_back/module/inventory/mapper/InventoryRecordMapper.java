@@ -1,5 +1,6 @@
 package my.hive_back.module.inventory.mapper;
 
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
 import my.hive_back.module.inventory.model.vo.InventoryDailyMetersVO;
@@ -13,6 +14,7 @@ import java.time.LocalDateTime;
  */
 public interface InventoryRecordMapper extends BaseMapper<InventoryRecord> {
 
+    @InterceptorIgnore(tenantLine = "true")
     @Select({
             "SELECT ",
             "COALESCE(SUM(CASE WHEN operate_type IN (#{inType}, #{externalImportType}) THEN operate_meters ELSE 0 END), 0) AS inMeters, ",
