@@ -15,6 +15,7 @@ import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.customer.mapper.CustomerProjectMapper;
 import my.hive_back.module.customer.model.dto.CustomerAddRequest;
 import my.hive_back.module.customer.model.dto.CustomerPageRequest;
+import my.hive_back.module.customer.model.dto.CustomerUpdateRequest;
 import my.hive_back.module.customer.model.entity.Customer;
 import my.hive_back.module.customer.model.entity.CustomerProject;
 import my.hive_back.module.customer.model.vo.CustomerDetailVO;
@@ -47,6 +48,14 @@ public class CustomerController {
     @CollectLog(module = "customer", action = "mini_create", bizType = "customer", bizNo = "#request.customerName", description = "小程序新增客户")
     public Result<Void> addCustomer(@Valid @RequestBody CustomerAddRequest request) {
         customerService.addCustomer(request);
+        return Result.success(null);
+    }
+
+    @PostMapping("/update")
+    @RequirePermission(value = PermissionCodeEnum.CODE_CUSTOMER_UPDATE, message = "没有权限编辑客户")
+    @CollectLog(module = "customer", action = "mini_update", bizType = "customer", bizNo = "#request.id", description = "手机端编辑客户")
+    public Result<Void> updateCustomer(@Valid @RequestBody CustomerUpdateRequest request) {
+        customerService.updateCustomer(request);
         return Result.success(null);
     }
 

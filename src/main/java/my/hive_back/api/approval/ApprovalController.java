@@ -13,9 +13,11 @@ import my.hive_back.common.storage.BusinessImageAttachmentService;
 import my.hive_back.common.storage.BusinessImageAttachmentVO;
 import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.approval.model.dto.OrderApprovalAuditRequest;
+import my.hive_back.module.approval.model.dto.QualityAuditRequest;
 import my.hive_back.module.approval.model.vo.ApprovalAuditorOptionVO;
 import my.hive_back.module.approval.model.vo.ApprovalSummaryVO;
 import my.hive_back.module.approval.model.vo.OrderApprovalVO;
+import my.hive_back.module.approval.model.vo.QualityApprovalVO;
 import my.hive_back.module.approval.service.ApprovalCenterService;
 import my.hive_back.module.finance.model.dto.FinanceAuditRequest;
 import my.hive_back.module.finance.model.dto.FinanceSubmitRequest;
@@ -191,23 +193,43 @@ public class ApprovalController {
     }
 
     @GetMapping("/order/list")
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_LIST, message = "您没有权限查看订单审批列表")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限查看订单审批列表")
     public Result<List<OrderApprovalVO>> listOrderApprovals() {
         return Result.success(approvalCenterService.listOrderApprovals());
     }
 
     @GetMapping("/order/{orderType}/{orderId}")
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_DETAIL, message = "您没有权限查看订单审批详情")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_DETAIL, message = "您没有权限查看订单审批详情")
     public Result<OrderApprovalVO> getOrderApprovalDetail(@NotBlank @PathVariable String orderType,
                                                           @NotBlank @PathVariable String orderId) {
         return Result.success(approvalCenterService.detail(orderType, orderId));
     }
 
     @PostMapping("/order/audit")
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限处理订单审批")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限处理订单审批")
     @CollectLog(module = "approval", action = "audit_order", bizType = "order_approval", bizNo = "#auditRequest.orderId", description = "小程序确认待审批订单")
     public Result<String> auditOrderApproval(@Valid @RequestBody OrderApprovalAuditRequest auditRequest) {
         approvalCenterService.audit(auditRequest);
         return Result.success("订单审批处理完成");
+    }
+
+    @GetMapping("/quality/list")
+    @RequirePermission(value = PermissionCodeEnum.CODE_BADPRODUCT_PROCESS, message = "您没有权限查看质量审核列表")
+    public Result<List<QualityApprovalVO>> listQualityApprovals(@RequestParam(required = false) Integer limit) {
+        return Result.success(approvalCenterService.listQualityApprovals(limit));
+    }
+
+    @GetMapping("/quality/{defectiveId}")
+    @RequirePermission(value = PermissionCodeEnum.CODE_BADPRODUCT_PROCESS, message = "您没有权限查看质量审核详情")
+    public Result<QualityApprovalVO> getQualityApprovalDetail(@NotBlank @PathVariable("defectiveId") String defectiveId) {
+        return Result.success(approvalCenterService.getQualityApprovalDetail(defectiveId));
+    }
+
+    @PostMapping("/quality/audit")
+    @RequirePermission(value = PermissionCodeEnum.CODE_BADPRODUCT_PROCESS, message = "您没有权限审核质量处理")
+    @CollectLog(module = "approval", action = "audit_quality", bizType = "quality_approval", bizNo = "#auditRequest.defectiveId", description = "小程序审核质量处理")
+    public Result<String> auditQualityApproval(@Valid @RequestBody QualityAuditRequest auditRequest) {
+        approvalCenterService.auditQualityApproval(auditRequest);
+        return Result.success("质量审核处理完成");
     }
 }

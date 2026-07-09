@@ -4,6 +4,7 @@ import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.constraints.NotBlank;
@@ -111,13 +112,15 @@ public class ProductionOrderService {
         return vo;
     }
 
-    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, message = "您没有权限查询生产订单列表")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限查询订单列表")
     public Page<ProductionOrder> selectProductionOrder(ProductionOrderListRequest request) {
         LambdaQueryWrapper<ProductionOrder> queryWrapper = new LambdaQueryWrapper<>();
 
         if (StringUtils.isNotBlank(request.getStatus())) {
             queryWrapper.eq(ProductionOrder::getStatus, request.getStatus());
         }
+        Set<String> permittedStatuses = permittedOrderStatuses(PRODUCTION_STATUS_CODES);
+        applyOrderStatusPermissionFilter(queryWrapper, ProductionOrder::getStatus, permittedStatuses);
         if (StringUtils.isNotBlank(request.getOrderCategory())) {
             queryWrapper.eq(ProductionOrder::getOrderCategory, OrderCategoryEnum.normalize(request.getOrderCategory()));
         }
@@ -143,12 +146,13 @@ public class ProductionOrderService {
         );
     }
 
-    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LIST, message = "您没有权限查询生产订单统计")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限查询订单统计")
     public Map<String, Long> countProductionOrderStatuses() {
+        Set<String> permittedStatuses = permittedOrderStatuses(PRODUCTION_STATUS_CODES);
         Map<String, Long> result = new LinkedHashMap<>();
-        result.put("total", safeCount(productionOrderMapper.selectCount(new LambdaQueryWrapper<>())));
+        result.put("total", safeCount(productionOrderMapper.selectCount(scopedProductionOrderWrapper(permittedStatuses))));
         for (String status : PRODUCTION_STATUS_CODES) {
-            result.put(status, safeCount(productionOrderMapper.selectCount(new LambdaQueryWrapper<ProductionOrder>()
+            result.put(status, safeCount(productionOrderMapper.selectCount(scopedProductionOrderWrapper(permittedStatuses)
                     .eq(ProductionOrder::getStatus, status))));
         }
         return result;
@@ -169,7 +173,69 @@ public class ProductionOrderService {
         return count == null ? 0L : count;
     }
 
-    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_DETAIL, message = "您没有权限查询生产订单详情")
+    private LambdaQueryWrapper<ProductionOrder> scopedProductionOrderWrapper(Set<String> permittedStatuses) {
+        LambdaQueryWrapper<ProductionOrder> wrapper = new LambdaQueryWrapper<>();
+        applyOrderStatusPermissionFilter(wrapper, ProductionOrder::getStatus, permittedStatuses);
+        return wrapper;
+    }
+
+    private <T> void applyOrderStatusPermissionFilter(LambdaQueryWrapper<T> wrapper,
+                                                       SFunction<T, String> statusColumn,
+                                                       Set<String> permittedStatuses) {
+        if (permittedStatuses == null) {
+            return;
+        }
+        if (permittedStatuses.isEmpty()) {
+            wrapper.apply("1 = 0");
+            return;
+        }
+        wrapper.in(statusColumn, permittedStatuses);
+    }
+
+    private Set<String> permittedOrderStatuses(List<String> supportedStatuses) {
+        Set<String> permCodes = TenantPermissionContext.getPermCodes();
+        if (hasUnrestrictedOrderStatusPermission(permCodes)) {
+            return null;
+        }
+        Set<String> supported = new LinkedHashSet<>(supportedStatuses);
+        Set<String> permittedStatuses = new LinkedHashSet<>();
+        for (String permCode : permCodes) {
+            if (StringUtils.isBlank(permCode) || !permCode.startsWith(PermissionCodeEnum.CODE_ORDER_STATUS_PREFIX)) {
+                continue;
+            }
+            String status = permCode.substring(PermissionCodeEnum.CODE_ORDER_STATUS_PREFIX.length()).replace('-', '_');
+            if (supported.contains(status)) {
+                permittedStatuses.add(status);
+            }
+        }
+        return permittedStatuses;
+    }
+
+    private boolean hasUnrestrictedOrderStatusPermission(Set<String> permCodes) {
+        return permCodes.contains("*")
+                || permCodes.contains("*:*")
+                || permCodes.contains(PermissionCodeEnum.CODE_ORDER_ALL)
+                || permCodes.contains(PermissionCodeEnum.CODE_ORDER_STATUS_ALL);
+    }
+
+    private void assertOrderStatusPermission(String status) {
+        if (TenantPermissionContext.hasPermission(PermissionCodeEnum.CODE_ORDER_ALL)
+                || TenantPermissionContext.hasPermission(PermissionCodeEnum.CODE_ORDER_STATUS_ALL)) {
+            return;
+        }
+        String requiredPermission = orderStatusPermission(status);
+        if (TenantPermissionContext.hasPermission(requiredPermission)) {
+            return;
+        }
+        throw new BusinessException(403, "当前账号没有该订单状态维护权限");
+    }
+
+    private String orderStatusPermission(String status) {
+        String normalizedStatus = StringUtils.isNotBlank(status) ? status.trim().replace('_', '-') : "";
+        return PermissionCodeEnum.CODE_ORDER_STATUS_PREFIX + normalizedStatus;
+    }
+
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_DETAIL, message = "您没有权限查询订单详情")
     public ProductionOrder selectProductionOrderDetail(String orderId) {
         ProductionOrder productionOrder = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
                 .eq(ProductionOrder::getOrderId, orderId));
@@ -178,18 +244,26 @@ public class ProductionOrderService {
             throw new BusinessException(400, "订单不存在");
         }
 
+        assertOrderStatusPermission(productionOrder.getStatus());
         return productionOrder;
     }
 
-    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_LOG, message = "您没有权限查询生产订单状态变更日志")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_DETAIL, message = "您没有权限查询订单状态变更日志")
     public List<ProductionOrderStatusLog> selectOrderStausLog(@NotBlank String orderId) {
+        ProductionOrder productionOrder = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
+                .eq(ProductionOrder::getOrderId, orderId)
+                .last("LIMIT 1"));
+        if (productionOrder == null) {
+            throw new BusinessException(400, "订单不存在");
+        }
+        assertOrderStatusPermission(productionOrder.getStatus());
         LambdaQueryWrapper<ProductionOrderStatusLog> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(ProductionOrderStatusLog::getOrderId, orderId);
         queryWrapper.orderByAsc(ProductionOrderStatusLog::getCreateTime);
         return statusLogMapper.selectList(queryWrapper);
     }
 
-    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限处理生产订单")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限处理订单")
     @Transactional(rollbackFor = Exception.class)
     public ProductionOrder processProductionOrder(String orderId, Integer process) {
         ProductionOrderUpdateRequest request = new ProductionOrderUpdateRequest();
@@ -200,7 +274,7 @@ public class ProductionOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限更新生产订单状态")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限更新订单状态")
     public ProductionOrder advanceByFlowCode(String flowCode) {
         String orderId = resolveOrderIdFromFlowCode(flowCode);
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
@@ -216,6 +290,7 @@ public class ProductionOrderService {
         String currentStatus = StringUtils.isNotBlank(order.getStatus())
                 ? order.getStatus().trim()
                 : OrderStatusEnum.PENDING_CONFIRM.getCode();
+        assertOrderStatusPermission(currentStatus);
         if (OrderStatusEnum.COMPLETED.getCode().equals(currentStatus)) {
             throw new BusinessException(400, "订单已完成，无需继续流转");
         }
@@ -269,8 +344,20 @@ public class ProductionOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限更新生产订单状态")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限更新订单状态")
     public ProductionOrder updateStatusAndProcess(String orderId, ProductionOrderUpdateRequest request) {
+        return updateStatusAndProcessInternal(orderId, request, false);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ProductionOrder approvePendingPayToMaterial(@NotBlank String orderId, String remark) {
+        ProductionOrderUpdateRequest request = new ProductionOrderUpdateRequest();
+        request.setStatus(OrderStatusEnum.PENDING_MATERIAL.getCode());
+        request.setRemark(StringUtils.isNotBlank(remark) ? remark.trim() : "订单审批通过，进入备料中");
+        return updateStatusAndProcessInternal(orderId, request, true);
+    }
+
+    private ProductionOrder updateStatusAndProcessInternal(String orderId, ProductionOrderUpdateRequest request, boolean approvalBypass) {
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
                 .eq(ProductionOrder::getOrderId, orderId));
 
@@ -280,6 +367,9 @@ public class ProductionOrderService {
 
         String oldStatus = order.getStatus();
         Integer oldProcess = order.getProcess();
+        if (!approvalBypass) {
+            assertOrderStatusPermission(oldStatus);
+        }
 
         if (StringUtils.isNotBlank(request.getStatus())) {
             String targetStatus = request.getStatus().trim();
@@ -384,7 +474,7 @@ public class ProductionOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限提交生产订单回退审批")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限提交订单回退审批")
     public ProductionOrder submitRollbackApproval(@NotBlank String orderId, ProductionOrderUpdateRequest request) {
         ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
                 .eq(ProductionOrder::getOrderId, orderId)
@@ -393,6 +483,7 @@ public class ProductionOrderService {
             throw new BusinessException(400, "生产订单不存在");
         }
         String currentStatus = normalizeStatus(order.getStatus());
+        assertOrderStatusPermission(currentStatus);
         String targetStatus = request != null && StringUtils.isNotBlank(request.getStatus())
                 ? normalizeStatus(request.getStatus())
                 : resolvePreviousProductionStatus(order);
@@ -412,11 +503,11 @@ public class ProductionOrderService {
                     TenantPermissionContext.getUserId(),
                     null,
                     null,
-                    PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS,
+                    orderStatusPermission(currentStatus),
                     false);
         }
         List<Long> permittedIds = userMapper.selectActiveApproverIdsByPermission(
-                order.getTenantCode(), PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS);
+                order.getTenantCode(), orderStatusPermission(currentStatus));
         for (Long auditorId : auditorIds) {
             if (permittedIds == null || !permittedIds.contains(auditorId)) {
                 throw new BusinessException(400, "所选审批人没有生产订单审批权限");
@@ -482,7 +573,7 @@ public class ProductionOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限添加生产订单")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_CREATE, message = "您没有权限添加订单")
     public void addProductionOrder(ProductionOrderAddRequest request) {
         this.addProductionOrder(request, null);
     }

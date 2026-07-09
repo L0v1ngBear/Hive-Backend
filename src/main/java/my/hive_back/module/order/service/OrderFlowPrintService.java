@@ -67,7 +67,7 @@ public class OrderFlowPrintService {
                 payload,
                 null,
                 null,
-                "小程序创建销售订单流转码打印任务");
+                "小程序创建订单流转码打印任务");
         if (!StringUtils.hasText(taskNo)) {
             throw new BusinessException("订单流转码打印任务创建失败");
         }
@@ -92,7 +92,7 @@ public class OrderFlowPrintService {
                 payload,
                 null,
                 null,
-                "小程序创建生产订单流转码打印任务");
+                "小程序创建订单流转码打印任务");
         if (!StringUtils.hasText(taskNo)) {
             throw new BusinessException("订单流转码打印任务创建失败");
         }
@@ -115,7 +115,7 @@ public class OrderFlowPrintService {
         Map<String, Object> payload = basePayload(
                 order.getOrderId(),
                 "sales",
-                "销售订单",
+                "订单",
                 order.getStatus(),
                 order.getOrderCategory(),
                 order.getCustomerName(),
@@ -123,7 +123,7 @@ public class OrderFlowPrintService {
                 order.getBrandName(),
                 firstItem == null ? order.getGoodsDesc() : firstItem.getModelCode());
         payload.put("deliveryDate", safeText(order.getDeliveryDate(), ""));
-        payload.put("printReason", "销售订单流转码待打印");
+        payload.put("printReason", "订单流转码待打印");
         payload.put("flowQrPayload", buildQrPayload(payload));
         return payload;
     }
@@ -132,7 +132,7 @@ public class OrderFlowPrintService {
         Map<String, Object> payload = basePayload(
                 order.getOrderId(),
                 "production",
-                "生产订单",
+                "订单",
                 order.getStatus(),
                 order.getOrderCategory(),
                 order.getCustomerName(),
@@ -143,7 +143,7 @@ public class OrderFlowPrintService {
         payload.put("process", order.getProcess());
         payload.put("processText", order.getProcess() == null ? "" : "工序 " + (order.getProcess() + 1));
         payload.put("deliveryDate", order.getDeliveryDate() == null ? "" : DATE_TIME_FORMATTER.format(order.getDeliveryDate()));
-        payload.put("printReason", "生产订单流转码待打印");
+        payload.put("printReason", "订单流转码待打印");
         payload.put("flowQrPayload", buildQrPayload(payload));
         return payload;
     }

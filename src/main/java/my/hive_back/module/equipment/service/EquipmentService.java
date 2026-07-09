@@ -11,6 +11,7 @@ import my.hive_back.module.equipment.mapper.EquipmentDeviceMapper;
 import my.hive_back.module.equipment.mapper.EquipmentInspectionRecordMapper;
 import my.hive_back.module.equipment.model.dto.EquipmentInspectionSubmitRequest;
 import my.hive_back.module.equipment.model.dto.EquipmentPageRequest;
+import my.hive_back.module.equipment.model.dto.EquipmentRecordPageRequest;
 import my.hive_back.module.equipment.model.entity.EquipmentDevice;
 import my.hive_back.module.equipment.model.entity.EquipmentInspectionRecord;
 import my.hive_back.module.equipment.model.vo.EquipmentDeviceVO;
@@ -63,6 +64,33 @@ public class EquipmentService {
 
     public EquipmentDeviceVO scanTarget(String equipmentCode) {
         return toDeviceVO(findDeviceByCode(equipmentCode));
+    }
+
+    public Page<EquipmentInspectionRecordVO> recordPage(EquipmentRecordPageRequest request) {
+        EquipmentRecordPageRequest safeRequest = request == null ? new EquipmentRecordPageRequest() : request;
+        LambdaQueryWrapper<EquipmentInspectionRecord> wrapper = new LambdaQueryWrapper<EquipmentInspectionRecord>()
+                .eq(EquipmentInspectionRecord::getTenantCode, TenantPermissionContext.getTenantCode());
+
+        if (safeRequest.getEquipmentId() != null && safeRequest.getEquipmentId() > 0) {
+            wrapper.eq(EquipmentInspectionRecord::getEquipmentId, safeRequest.getEquipmentId());
+        }
+        String equipmentCode = cleanText(safeRequest.getEquipmentCode());
+        if (equipmentCode != null) {
+            wrapper.eq(EquipmentInspectionRecord::getEquipmentCode, equipmentCode);
+        }
+        String result = normalizeOptionalResult(safeRequest.getResult());
+        if (result != null) {
+            wrapper.eq(EquipmentInspectionRecord::getInspectionResult, result);
+        }
+        wrapper.orderByDesc(EquipmentInspectionRecord::getInspectionTime).orderByDesc(EquipmentInspectionRecord::getId);
+
+        Page<EquipmentInspectionRecord> entityPage = inspectionRecordMapper.selectPage(
+                new Page<>(safePageNum(safeRequest.getPageNum()), safePageSize(safeRequest.getPageSize())),
+                wrapper);
+        Page<EquipmentInspectionRecordVO> resultPage = new Page<>(entityPage.getCurrent(), entityPage.getSize(), entityPage.getTotal());
+        resultPage.setPages(entityPage.getPages());
+        resultPage.setRecords(entityPage.getRecords().stream().map(this::toRecordVO).toList());
+        return resultPage;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -127,6 +155,17 @@ public class EquipmentService {
 
     private String normalizeResult(String result) {
         String safe = cleanText(result);
+        if (RESULT_NORMAL.equals(safe) || RESULT_ABNORMAL.equals(safe)) {
+            return safe;
+        }
+        throw new BusinessException("巡检结果不合法");
+    }
+
+    private String normalizeOptionalResult(String result) {
+        String safe = cleanText(result);
+        if (safe == null) {
+            return null;
+        }
         if (RESULT_NORMAL.equals(safe) || RESULT_ABNORMAL.equals(safe)) {
             return safe;
         }

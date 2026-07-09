@@ -14,8 +14,6 @@ public class HomeSummaryVO {
 
     private FunctionEnable functionEnable;
 
-    private Integer todoCount;
-
     @Data
     public static class TenantInfo {
         private String name;

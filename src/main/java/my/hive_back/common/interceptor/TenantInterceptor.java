@@ -153,7 +153,9 @@ public class TenantInterceptor implements HandlerInterceptor {
     }
 
     private void maybeRenewToken(HttpServletResponse response, AuthUserInfo authUserInfo) {
-        if (!tokenRenewEnabled || response.isCommitted()) {
+        if (!tokenRenewEnabled || response.isCommitted()
+                || authUserInfo == null || authUserInfo.getUserId() == null
+                || !TokenUtil.shouldRenew(authUserInfo, tokenRenewBeforeMinutes)) {
             return;
         }
         String tenantCode = normalizeTenantCode(authUserInfo.getTenantCode());

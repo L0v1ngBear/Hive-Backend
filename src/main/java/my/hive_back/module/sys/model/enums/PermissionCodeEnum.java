@@ -28,6 +28,7 @@ public enum PermissionCodeEnum {
     CUSTOMER_ADD("customer:add"),
     CUSTOMER_DETAIL("customer:detail"),
     CUSTOMER_PAGE("customer:page"),
+    CUSTOMER_UPDATE("customer:update"),
     DOCUMENT_BREADCRUMBS("document:breadcrumbs"),
     DOCUMENT_FILE_UPLOAD("document:file:upload"),
     DOCUMENT_FOLDER_CREATE("document:folder:create"),
@@ -51,15 +52,21 @@ public enum PermissionCodeEnum {
     LABEL_TEMPLATE_LIST("label:template:list"),
     LABEL_TEMPLATE_SAVE("label:template:save"),
     LABEL_TEMPLATE_UPLOAD("label:template:upload"),
-    PRODUCTION_ORDER_ALL("production:order:*"),
-    PRODUCTION_ORDER_DETAIL("production:order:detail"),
-    PRODUCTION_ORDER_LIST("production:order:list"),
-    PRODUCTION_ORDER_LOG("production:order:log"),
-    PRODUCTION_ORDER_STATUS("production:order:status"),
-    SALES_ORDER_ALL("sales:order:*"),
-    SALES_ORDER_DETAIL("sales:order:detail"),
-    SALES_ORDER_LIST("sales:order:list"),
-    SALES_ORDER_STATUS("sales:order:status");
+    ORDER_ALL("order:*"),
+    ORDER_CREATE("order:create"),
+    ORDER_DETAIL("order:detail"),
+    ORDER_LIST("order:list"),
+    ORDER_STATUS_BUDGET_COMPLETED("order:status:budget-completed"),
+    ORDER_STATUS_BUDGETING("order:status:budgeting"),
+    ORDER_STATUS_CANCELLED("order:status:cancelled"),
+    ORDER_STATUS_COMPLETED("order:status:completed"),
+    ORDER_STATUS_PENDING_CANCEL("order:status:pending-cancel"),
+    ORDER_STATUS_PENDING_CONFIRM("order:status:pending-confirm"),
+    ORDER_STATUS_PENDING_MATERIAL("order:status:pending-material"),
+    ORDER_STATUS_PENDING_PAY("order:status:pending-pay"),
+    ORDER_STATUS_PENDING_SHIP("order:status:pending-ship"),
+    ORDER_STATUS_PRODUCING("order:status:producing"),
+    ORDER_STATUS_SHIPPED("order:status:shipped");
 
     public static final String CODE_ALL = "*";
     public static final String CODE_APPROVAL_FINANCE = "approval:finance";
@@ -84,6 +91,7 @@ public enum PermissionCodeEnum {
     public static final String CODE_CUSTOMER_ADD = "customer:add";
     public static final String CODE_CUSTOMER_DETAIL = "customer:detail";
     public static final String CODE_CUSTOMER_PAGE = "customer:page";
+    public static final String CODE_CUSTOMER_UPDATE = "customer:update";
     public static final String CODE_DOCUMENT_BREADCRUMBS = "document:breadcrumbs";
     public static final String CODE_DOCUMENT_FILE_UPLOAD = "document:file:upload";
     public static final String CODE_DOCUMENT_FOLDER_CREATE = "document:folder:create";
@@ -107,15 +115,23 @@ public enum PermissionCodeEnum {
     public static final String CODE_LABEL_TEMPLATE_LIST = "label:template:list";
     public static final String CODE_LABEL_TEMPLATE_SAVE = "label:template:save";
     public static final String CODE_LABEL_TEMPLATE_UPLOAD = "label:template:upload";
-    public static final String CODE_PRODUCTION_ORDER_ALL = "production:order:*";
-    public static final String CODE_PRODUCTION_ORDER_DETAIL = "production:order:detail";
-    public static final String CODE_PRODUCTION_ORDER_LIST = "production:order:list";
-    public static final String CODE_PRODUCTION_ORDER_LOG = "production:order:log";
-    public static final String CODE_PRODUCTION_ORDER_STATUS = "production:order:status";
-    public static final String CODE_SALES_ORDER_ALL = "sales:order:*";
-    public static final String CODE_SALES_ORDER_DETAIL = "sales:order:detail";
-    public static final String CODE_SALES_ORDER_LIST = "sales:order:list";
-    public static final String CODE_SALES_ORDER_STATUS = "sales:order:status";
+    public static final String CODE_ORDER_ALL = "order:*";
+    public static final String CODE_ORDER_CREATE = "order:create";
+    public static final String CODE_ORDER_DETAIL = "order:detail";
+    public static final String CODE_ORDER_LIST = "order:list";
+    public static final String CODE_ORDER_STATUS_ALL = "order:status:*";
+    public static final String CODE_ORDER_STATUS_PREFIX = "order:status:";
+    public static final String CODE_ORDER_STATUS_BUDGET_COMPLETED = "order:status:budget-completed";
+    public static final String CODE_ORDER_STATUS_BUDGETING = "order:status:budgeting";
+    public static final String CODE_ORDER_STATUS_CANCELLED = "order:status:cancelled";
+    public static final String CODE_ORDER_STATUS_COMPLETED = "order:status:completed";
+    public static final String CODE_ORDER_STATUS_PENDING_CANCEL = "order:status:pending-cancel";
+    public static final String CODE_ORDER_STATUS_PENDING_CONFIRM = "order:status:pending-confirm";
+    public static final String CODE_ORDER_STATUS_PENDING_MATERIAL = "order:status:pending-material";
+    public static final String CODE_ORDER_STATUS_PENDING_PAY = "order:status:pending-pay";
+    public static final String CODE_ORDER_STATUS_PENDING_SHIP = "order:status:pending-ship";
+    public static final String CODE_ORDER_STATUS_PRODUCING = "order:status:producing";
+    public static final String CODE_ORDER_STATUS_SHIPPED = "order:status:shipped";
 
     private final String code;
 

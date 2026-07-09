@@ -71,8 +71,6 @@ public class Tenant {
 
     private Integer maxUsers;
 
-    private Integer maxAiAdvicePerMonth;
-
     private Integer maxStorageMb;
 
     private String featureFlags;

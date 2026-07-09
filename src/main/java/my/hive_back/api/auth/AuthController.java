@@ -31,19 +31,19 @@ public class AuthController {
     private AuthService authService;
 
     @PostMapping("/login")
-    @CollectLog(module = "auth", action = "mini_login", bizType = "account", bizNo = "#request.username", description = "小程序账号密码登录", recordResult = false)
+    @CollectLog(module = "auth", action = "mini_login", bizType = "account", description = "小程序账号密码登录", recordArgs = false, recordResult = false)
     public Result<LoginVO> login(@Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
         return Result.success(authService.login(request, getClientIp(servletRequest)));
     }
 
     @PostMapping("/wechat-login")
-    @CollectLog(module = "auth", action = "wechat_login", bizType = "account", description = "小程序微信手机号一键登录", recordResult = false)
+    @CollectLog(module = "auth", action = "wechat_login", bizType = "account", description = "小程序微信手机号一键登录", recordArgs = false, recordResult = false)
     public Result<LoginVO> wechatLogin(@Valid @RequestBody WechatLoginRequest request) {
         return Result.success(authService.wechatLogin(request));
     }
 
     @PostMapping("/join-organization")
-    @CollectLog(module = "auth", action = "join_organization", bizType = "account", description = "小程序用户通过组织码加入组织", recordResult = false)
+    @CollectLog(module = "auth", action = "join_organization", bizType = "account", description = "小程序用户通过组织码加入组织", recordArgs = false, recordResult = false)
     public Result<LoginVO> joinOrganization(@Valid @RequestBody JoinOrganizationRequest request) {
         return Result.success(authService.joinOrganization(request));
     }

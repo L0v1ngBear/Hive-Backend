@@ -16,5 +16,7 @@ public class ApprovalSummaryVO {
 
     private long orderPending;
 
+    private long qualityPending;
+
     private long totalPending;
 }

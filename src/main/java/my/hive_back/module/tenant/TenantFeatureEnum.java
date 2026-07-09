@@ -19,9 +19,7 @@ public enum TenantFeatureEnum {
     MODULE_ROLE("module.role"),
     MODULE_LABEL("module.label"),
     MODULE_DOCUMENT("module.document"),
-    MODULE_MANUAL("module.manual"),
-    AI_ADVICE("aiAdvice"),
-    ADVANCED_AI("advancedAi");
+    MODULE_MANUAL("module.manual");
 
     public static final String CODE_MODULE_DASHBOARD = "module.dashboard";
     public static final String CODE_MODULE_ORDER = "module.order";
@@ -38,8 +36,6 @@ public enum TenantFeatureEnum {
     public static final String CODE_MODULE_LABEL = "module.label";
     public static final String CODE_MODULE_DOCUMENT = "module.document";
     public static final String CODE_MODULE_MANUAL = "module.manual";
-    public static final String CODE_AI_ADVICE = "aiAdvice";
-    public static final String CODE_ADVANCED_AI = "advancedAi";
 
     private final String code;
 

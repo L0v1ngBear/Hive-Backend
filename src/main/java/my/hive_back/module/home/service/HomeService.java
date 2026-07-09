@@ -5,7 +5,6 @@ import my.hive.common.context.TenantPermissionContext;
 import my.hive_back.module.home.model.vo.HomeSummaryVO;
 import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.model.entity.Tenant;
-import my.hive_back.module.todo.service.TodoService;
 import my.hive_back.module.user.mapper.UserMapper;
 import my.hive_back.module.user.model.entity.User;
 import org.springframework.stereotype.Service;
@@ -29,9 +28,6 @@ public class HomeService {
     @Resource
     private TenantMapper tenantMapper;
 
-    @Resource
-    private TodoService todoService;
-
     public HomeSummaryVO getSummary() {
         String tenantCode = TenantPermissionContext.getTenantCode();
         Long userId = TenantPermissionContext.getUserId();
@@ -44,13 +40,6 @@ public class HomeService {
         vo.setTenantInfo(joinedOrganization ? buildTenantInfo(tenant) : new HomeSummaryVO.TenantInfo());
         vo.setUserInfo(buildUserInfo(user, joinedOrganization));
         vo.setFunctionEnable(joinedOrganization ? buildFunctionEnable() : emptyFunctionEnable());
-
-        if (!joinedOrganization) {
-            vo.setTodoCount(0);
-            return vo;
-        }
-
-        vo.setTodoCount(todoService.countAll());
         return vo;
     }
 
@@ -95,8 +84,9 @@ public class HomeService {
     private HomeSummaryVO.FunctionEnable buildFunctionEnable() {
         HomeSummaryVO.FunctionEnable functionEnable = new HomeSummaryVO.FunctionEnable();
         functionEnable.setAttendance(hasAnyPermission("attendance", "attendance:*", "attendance:punch", "attendance:record:list"));
-        functionEnable.setOrder(hasAnyPermission("production:order", "production:order:*", "production:order:list", "production:order:add", "production:order:detail"));
-        functionEnable.setSalesOrder(hasAnyPermission("sales:order", "sales:order:*", "sales:order:list", "sales:order:add", "sales:order:detail"));
+        boolean orderEnabled = hasAnyPermission("order", "order:*", "order:list", "order:create", "order:detail");
+        functionEnable.setOrder(orderEnabled);
+        functionEnable.setSalesOrder(false);
         functionEnable.setInventory(hasAnyPermission("inventory", "inventory:*", "inventory:cloth:in", "inventory:cloth:out", "inventory:warning:list"));
         functionEnable.setApproval(hasAnyPermission(
                 "approval",
@@ -107,14 +97,13 @@ public class HomeService {
                 "approval:leave:submit",
                 "approval:finance:submit",
                 "approval:resignation:submit",
-                "sales:order:list",
-                "production:order:list"
+                "order:list"
         ));
         functionEnable.setNotice(false);
         functionEnable.setFile(hasAnyPermission("document", "document:*", "document:list", "document:folder:create"));
         functionEnable.setBadProduct(hasAnyPermission("*", "badproduct:*", "badproduct:list", "badproduct:save", "badproduct:process"));
         functionEnable.setKnowledge(false);
-        functionEnable.setCustomer(hasAnyPermission("customer", "customer:*", "customer:page", "customer:detail", "customer:add"));
+        functionEnable.setCustomer(hasAnyPermission("customer", "customer:*", "customer:page", "customer:detail", "customer:add", "customer:update"));
         functionEnable.setDocument(hasAnyPermission("document", "document:*", "document:list", "document:folder:create", "document:file:upload"));
         functionEnable.setLabelTemplate(hasAnyPermission("label", "label:*", "label:template:list", "label:template:detail", "label:template:default"));
         functionEnable.setEquipmentInspection(hasAnyPermission("equipment", "equipment:*", "equipment:list", "equipment:inspection:submit"));

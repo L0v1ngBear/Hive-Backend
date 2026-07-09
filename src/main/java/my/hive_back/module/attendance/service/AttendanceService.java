@@ -13,6 +13,8 @@ import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
 import my.hive_back.module.attendance.mapper.EmployeeAttendanceLocationMapper;
 import my.hive_back.module.attendance.model.dto.AttendancePunchRequest;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
+import my.hive_back.module.attendance.model.vo.AttendanceLocationVO;
+import my.hive_back.module.attendance.model.vo.AttendanceRuleVO;
 import my.hive_back.module.tenant.mapper.TenantAttendanceLocationMapper;
 import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
 import my.hive_back.module.tenant.model.entity.TenantAttendanceLocation;
@@ -28,6 +30,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -66,6 +69,10 @@ public class AttendanceService {
 
     @Resource
     private HiveRedisKeyBuilder redisKeyBuilder;
+
+    public AttendanceRuleVO getRule() {
+        return toRuleVO(getCompanyAttendanceRule(TenantPermissionContext.getTenantCode()));
+    }
 
     @Transactional(rollbackFor = Exception.class)
     public void punch(AttendancePunchRequest request) {
@@ -288,6 +295,67 @@ public class AttendanceService {
             return false;
         }
         return !nowTime.isBefore(startTime) && !nowTime.isAfter(endTime);
+    }
+
+    private AttendanceRuleVO toRuleVO(TenantAttendanceRule rule) {
+        AttendanceRuleVO vo = new AttendanceRuleVO();
+        vo.setWorkStartTime(formatTime(rule.getWorkStartTime()));
+        vo.setWorkEndTime(formatTime(rule.getWorkEndTime()));
+        vo.setOffWorkStartTime(formatTime(rule.getOffWorkStartTime()));
+        vo.setOffWorkEndTime(formatTime(rule.getOffWorkEndTime()));
+        vo.setOverTimeStartTime(formatTime(rule.getOverTimeStartTime()));
+        vo.setOverTimeEndTime(formatTime(rule.getOverTimeEndTime()));
+        vo.setLateToleranceMinutes(nonNegativeInt(rule.getLateToleranceMinutes()));
+        vo.setEarlyToleranceMinutes(nonNegativeInt(rule.getEarlyToleranceMinutes()));
+        vo.setWorkDays(parseWorkDays(rule.getWorkDays()));
+        vo.setEnableGps(BinaryFlagEnum.YES.matches(rule.getEnableGps()));
+        vo.setLatitude(rule.getLatitude());
+        vo.setLongitude(rule.getLongitude());
+        vo.setRadius(rule.getRadius());
+        vo.setAddress(rule.getAddress());
+        vo.setEnableWifi(BinaryFlagEnum.YES.matches(rule.getEnableWifi()));
+        vo.setWifiSsid(rule.getWifiSsid());
+        vo.setLocations((rule.getLocations() == null ? List.<TenantAttendanceLocation>of() : rule.getLocations())
+                .stream()
+                .map(this::toLocationVO)
+                .toList());
+        return vo;
+    }
+
+    private AttendanceLocationVO toLocationVO(TenantAttendanceLocation location) {
+        AttendanceLocationVO vo = new AttendanceLocationVO();
+        vo.setId(location.getId());
+        vo.setLocationName(location.getLocationName());
+        vo.setLatitude(location.getLatitude());
+        vo.setLongitude(location.getLongitude());
+        vo.setAddress(location.getAddress());
+        vo.setRadius(location.getRadius());
+        return vo;
+    }
+
+    private String formatTime(LocalTime time) {
+        return time == null ? "" : time.format(DateTimeFormatter.ofPattern("HH:mm"));
+    }
+
+    private List<Integer> parseWorkDays(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of(1, 2, 3, 4, 5);
+        }
+        List<Integer> days = new ArrayList<>();
+        for (String item : value.split(",")) {
+            try {
+                int day = Integer.parseInt(item.trim());
+                if (day >= 1 && day <= 7 && !days.contains(day)) {
+                    days.add(day);
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return days.isEmpty() ? List.of(1, 2, 3, 4, 5) : days;
+    }
+
+    private Integer nonNegativeInt(Integer value) {
+        return value == null || value < 0 ? 0 : value;
     }
 
     private static DefaultRedisScript<Long> buildReleaseLockScript() {

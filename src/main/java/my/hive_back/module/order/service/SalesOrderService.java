@@ -4,6 +4,7 @@ import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
@@ -46,6 +47,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 /**
  * SalesOrderService 属于小程序后端订单模块，实现核心业务编排与规则逻辑。
@@ -108,7 +110,7 @@ public class SalesOrderService {
     @Value("${ORDER_FLOW_CODE_SECRET:${AUTH_TOKEN_SECRET:hive-local-order-flow-secret}}")
     private String orderFlowCodeSecret;
 
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_LIST, message = "您没有权限查询销售订单列表")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限查询订单列表")
     public Page<SalesOrderVO> selectSalesOrder(SalesOrderListRequest request) {
         // 1. 分页参数默认值处理（防御性编程）
         long pageNum = safePageNum(request.getPageNum());
@@ -121,6 +123,8 @@ public class SalesOrderService {
         if (StringUtils.isNotBlank(request.getStatus())) {
             queryWrapper.eq(SalesOrder::getStatus, request.getStatus());
         }
+        Set<String> permittedStatuses = permittedOrderStatuses(SALES_STATUS_CODES);
+        applyOrderStatusPermissionFilter(queryWrapper, SalesOrder::getStatus, permittedStatuses);
         if (StringUtils.isNotBlank(request.getOrderCategory())) {
             queryWrapper.eq(SalesOrder::getOrderCategory, OrderCategoryEnum.normalize(request.getOrderCategory()));
         }
@@ -187,27 +191,28 @@ public class SalesOrderService {
         return resultPage;
     }
 
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_LIST, message = "您没有权限查询销售订单统计")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限查询订单统计")
     public Map<String, Long> countSalesOrderStatuses() {
+        Set<String> permittedStatuses = permittedOrderStatuses(SALES_STATUS_CODES);
         Map<String, Long> result = new LinkedHashMap<>();
-        result.put("total", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<>())));
+        result.put("total", safeCount(salesOrderMapper.selectCount(scopedSalesOrderWrapper(permittedStatuses))));
         for (String status : SALES_STATUS_CODES) {
-            result.put(status, safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+            result.put(status, safeCount(salesOrderMapper.selectCount(scopedSalesOrderWrapper(permittedStatuses)
                     .eq(SalesOrder::getStatus, status))));
         }
-        result.put("category_drawing_budget", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+        result.put("category_drawing_budget", safeCount(salesOrderMapper.selectCount(scopedSalesOrderWrapper(permittedStatuses)
                 .eq(SalesOrder::getOrderCategory, OrderCategoryEnum.DRAWING_BUDGET.getCode()))));
-        result.put("category_sample_room", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+        result.put("category_sample_room", safeCount(salesOrderMapper.selectCount(scopedSalesOrderWrapper(permittedStatuses)
                 .eq(SalesOrder::getOrderCategory, OrderCategoryEnum.SAMPLE_ROOM.getCode()))));
-        result.put("category_bulk", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+        result.put("category_bulk", safeCount(salesOrderMapper.selectCount(scopedSalesOrderWrapper(permittedStatuses)
                 .eq(SalesOrder::getOrderCategory, OrderCategoryEnum.BULK.getCode()))));
-        result.put("category_replenishment", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+        result.put("category_replenishment", safeCount(salesOrderMapper.selectCount(scopedSalesOrderWrapper(permittedStatuses)
                 .eq(SalesOrder::getOrderCategory, OrderCategoryEnum.REPLENISHMENT.getCode()))));
-        result.put("category_special_order", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+        result.put("category_special_order", safeCount(salesOrderMapper.selectCount(scopedSalesOrderWrapper(permittedStatuses)
                 .eq(SalesOrder::getOrderCategory, OrderCategoryEnum.SPECIAL_ORDER.getCode()))));
-        result.put("invoice_paid", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+        result.put("invoice_paid", safeCount(salesOrderMapper.selectCount(scopedSalesOrderWrapper(permittedStatuses)
                 .eq(SalesOrder::getIsInvoice, IsInvoiceEnum.YES.getCode()))));
-        result.put("invoice_unpaid", safeCount(salesOrderMapper.selectCount(new LambdaQueryWrapper<SalesOrder>()
+        result.put("invoice_unpaid", safeCount(salesOrderMapper.selectCount(scopedSalesOrderWrapper(permittedStatuses)
                 .eq(SalesOrder::getIsInvoice, IsInvoiceEnum.NO.getCode()))));
         return result;
     }
@@ -227,10 +232,72 @@ public class SalesOrderService {
         return count == null ? 0L : count;
     }
 
+    private LambdaQueryWrapper<SalesOrder> scopedSalesOrderWrapper(Set<String> permittedStatuses) {
+        LambdaQueryWrapper<SalesOrder> wrapper = new LambdaQueryWrapper<>();
+        applyOrderStatusPermissionFilter(wrapper, SalesOrder::getStatus, permittedStatuses);
+        return wrapper;
+    }
+
+    private <T> void applyOrderStatusPermissionFilter(LambdaQueryWrapper<T> wrapper,
+                                                       SFunction<T, String> statusColumn,
+                                                       Set<String> permittedStatuses) {
+        if (permittedStatuses == null) {
+            return;
+        }
+        if (permittedStatuses.isEmpty()) {
+            wrapper.apply("1 = 0");
+            return;
+        }
+        wrapper.in(statusColumn, permittedStatuses);
+    }
+
+    private Set<String> permittedOrderStatuses(List<String> supportedStatuses) {
+        Set<String> permCodes = TenantPermissionContext.getPermCodes();
+        if (hasUnrestrictedOrderStatusPermission(permCodes)) {
+            return null;
+        }
+        Set<String> supported = new LinkedHashSet<>(supportedStatuses);
+        Set<String> permittedStatuses = new LinkedHashSet<>();
+        for (String permCode : permCodes) {
+            if (StringUtils.isBlank(permCode) || !permCode.startsWith(PermissionCodeEnum.CODE_ORDER_STATUS_PREFIX)) {
+                continue;
+            }
+            String status = permCode.substring(PermissionCodeEnum.CODE_ORDER_STATUS_PREFIX.length()).replace('-', '_');
+            if (supported.contains(status)) {
+                permittedStatuses.add(status);
+            }
+        }
+        return permittedStatuses;
+    }
+
+    private boolean hasUnrestrictedOrderStatusPermission(Set<String> permCodes) {
+        return permCodes.contains("*")
+                || permCodes.contains("*:*")
+                || permCodes.contains(PermissionCodeEnum.CODE_ORDER_ALL)
+                || permCodes.contains(PermissionCodeEnum.CODE_ORDER_STATUS_ALL);
+    }
+
+    private void assertOrderStatusPermission(String status) {
+        if (TenantPermissionContext.hasPermission(PermissionCodeEnum.CODE_ORDER_ALL)
+                || TenantPermissionContext.hasPermission(PermissionCodeEnum.CODE_ORDER_STATUS_ALL)) {
+            return;
+        }
+        String requiredPermission = orderStatusPermission(status);
+        if (TenantPermissionContext.hasPermission(requiredPermission)) {
+            return;
+        }
+        throw new BusinessException(403, "当前账号没有该订单状态维护权限");
+    }
+
+    private String orderStatusPermission(String status) {
+        String normalizedStatus = StringUtils.isNotBlank(status) ? status.trim().replace('_', '-') : "";
+        return PermissionCodeEnum.CODE_ORDER_STATUS_PREFIX + normalizedStatus;
+    }
+
     /**
      * 根据订单ID查询订单详情 (返回 VO 对象)
      */
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_DETAIL, message = "您没有权限查询销售订单详情")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_DETAIL, message = "您没有权限查询订单详情")
     public SalesOrderVO getByIdandTenantId(String orderId) {
         // 1. 查询主表订单信息
         SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
@@ -238,6 +305,7 @@ public class SalesOrderService {
         if (order == null) {
             throw new BusinessException(400, "订单不存在"); // 根据你的异常类调整
         }
+        assertOrderStatusPermission(order.getStatus());
 
         // 2. 查询对应的明细列表
         List<SalesOrderDetail> detailList = salesOrderDetailMapper.selectList(
@@ -273,8 +341,15 @@ public class SalesOrderService {
         return orderVO;
     }
 
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_DETAIL, message = "您没有权限查询销售订单状态变更日志")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_DETAIL, message = "您没有权限查询订单状态变更日志")
     public List<SalesOrderStatusLog> selectSalesOrderStatusLog(@NotBlank String orderId) {
+        SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderId, orderId)
+                .last("LIMIT 1"));
+        if (order == null) {
+            throw new BusinessException(400, "订单不存在");
+        }
+        assertOrderStatusPermission(order.getStatus());
         return salesOrderStatusLogMapper.selectList(new LambdaQueryWrapper<SalesOrderStatusLog>()
                 .eq(SalesOrderStatusLog::getOrderId, orderId)
                 .orderByAsc(SalesOrderStatusLog::getCreateTime));
@@ -282,7 +357,7 @@ public class SalesOrderService {
 
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限更新销售订单状态")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限更新订单状态")
     public SalesOrder advanceByFlowCode(@NotBlank String flowCode) {
         String orderId = resolveOrderIdFromFlowCode(flowCode);
         SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
@@ -327,7 +402,7 @@ public class SalesOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限添加销售订单")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_CREATE, message = "您没有权限添加订单")
     public void addSalesOrder(@Valid SalesOrderAddRequest request) {
         SalesOrder order = new SalesOrder();
 
@@ -427,7 +502,7 @@ public class SalesOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限更新销售订单状态")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限更新订单状态")
     public SalesOrder updateStatusAndProcess(@NotBlank String orderId, @Valid SalesOrderUpdateRequest request) {
         return updateStatusAndProcessInternal(orderId, request, false, "小程序更新销售订单状态");
     }
@@ -486,7 +561,7 @@ public class SalesOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限提交销售订单回退审批")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限提交订单回退审批")
     public SalesOrder submitRollbackApproval(@NotBlank String orderId, SalesOrderUpdateRequest request) {
         SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
                 .eq(SalesOrder::getOrderId, orderId)
@@ -495,6 +570,7 @@ public class SalesOrderService {
             throw new BusinessException(400, "销售订单不存在");
         }
         String currentStatus = normalizeStatus(order.getStatus());
+        assertOrderStatusPermission(currentStatus);
         String targetStatus = request != null && StringUtils.isNotBlank(request.getStatus())
                 ? normalizeStatus(request.getStatus())
                 : resolvePreviousSalesStatus(order);
@@ -514,11 +590,11 @@ public class SalesOrderService {
                     TenantPermissionContext.getUserId(),
                     null,
                     null,
-                    PermissionCodeEnum.CODE_SALES_ORDER_STATUS,
+                    orderStatusPermission(currentStatus),
                     false);
         }
         List<Long> permittedIds = userMapper.selectActiveApproverIdsByPermission(
-                order.getTenantCode(), PermissionCodeEnum.CODE_SALES_ORDER_STATUS);
+                order.getTenantCode(), orderStatusPermission(currentStatus));
         for (Long auditorId : auditorIds) {
             if (permittedIds == null || !permittedIds.contains(auditorId)) {
                 throw new BusinessException(400, "所选审批人没有销售订单审批权限");
@@ -588,6 +664,9 @@ public class SalesOrderService {
         // --- 并发控制快照 ---
         // 记录修改前的原始状态，用于最后的 CAS 并发安全校验
         String oldStatus = order.getStatus();
+        if (!approvalBypass) {
+            assertOrderStatusPermission(oldStatus);
+        }
         String targetStatus = request.getStatus();
         if (!approvalBypass
                 && OrderStatusEnum.CANCELLED.getCode().equals(targetStatus)

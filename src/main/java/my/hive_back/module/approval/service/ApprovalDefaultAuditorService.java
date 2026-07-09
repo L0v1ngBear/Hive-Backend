@@ -25,6 +25,7 @@ public class ApprovalDefaultAuditorService {
     public static final String TYPE_FINANCE = "FINANCE";
     public static final String TYPE_RESIGNATION = "RESIGNATION";
     public static final String TYPE_ORDER = "ORDER";
+    public static final String TYPE_QUALITY = "QUALITY";
     private static final int STATUS_ACTIVE = 1;
 
     @Resource
@@ -106,6 +107,7 @@ public class ApprovalDefaultAuditorService {
             case "FINANCE" -> TYPE_FINANCE;
             case "RESIGNATION" -> TYPE_RESIGNATION;
             case "ORDER", "ORDER_SALES", "ORDER_PRODUCTION", "SALES", "PRODUCTION" -> TYPE_ORDER;
+            case "QUALITY", "BADPRODUCT", "BAD_PRODUCT" -> TYPE_QUALITY;
             default -> throw new BusinessException("审批类型不合法");
         };
     }
@@ -115,7 +117,8 @@ public class ApprovalDefaultAuditorService {
             case TYPE_LEAVE -> PermissionCodeEnum.CODE_APPROVAL_LEAVE_AUDIT;
             case TYPE_FINANCE -> PermissionCodeEnum.CODE_APPROVAL_FINANCE_AUDIT;
             case TYPE_RESIGNATION -> PermissionCodeEnum.CODE_APPROVAL_RESIGNATION_AUDIT;
-            case TYPE_ORDER -> PermissionCodeEnum.CODE_SALES_ORDER_STATUS;
+            case TYPE_ORDER -> PermissionCodeEnum.CODE_ORDER_ALL;
+            case TYPE_QUALITY -> PermissionCodeEnum.CODE_BADPRODUCT_PROCESS;
             default -> throw new BusinessException("审批类型不合法");
         };
     }

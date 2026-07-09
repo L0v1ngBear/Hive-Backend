@@ -56,7 +56,7 @@ public class LabelTemplateService {
             new LabelTemplateVariableVO("流转条码", "flowBarcode", "barcode", "HIVE_ORDER_FLOW:sales:FLOW202605190001:SO202605190001"),
             new LabelTemplateVariableVO("流转二维码", "flowQrPayload", "qrcode", "{\"version\":\"1\",\"codeType\":\"order_flow\",\"orderId\":\"SO202605190001\",\"orderType\":\"sales\",\"flowScanCode\":\"HIVE_ORDER_FLOW:sales:FLOW202605190001:SO202605190001\"}"),
             new LabelTemplateVariableVO("订单编号", "orderId", "text", "SO202605190001"),
-            new LabelTemplateVariableVO("订单类型", "orderTypeLabel", "text", "销售订单"),
+            new LabelTemplateVariableVO("订单类型", "orderTypeLabel", "text", "订单"),
             new LabelTemplateVariableVO("当前状态", "currentStatusText", "text", "待确认"),
             new LabelTemplateVariableVO("订单小项", "orderCategoryLabel", "text", "大货"),
             new LabelTemplateVariableVO("客户名称", "customerName", "text", "上海某服饰"),

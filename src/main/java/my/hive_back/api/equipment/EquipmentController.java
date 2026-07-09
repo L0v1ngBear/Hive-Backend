@@ -10,6 +10,7 @@ import my.hive.common.dto.Result;
 import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.equipment.model.dto.EquipmentInspectionSubmitRequest;
 import my.hive_back.module.equipment.model.dto.EquipmentPageRequest;
+import my.hive_back.module.equipment.model.dto.EquipmentRecordPageRequest;
 import my.hive_back.module.equipment.model.vo.EquipmentDeviceVO;
 import my.hive_back.module.equipment.model.vo.EquipmentInspectionRecordVO;
 import my.hive_back.module.equipment.service.EquipmentService;
@@ -41,6 +42,12 @@ public class EquipmentController {
     @RequirePermission(value = PermissionCodeEnum.CODE_EQUIPMENT_INSPECTION_SUBMIT, message = "您没有权限执行设备巡检")
     public Result<EquipmentDeviceVO> scanTarget(String equipmentCode) {
         return Result.success(equipmentService.scanTarget(equipmentCode));
+    }
+
+    @GetMapping("/inspection/records")
+    @RequirePermission(value = PermissionCodeEnum.CODE_EQUIPMENT_LIST, message = "您没有权限查看巡检记录")
+    public Result<PageResult<EquipmentInspectionRecordVO>> recordPage(@Valid EquipmentRecordPageRequest request) {
+        return Result.success(toPageResult(equipmentService.recordPage(request)));
     }
 
     @PostMapping("/inspection/submit")

@@ -155,7 +155,7 @@ public class SalesOrderController {
     }
 
     @PostMapping("/orders/flow-print-task")
-    @RequirePermission(value = PermissionCodeEnum.CODE_SALES_ORDER_STATUS, message = "您没有权限生成销售订单流转码")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限生成订单流转码")
     @CollectLog(module = "order", action = "mini_create_sales_flow_print_task", bizType = "sales_order", bizNo = "#request.orderId", description = "小程序创建销售订单流转码打印任务")
     public Result<OrderFlowPrintTaskVO> createSalesFlowPrintTask(@Valid @RequestBody OrderFlowPrintTaskRequest request) {
         return Result.success(orderFlowPrintService.createSalesTask(request));

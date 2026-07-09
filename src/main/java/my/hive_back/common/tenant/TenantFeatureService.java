@@ -9,7 +9,6 @@ import my.hive_back.common.enums.CommonStatusEnum;
 import my.hive_back.common.enums.DeleteFlagEnum;
 import my.hive_back.module.tenant.mapper.TenantMapper;
 import my.hive_back.module.tenant.TenantFeatureEnum;
-import my.hive_back.module.tenant.TenantPlanEnum;
 import my.hive_back.module.tenant.TenantSubscriptionStatusEnum;
 import my.hive_back.module.tenant.model.entity.Tenant;
 import org.springframework.stereotype.Service;
@@ -104,17 +103,11 @@ public class TenantFeatureService {
     }
 
     private Set<String> baseFeatureKeys(String planCode) {
-        LinkedHashSet<String> features = new LinkedHashSet<>(BASE_MODULE_FEATURES);
-        features.add(TenantFeatureEnum.CODE_AI_ADVICE);
-        if (TenantPlanEnum.PROFESSIONAL.matches(planCode) || TenantPlanEnum.PRIVATE.matches(planCode)) {
-            features.add(TenantFeatureEnum.CODE_ADVANCED_AI);
-        }
-        return features;
+        return new LinkedHashSet<>(BASE_MODULE_FEATURES);
     }
 
     private String defaultFeatureFlags(String planCode) {
-        boolean advancedAi = TenantPlanEnum.PROFESSIONAL.matches(planCode) || TenantPlanEnum.PRIVATE.matches(planCode);
-        return "{\"aiAdvice\":true,\"advancedAi\":" + advancedAi + ",\"custom\":{},\"modules\":{}}";
+        return "{\"custom\":{},\"modules\":{}}";
     }
 
     private void applyFeatureNode(JsonNode node, String path, Set<String> enabled) {

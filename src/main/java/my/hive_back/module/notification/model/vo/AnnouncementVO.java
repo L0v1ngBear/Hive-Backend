@@ -1,18 +1,16 @@
-package my.hive_back.module.todo.model.vo;
+package my.hive_back.module.notification.model.vo;
 
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
 /**
- * 统一通知表中的小程序待办投影。
+ * 小程序企业公告展示模型。
  */
 @Data
-public class TodoNotificationRow {
+public class AnnouncementVO {
 
     private Long id;
-
-    private String bizType;
 
     private String bizId;
 
@@ -22,9 +20,9 @@ public class TodoNotificationRow {
 
     private String level;
 
-    private String route;
+    private Integer readFlag;
 
-    private String taskStatus;
+    private LocalDateTime readTime;
 
     private LocalDateTime createTime;
 

@@ -17,7 +17,7 @@ spring:
 
 xxl:
   job:
-    # 本地开发默认注册 XXL-JOB；启动后端前请先启动本地 xxl-job-admin。
+    # Local dev registers with XXL-JOB by default; start local xxl-job-admin first.
     enabled: ${XXL_JOB_ENABLED:true}
     admin-addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:8088/xxl-job-admin}
     access-token: ${XXL_JOB_ACCESS_TOKEN:dev_xxl_token}
@@ -40,7 +40,6 @@ hive:
     cleanup-batch-size: 5000
     cleanup-cron: "0 20 3 * * ?"
 
-# 开发环境日志级别更高，方便调试
 logging:
   level:
     root: INFO

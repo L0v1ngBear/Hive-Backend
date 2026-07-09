@@ -10,6 +10,7 @@ import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.attendance.model.dto.AttendancePunchRequest;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
 import my.hive_back.module.attendance.model.vo.AttendanceRecordVO;
+import my.hive_back.module.attendance.model.vo.AttendanceRuleVO;
 import my.hive_back.module.attendance.service.AttendanceService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.validation.annotation.Validated;
@@ -32,6 +33,12 @@ public class AttendanceController {
 
     @Resource
     private AttendanceService attendanceService;
+
+    @GetMapping("/rule")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ATTENDANCE_RECORD_LIST, message = "您没有权限查看考勤规则")
+    public Result<AttendanceRuleVO> rule() {
+        return Result.success(attendanceService.getRule());
+    }
 
     @PostMapping("/punch")
     @RequirePermission(value = PermissionCodeEnum.CODE_ATTENDANCE_PUNCH, message = "您没有权限执行打卡")

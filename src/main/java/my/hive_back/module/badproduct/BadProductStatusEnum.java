@@ -6,6 +6,7 @@ import lombok.Getter;
 public enum BadProductStatusEnum {
 
     PENDING("pending"),
+    PENDING_AUDIT("pending_audit"),
     PROCESSED("processed");
 
     private final String code;

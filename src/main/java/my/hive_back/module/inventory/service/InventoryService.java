@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import my.hive.common.annotation.CollectLog;
 import my.hive.common.annotation.RequirePermission;
 import my.hive.common.context.TenantPermissionContext;
+import my.hive.common.dto.PageResult;
 import my.hive.common.exception.BusinessException;
 import my.hive.common.print.PrintTaskService;
 import my.hive.common.redis.HiveRedisKeyBuilder;
@@ -30,6 +31,7 @@ import my.hive_back.module.inventory.mapper.OutboundItemMapper;
 import my.hive_back.module.inventory.mapper.OutboundOrderMapper;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
 import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
+import my.hive_back.module.inventory.model.dto.InventoryPageRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
 import my.hive_back.module.inventory.model.entity.ClothModelSpec;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
@@ -38,6 +40,7 @@ import my.hive_back.module.inventory.model.entity.OutboundOrder;
 import my.hive_back.module.inventory.model.vo.ClothInfoVO;
 import my.hive_back.module.inventory.model.vo.InventoryImageRecognitionVO;
 import my.hive_back.module.inventory.model.vo.InventoryDailyMetersVO;
+import my.hive_back.module.inventory.model.vo.InventoryModelSummaryVO;
 import my.hive_back.module.inventory.model.vo.InventoryRecordVO;
 import my.hive_back.module.inventory.model.vo.OutboundOrderOptionVO;
 import my.hive_back.module.price.mapper.PriceSkuMapper;
@@ -76,7 +79,11 @@ import java.util.regex.Pattern;
 public class InventoryService {
 
     private static final int OUTBOUND_MAX_RETRY = 3;
+    private static final long DEFAULT_PAGE_NUM = 1L;
+    private static final long DEFAULT_PAGE_SIZE = 20L;
+    private static final long MAX_PAGE_SIZE = 200L;
     private static final float METERS_EPSILON = 0.0001F;
+    private static final String TIME_ORDER_LIFO = "lifo";
     private static final long MAX_IMAGE_RECOGNITION_BYTES = 5L * 1024 * 1024;
     private static final String IMAGE_RECOGNITION_MODULE = "inventory-recognition";
     private static final Set<String> IMAGE_RECOGNITION_EXTENSIONS = Set.of("png", "jpg", "jpeg", "webp");
@@ -488,6 +495,24 @@ public class InventoryService {
         return inventoryWarningCacheService.warningList(TenantPermissionContext.getTenantCode(), 10);
     }
 
+    public PageResult<InventoryModelSummaryVO> modelPage(InventoryPageRequest request) {
+        InventoryPageRequest safeRequest = request == null ? new InventoryPageRequest() : request;
+        Page<InventoryModelSummaryVO> page = clothMapper.selectModelSummaryPage(
+                new Page<>(safePageNum(safeRequest.getPageNum()), safePageSize(safeRequest.getPageSize())),
+                TenantPermissionContext.getTenantCode(),
+                cleanText(safeRequest.getKeyword()),
+                safeRequest.getStatus(),
+                normalizeTimeOrder(safeRequest.getTimeOrder()));
+
+        PageResult<InventoryModelSummaryVO> result = new PageResult<>();
+        result.setCurrent(page.getCurrent());
+        result.setSize(page.getSize());
+        result.setTotal(page.getTotal());
+        result.setPages(page.getPages());
+        result.setData(page.getRecords());
+        return result;
+    }
+
     public InventoryTrendVO getLastWeekTrend() {
         InventoryTrendVO vo = new InventoryTrendVO();
         LocalDate today = LocalDate.now();
@@ -688,10 +713,24 @@ public class InventoryService {
         return cleaned;
     }
 
+    private long safePageNum(Long pageNum) {
+        return pageNum == null || pageNum <= 0 ? DEFAULT_PAGE_NUM : pageNum;
+    }
+
+    private long safePageSize(Long pageSize) {
+        if (pageSize == null || pageSize <= 0) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize, MAX_PAGE_SIZE);
+    }
+
+    private String normalizeTimeOrder(String timeOrder) {
+        return TIME_ORDER_LIFO.equalsIgnoreCase(cleanText(timeOrder)) ? TIME_ORDER_LIFO : null;
+    }
+
     private void invalidateManagementDashboardCache(String tenantCode) {
         inventoryWarningCacheService.invalidate(tenantCode);
         deleteCacheByPattern(redisKeyBuilder.cachePattern("management", "dashboard", "overview", tenantCode, "*"));
-        deleteCacheByPattern(redisKeyBuilder.cachePattern("management", "dashboard", "ai-advice", tenantCode, "*"));
     }
 
     private void deleteCacheByPattern(String pattern) {

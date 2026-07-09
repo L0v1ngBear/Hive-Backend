@@ -140,7 +140,7 @@ public class ProductionOrderController {
     }
 
     @PostMapping("/orders/flow-print-task")
-    @RequirePermission(value = PermissionCodeEnum.CODE_PRODUCTION_ORDER_STATUS, message = "您没有权限生成生产订单流转码")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限生成订单流转码")
     @CollectLog(module = "order", action = "mini_create_production_flow_print_task", bizType = "production_order", bizNo = "#request.orderId", description = "小程序创建生产订单流转码打印任务")
     public Result<OrderFlowPrintTaskVO> createProductionFlowPrintTask(@Valid @RequestBody OrderFlowPrintTaskRequest request) {
         return Result.success(orderFlowPrintService.createProductionTask(request));

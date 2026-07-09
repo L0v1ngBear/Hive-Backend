@@ -15,4 +15,13 @@ public class BadProductProcessRequest {
     private String method;
 
     private String remark;
+
+    @NotBlank(message = "负责人员不能为空")
+    private String responsiblePerson;
+
+    @NotBlank(message = "处理措施不能为空")
+    private String processMeasure;
+
+    @NotBlank(message = "改进方案不能为空")
+    private String improvementPlan;
 }

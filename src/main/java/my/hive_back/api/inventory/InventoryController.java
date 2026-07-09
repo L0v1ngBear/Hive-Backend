@@ -5,17 +5,20 @@ import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import my.hive.common.annotation.RequirePermission;
+import my.hive.common.dto.PageResult;
 import my.hive.common.dto.Result;
 import my.hive.common.exception.BusinessException;
 import my.hive_back.common.tenant.RequireTenantFeature;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
 import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
+import my.hive_back.module.inventory.model.dto.InventoryPageRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
 import my.hive_back.module.inventory.model.entity.ClothModelSpec;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
 import my.hive_back.module.inventory.model.vo.BarCodeSearchVO;
 import my.hive_back.module.inventory.model.vo.ClothInfoVO;
 import my.hive_back.module.inventory.model.vo.InventoryImageRecognitionVO;
+import my.hive_back.module.inventory.model.vo.InventoryModelSummaryVO;
 import my.hive_back.module.inventory.model.vo.InventoryRecordVO;
 import my.hive_back.module.inventory.model.vo.ModelCodeVO;
 import my.hive_back.module.inventory.model.vo.OutboundOrderOptionVO;
@@ -84,6 +87,12 @@ public class InventoryController {
             return vo;
         }).toList();
         return Result.success(voList);
+    }
+
+    @GetMapping("/model/page")
+    @RequirePermission(value = PermissionCodeEnum.CODE_INVENTORY_WARNING_LIST, message = "您没有权限查看库存列表")
+    public Result<PageResult<InventoryModelSummaryVO>> modelPage(InventoryPageRequest request) {
+        return Result.success(inventoryService.modelPage(request));
     }
 
     @GetMapping("/order/search")

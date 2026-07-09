@@ -125,6 +125,9 @@ public class WechatSubscribeService {
         String openid = code2Openid(request.getCode());
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = TenantPermissionContext.getTenantCode();
+        if (userId == null || !hasText(tenantCode)) {
+            throw new BusinessException("登录信息已失效，请重新登录后再授权订阅消息");
+        }
         List<WechatSubscribeRegisterRequest.TemplateSubscribeStatus> subscriptions =
                 request.getSubscriptions() == null ? List.of() : request.getSubscriptions();
         if (subscriptions.isEmpty()) {
@@ -141,6 +144,7 @@ public class WechatSubscribeService {
             }
             String status = normalizeSubscribeStatus(item.getStatus());
             WechatSubscribeUser entity = wechatSubscribeUserMapper.selectOne(new LambdaQueryWrapper<WechatSubscribeUser>()
+                    .eq(WechatSubscribeUser::getTenantCode, tenantCode)
                     .eq(WechatSubscribeUser::getUserId, userId)
                     .eq(WechatSubscribeUser::getTemplateId, templateId)
                     .last("limit 1"));
@@ -173,11 +177,17 @@ public class WechatSubscribeService {
             log.info("微信订阅消息未启用，跳过待办提醒 userId={}", userId);
             return false;
         }
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        if (!hasText(tenantCode)) {
+            log.warn("微信订阅消息缺少租户上下文，跳过待办提醒 userId={} title={}", userId, title);
+            return false;
+        }
         requireSubscribeTemplateKeys();
         WechatSubscribeUser subscribeUser = wechatSubscribeUserMapper.selectOne(new LambdaQueryWrapper<WechatSubscribeUser>()
+                .eq(WechatSubscribeUser::getTenantCode, tenantCode)
                 .eq(WechatSubscribeUser::getUserId, userId)
                 .eq(WechatSubscribeUser::getTemplateId, todoTemplateId.trim())
-                .eq(WechatSubscribeUser::getSubscribeStatus, ACCEPT)
+                .in(WechatSubscribeUser::getSubscribeStatus, ACCEPT, USED)
                 .last("limit 1"));
         if (subscribeUser == null || !hasText(subscribeUser.getOpenid())) {
             return false;
@@ -191,7 +201,6 @@ public class WechatSubscribeService {
         JSONObject response = sendSubscribeMessage(payload);
         Integer errCode = response.getInteger("errcode");
         if (errCode != null && errCode == 0) {
-            markSubscriptionStatus(subscribeUser, USED);
             return true;
         }
         if (errCode != null && errCode == 43101) {
