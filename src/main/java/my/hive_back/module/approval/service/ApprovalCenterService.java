@@ -128,6 +128,12 @@ public class ApprovalCenterService {
         vo.setOrderPending(orderPending);
         vo.setQualityPending(qualityPending);
         vo.setTotalPending(leavePending + financePending + resignationPending + orderPending + qualityPending);
+        vo.setCanCreateFinance(TenantPermissionContext.hasPermission(
+                PermissionCodeEnum.CODE_APPROVAL_FINANCE_SUBMIT));
+        vo.setCanCreateLeave(TenantPermissionContext.hasPermission(
+                PermissionCodeEnum.CODE_APPROVAL_LEAVE_SUBMIT));
+        vo.setCanCreateResignation(TenantPermissionContext.hasPermission(
+                PermissionCodeEnum.CODE_APPROVAL_RESIGNATION_SUBMIT));
         return vo;
     }
 

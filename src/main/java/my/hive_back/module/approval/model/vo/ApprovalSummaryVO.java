@@ -19,4 +19,10 @@ public class ApprovalSummaryVO {
     private long qualityPending;
 
     private long totalPending;
+
+    private boolean canCreateFinance;
+
+    private boolean canCreateLeave;
+
+    private boolean canCreateResignation;
 }
