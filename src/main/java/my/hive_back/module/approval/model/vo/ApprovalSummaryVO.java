@@ -25,4 +25,14 @@ public class ApprovalSummaryVO {
     private boolean canCreateLeave;
 
     private boolean canCreateResignation;
+
+    private boolean canViewOrder;
+
+    private boolean canViewQuality;
+
+    private boolean canReviewFinance;
+
+    private boolean canReviewLeave;
+
+    private boolean canReviewResignation;
 }

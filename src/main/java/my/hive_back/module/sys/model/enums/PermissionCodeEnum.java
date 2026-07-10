@@ -14,6 +14,7 @@ public enum PermissionCodeEnum {
     APPROVAL_LEAVE_AUDIT("approval:leave:audit"),
     APPROVAL_LEAVE_DETAIL("approval:leave:detail"),
     APPROVAL_LEAVE_SUBMIT("approval:leave:submit"),
+    APPROVAL_ORDER_AUDIT("approval:order:audit"),
     APPROVAL_RESIGNATION("approval:resignation"),
     APPROVAL_RESIGNATION_AUDIT("approval:resignation:audit"),
     APPROVAL_RESIGNATION_DETAIL("approval:resignation:detail"),
@@ -52,6 +53,7 @@ public enum PermissionCodeEnum {
     LABEL_TEMPLATE_LIST("label:template:list"),
     LABEL_TEMPLATE_SAVE("label:template:save"),
     LABEL_TEMPLATE_UPLOAD("label:template:upload"),
+    NOTIFICATION_ANNOUNCEMENT_LIST("notification:announcement:list"),
     ORDER_ALL("order:*"),
     ORDER_CREATE("order:create"),
     ORDER_DETAIL("order:detail"),
@@ -77,6 +79,7 @@ public enum PermissionCodeEnum {
     public static final String CODE_APPROVAL_LEAVE_AUDIT = "approval:leave:audit";
     public static final String CODE_APPROVAL_LEAVE_DETAIL = "approval:leave:detail";
     public static final String CODE_APPROVAL_LEAVE_SUBMIT = "approval:leave:submit";
+    public static final String CODE_APPROVAL_ORDER_AUDIT = "approval:order:audit";
     public static final String CODE_APPROVAL_RESIGNATION = "approval:resignation";
     public static final String CODE_APPROVAL_RESIGNATION_AUDIT = "approval:resignation:audit";
     public static final String CODE_APPROVAL_RESIGNATION_DETAIL = "approval:resignation:detail";
@@ -115,6 +118,7 @@ public enum PermissionCodeEnum {
     public static final String CODE_LABEL_TEMPLATE_LIST = "label:template:list";
     public static final String CODE_LABEL_TEMPLATE_SAVE = "label:template:save";
     public static final String CODE_LABEL_TEMPLATE_UPLOAD = "label:template:upload";
+    public static final String CODE_NOTIFICATION_ANNOUNCEMENT_LIST = "notification:announcement:list";
     public static final String CODE_ORDER_ALL = "order:*";
     public static final String CODE_ORDER_CREATE = "order:create";
     public static final String CODE_ORDER_DETAIL = "order:detail";

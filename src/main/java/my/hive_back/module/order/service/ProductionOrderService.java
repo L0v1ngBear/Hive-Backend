@@ -505,14 +505,14 @@ public class ProductionOrderService {
                     TenantPermissionContext.getUserId(),
                     null,
                     null,
-                    orderStatusPermission(currentStatus),
+                    PermissionCodeEnum.CODE_APPROVAL_ORDER_AUDIT,
                     false);
         }
         List<Long> permittedIds = userMapper.selectActiveApproverIdsByPermission(
-                order.getTenantCode(), orderStatusPermission(currentStatus));
+                order.getTenantCode(), PermissionCodeEnum.CODE_APPROVAL_ORDER_AUDIT);
         for (Long auditorId : auditorIds) {
             if (permittedIds == null || !permittedIds.contains(auditorId)) {
-                throw new BusinessException(400, "所选审批人没有生产订单审批权限");
+                throw new BusinessException(400, "所选审批人没有订单审核权限");
             }
         }
 

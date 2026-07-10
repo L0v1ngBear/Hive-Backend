@@ -92,7 +92,6 @@ public class ApprovalController {
     }
 
     @GetMapping("/leave/list")
-    @RequirePermission(value = PermissionCodeEnum.CODE_APPROVAL_LEAVE, message = "您没有权限查看请假审批列表")
     public Result<List<LeaveApprovalListVO>> listLeaveApprovals(@RequestParam(defaultValue = QueryScopeEnum.CODE_PENDING) String scope,
                                                                 @RequestParam(required = false) Integer status) {
         return Result.success(leaveService.listApprovals(scope, status));
@@ -144,7 +143,6 @@ public class ApprovalController {
     }
 
     @GetMapping("/finance/list")
-    @RequirePermission(value = PermissionCodeEnum.CODE_APPROVAL_FINANCE, message = "您没有权限查看财务审批列表")
     public Result<List<FinanceApprovalVO>> listFinanceApprovals(@RequestParam(defaultValue = QueryScopeEnum.CODE_PENDING) String scope,
                                                                 @RequestParam(required = false) Integer status) {
         return Result.success(financeApprovalService.list(scope, status));
@@ -172,7 +170,6 @@ public class ApprovalController {
     }
 
     @GetMapping("/resignation/list")
-    @RequirePermission(value = PermissionCodeEnum.CODE_APPROVAL_RESIGNATION, message = "您没有权限查看离职审批列表")
     public Result<List<ResignationApprovalVO>> listResignationApprovals(@RequestParam(defaultValue = QueryScopeEnum.CODE_PENDING) String scope,
                                                                         @RequestParam(required = false) Integer status) {
         return Result.success(resignationApprovalService.list(scope, status));
@@ -206,7 +203,7 @@ public class ApprovalController {
     }
 
     @PostMapping("/order/audit")
-    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限处理订单审批")
+    @RequirePermission(value = PermissionCodeEnum.CODE_APPROVAL_ORDER_AUDIT, message = "您没有权限处理订单审批")
     @CollectLog(module = "approval", action = "audit_order", bizType = "order_approval", bizNo = "#auditRequest.orderId", description = "小程序确认待审批订单")
     public Result<String> auditOrderApproval(@Valid @RequestBody OrderApprovalAuditRequest auditRequest) {
         approvalCenterService.audit(auditRequest);

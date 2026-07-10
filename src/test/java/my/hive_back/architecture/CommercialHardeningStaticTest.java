@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CommercialHardeningStaticTest {
@@ -350,6 +351,88 @@ class CommercialHardeningStaticTest {
                 "Customer project keyword subqueries must explicitly filter tenantCode: " + file);
         assertTrue(content.contains("FROM customer_contact WHERE tenant_code = {1}"),
                 "Customer contact keyword subqueries must explicitly filter tenantCode: " + file);
+    }
+
+    @Test
+    void approvalListsAndDetailsShouldUseDynamicAccessChecks() throws IOException {
+        Path controller = MAIN_SOURCE.resolve("my/hive_back/api/approval/ApprovalController.java");
+        String controllerContent = Files.readString(controller, StandardCharsets.UTF_8);
+        for (String mapping : List.of("/leave/list", "/finance/list", "/resignation/list")) {
+            int mappingIndex = controllerContent.indexOf("@GetMapping(\"" + mapping + "\")");
+            assertTrue(mappingIndex >= 0, "Approval controller missing " + mapping);
+            int methodIndex = controllerContent.indexOf("public ", mappingIndex);
+            String annotationBlock = controllerContent.substring(mappingIndex, methodIndex);
+            assertFalse(annotationBlock.contains("@RequirePermission"),
+                    mapping + " must authorize the requested data scope dynamically");
+        }
+
+        Map<String, String> services = Map.of(
+                "my/hive_back/module/leave/service/LeaveService.java", "ApprovalAccessService.Type.LEAVE",
+                "my/hive_back/module/finance/service/FinanceApprovalService.java", "ApprovalAccessService.Type.FINANCE",
+                "my/hive_back/module/resignation/service/ResignationApprovalService.java", "ApprovalAccessService.Type.RESIGNATION"
+        );
+        for (Map.Entry<String, String> entry : services.entrySet()) {
+            Path service = MAIN_SOURCE.resolve(entry.getKey());
+            String content = Files.readString(service, StandardCharsets.UTF_8);
+            assertTrue(content.contains("approvalAccessService.requireListScope(" + entry.getValue()),
+                    "Approval list service must enforce its scope: " + service);
+            assertTrue(content.contains("approvalAccessService.requireDetailAccess(" + entry.getValue()),
+                    "Approval detail service must enforce row access: " + service);
+        }
+    }
+
+    @Test
+    void orderAuditorsShouldUseTheDedicatedAuditPermission() throws IOException {
+        Path approvalCenter = MAIN_SOURCE.resolve("my/hive_back/module/approval/service/ApprovalCenterService.java");
+        String centerContent = Files.readString(approvalCenter, StandardCharsets.UTF_8);
+        int resolverIndex = centerContent.indexOf("private String resolveOrderAuditPermissionCode");
+        assertTrue(resolverIndex >= 0, "Order audit permission resolver is missing");
+        String resolver = centerContent.substring(resolverIndex, Math.min(centerContent.length(), resolverIndex + 220));
+        assertTrue(resolver.contains("CODE_APPROVAL_ORDER_AUDIT"),
+                "Order approval candidates must be selected by approval:order:audit");
+        assertFalse(resolver.contains("CODE_ORDER_ALL"),
+                "Order approval selection must not require unrestricted order data access");
+
+        for (String servicePath : List.of(
+                "my/hive_back/module/order/service/SalesOrderService.java",
+                "my/hive_back/module/order/service/ProductionOrderService.java")) {
+            Path service = MAIN_SOURCE.resolve(servicePath);
+            String content = Files.readString(service, StandardCharsets.UTF_8);
+            assertTrue(content.contains("PermissionCodeEnum.CODE_APPROVAL_ORDER_AUDIT"),
+                    "Rollback auditors must hold the dedicated audit permission: " + service);
+        }
+    }
+
+    @Test
+    void employeeFallbackAndPermissionCacheShouldMatchTheNewRoleMatrix() throws IOException {
+        Path userService = MAIN_SOURCE.resolve("my/hive_back/module/user/service/UserService.java");
+        String userContent = Files.readString(userService, StandardCharsets.UTF_8);
+        int baselineStart = userContent.indexOf("DEFAULT_JOIN_PERMISSION_CODES = List.of(");
+        int baselineEnd = userContent.indexOf("    );", baselineStart);
+        assertTrue(baselineStart >= 0 && baselineEnd > baselineStart,
+                "Mini employee fallback permission list is missing");
+        String baseline = userContent.substring(baselineStart, baselineEnd);
+        for (String marker : List.of(
+                "CODE_ATTENDANCE_PUNCH", "CODE_ATTENDANCE_RECORD_LIST",
+                "CODE_APPROVAL_LEAVE_SUBMIT", "CODE_APPROVAL_LEAVE_DETAIL",
+                "CODE_APPROVAL_FINANCE_SUBMIT", "CODE_APPROVAL_FINANCE_DETAIL",
+                "CODE_APPROVAL_RESIGNATION_SUBMIT", "CODE_APPROVAL_RESIGNATION_DETAIL",
+                "CODE_DOCUMENT_LIST", "CODE_DOCUMENT_BREADCRUMBS",
+                "CODE_NOTIFICATION_ANNOUNCEMENT_LIST")) {
+            assertTrue(baseline.contains(marker), "Mini employee baseline missing " + marker);
+        }
+        for (String forbidden : List.of("CODE_ORDER_", "CODE_INVENTORY_", "CODE_BADPRODUCT_",
+                "CODE_CUSTOMER_", "CODE_LABEL_TEMPLATE_")) {
+            assertFalse(baseline.contains(forbidden),
+                    "Mini employee fallback must not grant business data permission " + forbidden);
+        }
+
+        Path interceptor = MAIN_SOURCE.resolve("my/hive_back/common/interceptor/TenantInterceptor.java");
+        String interceptorContent = Files.readString(interceptor, StandardCharsets.UTF_8);
+        assertTrue(interceptorContent.contains("cache(\"mini\", \"perm-v2\""),
+                "Mini permission reads must leave stale pre-migration cache entries behind");
+        assertTrue(userContent.contains("cache(\"mini\", \"perm-v2\""),
+                "Mini role changes must evict the versioned permission cache key");
     }
 
     @Test

@@ -11,6 +11,7 @@ import my.hive_back.module.attendance.PunchStatusEnum;
 import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
 import my.hive_back.module.attendance.model.entity.AttendanceRecord;
 import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
+import my.hive_back.module.approval.service.ApprovalAccessService;
 import my.hive_back.module.approval.service.ApprovalDefaultAuditorService;
 import my.hive_back.module.leave.ApprovalActionEnum;
 import my.hive_back.module.leave.LeaveStatusEnum;
@@ -73,6 +74,9 @@ public class LeaveService {
 
     @Resource
     private ApprovalDefaultAuditorService approvalDefaultAuditorService;
+
+    @Resource
+    private ApprovalAccessService approvalAccessService;
 
     public boolean isInApprovalLeave(LocalDateTime punchStartTime, LocalDateTime punchEndTime) {
         Long userId = TenantPermissionContext.getUserId();
@@ -149,10 +153,13 @@ public class LeaveService {
         if (userLeave == null) {
             throw new BusinessException("请假单不存在");
         }
+        approvalAccessService.requireDetailAccess(ApprovalAccessService.Type.LEAVE,
+                userLeave.getApplyUserId(), userLeave.getAuditorId(), userLeave.getAuditorIds());
         return userLeave;
     }
 
     public List<LeaveApprovalListVO> listApprovals(String scope, Integer status) {
+        String normalizedScope = approvalAccessService.requireListScope(ApprovalAccessService.Type.LEAVE, scope);
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = TenantPermissionContext.getTenantCode();
         if (tenantCode == null || tenantCode.isBlank()) {
@@ -162,17 +169,17 @@ public class LeaveService {
         if (status != null) {
             queryWrapper.eq(UserLeave::getStatus, status);
         }
-        if ("mine".equalsIgnoreCase(scope)) {
+        if ("mine".equals(normalizedScope)) {
             queryWrapper.eq(UserLeave::getApplyUserId, userId);
-        } else if ("self_pending".equalsIgnoreCase(scope)) {
+        } else if ("self_pending".equals(normalizedScope)) {
             queryWrapper.eq(UserLeave::getApplyUserId, userId)
                     .eq(UserLeave::getStatus, LeaveStatusEnum.PENDING.getCode());
             appendAuditorFilter(queryWrapper, userId);
-        } else if ("others_pending".equalsIgnoreCase(scope)) {
+        } else if ("others_pending".equals(normalizedScope)) {
             queryWrapper.ne(UserLeave::getApplyUserId, userId)
                     .eq(UserLeave::getStatus, LeaveStatusEnum.PENDING.getCode());
             appendAuditorFilter(queryWrapper, userId);
-        } else if (!"all".equalsIgnoreCase(scope)) {
+        } else if (!"all".equals(normalizedScope)) {
             appendAuditorFilter(queryWrapper, userId);
         }
         queryWrapper.orderByDesc(UserLeave::getCreateTime);

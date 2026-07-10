@@ -45,22 +45,9 @@ public class UserService {
             PermissionCodeEnum.CODE_APPROVAL_FINANCE_DETAIL,
             PermissionCodeEnum.CODE_APPROVAL_RESIGNATION_SUBMIT,
             PermissionCodeEnum.CODE_APPROVAL_RESIGNATION_DETAIL,
-            PermissionCodeEnum.CODE_ORDER_LIST,
-            PermissionCodeEnum.CODE_ORDER_DETAIL,
-            PermissionCodeEnum.CODE_ORDER_CREATE,
-            PermissionCodeEnum.CODE_INVENTORY_BARCODE_SEARCH,
-            PermissionCodeEnum.CODE_INVENTORY_MODEL_SEARCH,
-            PermissionCodeEnum.CODE_INVENTORY_RECORD_RECENT,
-            PermissionCodeEnum.CODE_INVENTORY_WARNING_LIST,
-            PermissionCodeEnum.CODE_INVENTORY_CLOTH_IN,
-            PermissionCodeEnum.CODE_INVENTORY_CLOTH_OUT,
-            PermissionCodeEnum.CODE_BADPRODUCT_LIST,
-            PermissionCodeEnum.CODE_BADPRODUCT_SAVE,
-            PermissionCodeEnum.CODE_CUSTOMER_PAGE,
-            PermissionCodeEnum.CODE_CUSTOMER_DETAIL,
-            PermissionCodeEnum.CODE_LABEL_TEMPLATE_LIST,
-            PermissionCodeEnum.CODE_LABEL_TEMPLATE_DETAIL,
-            PermissionCodeEnum.CODE_LABEL_TEMPLATE_DEFAULT
+            PermissionCodeEnum.CODE_DOCUMENT_LIST,
+            PermissionCodeEnum.CODE_DOCUMENT_BREADCRUMBS,
+            PermissionCodeEnum.CODE_NOTIFICATION_ANNOUNCEMENT_LIST
     );
 
     @Resource
@@ -259,7 +246,7 @@ public class UserService {
             return;
         }
         try {
-            stringRedisTemplate.delete(redisKeyBuilder.cache("mini", "perm", tenantCode, String.valueOf(userId)));
+            stringRedisTemplate.delete(redisKeyBuilder.cache("mini", "perm-v2", tenantCode, String.valueOf(userId)));
         } catch (Exception ignored) {
             // Permission cache is an acceleration layer only; role binding has already been persisted.
         }

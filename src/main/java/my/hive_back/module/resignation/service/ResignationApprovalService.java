@@ -6,6 +6,7 @@ import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
+import my.hive_back.module.approval.service.ApprovalAccessService;
 import my.hive_back.module.approval.service.ApprovalDefaultAuditorService;
 import my.hive_back.module.leave.ApprovalActionEnum;
 import my.hive_back.module.resignation.mapper.ResignationApprovalMapper;
@@ -60,6 +61,9 @@ public class ResignationApprovalService {
     @Resource
     private ApprovalDefaultAuditorService approvalDefaultAuditorService;
 
+    @Resource
+    private ApprovalAccessService approvalAccessService;
+
     @Transactional(rollbackFor = Exception.class)
     public String submit(ResignationSubmitRequest request) {
         Long userId = TenantPermissionContext.getUserId();
@@ -86,6 +90,7 @@ public class ResignationApprovalService {
     }
 
     public List<ResignationApprovalVO> list(String scope, Integer status) {
+        String normalizedScope = approvalAccessService.requireListScope(ApprovalAccessService.Type.RESIGNATION, scope);
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = TenantPermissionContext.getTenantCode();
         if (tenantCode == null || tenantCode.isBlank()) {
@@ -95,17 +100,17 @@ public class ResignationApprovalService {
         if (status != null) {
             queryWrapper.eq(ResignationApproval::getStatus, status);
         }
-        if ("mine".equalsIgnoreCase(scope)) {
+        if ("mine".equals(normalizedScope)) {
             queryWrapper.eq(ResignationApproval::getApplyUserId, userId);
-        } else if ("self_pending".equalsIgnoreCase(scope)) {
+        } else if ("self_pending".equals(normalizedScope)) {
             queryWrapper.eq(ResignationApproval::getApplyUserId, userId)
                     .eq(ResignationApproval::getStatus, STATUS_PENDING);
             appendAuditorFilter(queryWrapper, userId);
-        } else if ("others_pending".equalsIgnoreCase(scope)) {
+        } else if ("others_pending".equals(normalizedScope)) {
             queryWrapper.ne(ResignationApproval::getApplyUserId, userId)
                     .eq(ResignationApproval::getStatus, STATUS_PENDING);
             appendAuditorFilter(queryWrapper, userId);
-        } else if (!"all".equalsIgnoreCase(scope)) {
+        } else if (!"all".equals(normalizedScope)) {
             appendAuditorFilter(queryWrapper, userId);
         }
         queryWrapper.orderByDesc(ResignationApproval::getCreateTime);
@@ -174,6 +179,8 @@ public class ResignationApprovalService {
         if (approval == null) {
             throw new BusinessException("离职审批单不存在");
         }
+        approvalAccessService.requireDetailAccess(ApprovalAccessService.Type.RESIGNATION,
+                approval.getApplyUserId(), approval.getAuditorId(), approval.getAuditorIds());
         return approval;
     }
 

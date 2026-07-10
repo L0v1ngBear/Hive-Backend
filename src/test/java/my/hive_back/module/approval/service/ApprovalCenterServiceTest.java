@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
@@ -44,6 +45,9 @@ class ApprovalCenterServiceTest {
 
     @Mock
     private ApprovalAuditorCandidateService approvalAuditorCandidateService;
+
+    @Spy
+    private ApprovalAccessService approvalAccessService = new ApprovalAccessService();
 
     @InjectMocks
     private ApprovalCenterService service;
@@ -85,5 +89,22 @@ class ApprovalCenterServiceTest {
         assertFalse(summary.isCanCreateFinance());
         assertFalse(summary.isCanCreateLeave());
         assertFalse(summary.isCanCreateResignation());
+    }
+
+    @Test
+    void summaryExposesOnlyGrantedViewAndReviewCapabilities() {
+        TenantPermissionContext.init("TENANT-TEST", 1L, Set.of(
+                PermissionCodeEnum.CODE_ORDER_LIST,
+                PermissionCodeEnum.CODE_BADPRODUCT_PROCESS,
+                PermissionCodeEnum.CODE_APPROVAL_FINANCE_AUDIT,
+                PermissionCodeEnum.CODE_APPROVAL_LEAVE));
+
+        ApprovalSummaryVO summary = service.summary();
+
+        assertTrue(summary.isCanViewOrder());
+        assertTrue(summary.isCanViewQuality());
+        assertTrue(summary.isCanReviewFinance());
+        assertTrue(summary.isCanReviewLeave());
+        assertFalse(summary.isCanReviewResignation());
     }
 }

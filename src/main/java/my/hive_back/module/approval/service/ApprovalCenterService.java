@@ -101,6 +101,9 @@ public class ApprovalCenterService {
     @Resource
     private ApprovalDefaultAuditorService approvalDefaultAuditorService;
 
+    @Resource
+    private ApprovalAccessService approvalAccessService;
+
     public ApprovalSummaryVO summary() {
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = TenantPermissionContext.getTenantCode();
@@ -128,12 +131,14 @@ public class ApprovalCenterService {
         vo.setOrderPending(orderPending);
         vo.setQualityPending(qualityPending);
         vo.setTotalPending(leavePending + financePending + resignationPending + orderPending + qualityPending);
-        vo.setCanCreateFinance(TenantPermissionContext.hasPermission(
-                PermissionCodeEnum.CODE_APPROVAL_FINANCE_SUBMIT));
-        vo.setCanCreateLeave(TenantPermissionContext.hasPermission(
-                PermissionCodeEnum.CODE_APPROVAL_LEAVE_SUBMIT));
-        vo.setCanCreateResignation(TenantPermissionContext.hasPermission(
-                PermissionCodeEnum.CODE_APPROVAL_RESIGNATION_SUBMIT));
+        vo.setCanCreateFinance(approvalAccessService.canCreate(ApprovalAccessService.Type.FINANCE));
+        vo.setCanCreateLeave(approvalAccessService.canCreate(ApprovalAccessService.Type.LEAVE));
+        vo.setCanCreateResignation(approvalAccessService.canCreate(ApprovalAccessService.Type.RESIGNATION));
+        vo.setCanViewOrder(approvalAccessService.canViewOrder());
+        vo.setCanViewQuality(approvalAccessService.canViewQuality());
+        vo.setCanReviewFinance(approvalAccessService.canReview(ApprovalAccessService.Type.FINANCE));
+        vo.setCanReviewLeave(approvalAccessService.canReview(ApprovalAccessService.Type.LEAVE));
+        vo.setCanReviewResignation(approvalAccessService.canReview(ApprovalAccessService.Type.RESIGNATION));
         return vo;
     }
 
@@ -683,7 +688,7 @@ public class ApprovalCenterService {
     }
 
     private String resolveOrderAuditPermissionCode(String orderType) {
-        return PermissionCodeEnum.CODE_ORDER_ALL;
+        return PermissionCodeEnum.CODE_APPROVAL_ORDER_AUDIT;
     }
 
     private boolean markCandidateDecisionIfPresent(String tenantCode,
@@ -820,7 +825,7 @@ public class ApprovalCenterService {
             case "leave" -> PermissionCodeEnum.CODE_APPROVAL_LEAVE_AUDIT;
             case "finance" -> PermissionCodeEnum.CODE_APPROVAL_FINANCE_AUDIT;
             case "resignation" -> PermissionCodeEnum.CODE_APPROVAL_RESIGNATION_AUDIT;
-            case "order" -> PermissionCodeEnum.CODE_ORDER_ALL;
+            case "order" -> PermissionCodeEnum.CODE_APPROVAL_ORDER_AUDIT;
             case "quality", "badproduct", "bad_product" -> PermissionCodeEnum.CODE_BADPRODUCT_PROCESS;
             default -> throw new BusinessException("审批类型不合法");
         };

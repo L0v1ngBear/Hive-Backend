@@ -7,6 +7,7 @@ import my.hive.common.exception.BusinessException;
 import my.hive_back.common.security.InternalUploadUrlValidator;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
+import my.hive_back.module.approval.service.ApprovalAccessService;
 import my.hive_back.module.approval.service.ApprovalDefaultAuditorService;
 import my.hive_back.module.finance.mapper.FinanceApprovalMapper;
 import my.hive_back.module.finance.model.dto.FinanceAuditRequest;
@@ -60,6 +61,9 @@ public class FinanceApprovalService {
     @Resource
     private ApprovalDefaultAuditorService approvalDefaultAuditorService;
 
+    @Resource
+    private ApprovalAccessService approvalAccessService;
+
     @Transactional(rollbackFor = Exception.class)
     public String submit(FinanceSubmitRequest request) {
         Long userId = TenantPermissionContext.getUserId();
@@ -89,6 +93,8 @@ public class FinanceApprovalService {
         if (approval == null) {
             throw new BusinessException("财务审批单不存在");
         }
+        approvalAccessService.requireDetailAccess(ApprovalAccessService.Type.FINANCE,
+                approval.getApplyUserId(), approval.getAuditorId(), approval.getAuditorIds());
         return approval;
     }
 
@@ -97,6 +103,7 @@ public class FinanceApprovalService {
     }
 
     public List<FinanceApprovalVO> list(String scope, Integer status) {
+        String normalizedScope = approvalAccessService.requireListScope(ApprovalAccessService.Type.FINANCE, scope);
         Long userId = TenantPermissionContext.getUserId();
         String tenantCode = TenantPermissionContext.getTenantCode();
         if (tenantCode == null || tenantCode.isBlank()) {
@@ -106,17 +113,17 @@ public class FinanceApprovalService {
         if (status != null) {
             queryWrapper.eq(FinanceApproval::getStatus, status);
         }
-        if ("mine".equalsIgnoreCase(scope)) {
+        if ("mine".equals(normalizedScope)) {
             queryWrapper.eq(FinanceApproval::getApplyUserId, userId);
-        } else if ("self_pending".equalsIgnoreCase(scope)) {
+        } else if ("self_pending".equals(normalizedScope)) {
             queryWrapper.eq(FinanceApproval::getApplyUserId, userId)
                     .eq(FinanceApproval::getStatus, STATUS_PENDING);
             appendAuditorFilter(queryWrapper, userId);
-        } else if ("others_pending".equalsIgnoreCase(scope)) {
+        } else if ("others_pending".equals(normalizedScope)) {
             queryWrapper.ne(FinanceApproval::getApplyUserId, userId)
                     .eq(FinanceApproval::getStatus, STATUS_PENDING);
             appendAuditorFilter(queryWrapper, userId);
-        } else if (!"all".equalsIgnoreCase(scope)) {
+        } else if (!"all".equals(normalizedScope)) {
             appendAuditorFilter(queryWrapper, userId);
         }
         queryWrapper.orderByDesc(FinanceApproval::getCreateTime);

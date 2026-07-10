@@ -170,7 +170,7 @@ public class TenantInterceptor implements HandlerInterceptor {
     }
 
     private Set<String> getUserPermCodes(String tenantCode, Long userId) {
-        String cacheKey = redisKeyBuilder.cache("mini", "perm", tenantCode, String.valueOf(userId));
+        String cacheKey = redisKeyBuilder.cache("mini", "perm-v2", tenantCode, String.valueOf(userId));
 
         String cachedPermsStr = stringRedisTemplate.opsForValue().get(cacheKey);
         if (StringUtils.isNotBlank(cachedPermsStr)) {
