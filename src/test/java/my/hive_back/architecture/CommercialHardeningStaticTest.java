@@ -3,7 +3,6 @@ package my.hive_back.architecture;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,9 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-import my.hive_back.module.order.service.OrderService;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CommercialHardeningStaticTest {
@@ -82,8 +79,7 @@ class CommercialHardeningStaticTest {
                 Map.entry("my/hive_back/api/auth/AuthController.java", List.of("/login", "/wechat-login")),
                 Map.entry("my/hive_back/api/attendance/AttendanceController.java", List.of("/punch")),
                 Map.entry("my/hive_back/api/approval/ApprovalController.java", List.of("/leave/submit", "/leave/audit", "/finance/submit", "/finance/audit", "/resignation/submit", "/resignation/audit")),
-                Map.entry("my/hive_back/api/order/SalesOrderController.java", List.of("/orders/{orderId}/status", "/orders/add")),
-                Map.entry("my/hive_back/api/order/ProductionOrderController.java", List.of("/orders/{orderId}/status", "/orders/add")),
+                Map.entry("my/hive_back/api/order/OrderController.java", List.of("/{orderId}/status", "/{orderId}/rollback", "/add")),
                 Map.entry("my/hive_back/api/wechat/WechatSubscribeController.java", List.of("/register"))
         );
         assertCriticalMappingsAudited(criticalMappings);
@@ -171,7 +167,7 @@ class CommercialHardeningStaticTest {
     }
 
     @Test
-    void miniBackendShouldExposeUnifiedOrderReadEndpoints() throws IOException {
+    void miniBackendShouldExposeUnifiedOrderEndpoints() throws IOException {
         Path unifiedController = MAIN_SOURCE.resolve("my/hive_back/api/order/OrderController.java");
         assertTrue(Files.exists(unifiedController), "Mini order list should be exposed by unified /orders controller");
         String content = Files.readString(unifiedController, StandardCharsets.UTF_8);
@@ -180,7 +176,12 @@ class CommercialHardeningStaticTest {
                 "@GetMapping(\"/list\")",
                 "@GetMapping(\"/status-summary\")",
                 "@GetMapping(\"/detail/{orderId}\")",
-                "@GetMapping(\"/status-log/{orderId}\")"
+                "@GetMapping(\"/status-log/{orderId}\")",
+                "@PostMapping(\"/{orderId}/status\")",
+                "@PostMapping(\"/{orderId}/rollback\")",
+                "@PostMapping(\"/{flowCode}/flow-advance\")",
+                "@PostMapping(\"/add\")",
+                "@PostMapping(\"/flow-print-task\")"
         );
         List<String> violations = requiredMappings.stream()
                 .filter(mapping -> !content.contains(mapping))
@@ -211,6 +212,51 @@ class CommercialHardeningStaticTest {
     }
 
     @Test
+    void miniUnifiedOrderListShouldPageCanonicalOrdersOnlyOnce() throws IOException {
+        Path service = MAIN_SOURCE.resolve("my/hive_back/module/order/service/OrderService.java");
+        String serviceContent = Files.readString(service, StandardCharsets.UTF_8);
+        long canonicalPageCalls = Pattern.compile("salesOrderService\\.selectSalesOrder\\(")
+                .matcher(serviceContent)
+                .results()
+                .count();
+        assertTrue(canonicalPageCalls == 1,
+                "Unified order list must page the canonical order table exactly once: " + service);
+        assertTrue(!serviceContent.contains("productionOrderService.selectProductionOrder"),
+                "Production rows are fulfillment children and must not be paged as separate orders: " + service);
+        assertTrue(serviceContent.contains("enrichFulfillment"),
+                "Canonical order rows must be enriched with linked fulfillment progress: " + service);
+    }
+
+    @Test
+    void miniBackendShouldNotExposeLegacyOrderControllers() {
+        assertTrue(Files.notExists(MAIN_SOURCE.resolve("my/hive_back/api/order/SalesOrderController.java")),
+                "Retired sales order controller must be removed");
+        assertTrue(Files.notExists(MAIN_SOURCE.resolve("my/hive_back/api/order/ProductionOrderController.java")),
+                "Retired production order controller must be removed");
+    }
+
+    @Test
+    void completedOrdersFromMiniBackendShouldUpsertInstallationTask() throws IOException {
+        Path syncService = MAIN_SOURCE.resolve("my/hive_back/module/installation/service/InstallationTaskSyncService.java");
+        Path mapper = MAIN_SOURCE.resolve("my/hive_back/module/installation/mapper/InstallationTaskMapper.java");
+        assertTrue(Files.exists(syncService), "Mini backend must own completed-order installation task synchronization");
+        assertTrue(Files.exists(mapper), "Mini backend must provide an installation task upsert mapper");
+
+        String mapperContent = Files.readString(mapper, StandardCharsets.UTF_8);
+        assertTrue(mapperContent.contains("ON DUPLICATE KEY UPDATE"),
+                "Installation task synchronization must be idempotent under concurrent completion events");
+        assertTrue(!mapperContent.contains("installation_status = VALUES(installation_status)"),
+                "Order resynchronization must not reset installation workflow status");
+        assertTrue(!mapperContent.contains("construction_personnel = VALUES(construction_personnel)"),
+                "Order resynchronization must preserve installer-entered construction information");
+
+        Path orderService = MAIN_SOURCE.resolve("my/hive_back/module/order/service/SalesOrderService.java");
+        String orderServiceContent = Files.readString(orderService, StandardCharsets.UTF_8);
+        assertTrue(orderServiceContent.contains("installationTaskSyncService.createOrSyncFromCompletedOrder(order)"),
+                "The canonical mini order completion path must synchronize installation_task: " + orderService);
+    }
+
+    @Test
     void orderListPermissionShouldNotBypassStatusPermissions() throws IOException {
         List<Path> services = List.of(
                 MAIN_SOURCE.resolve("my/hive_back/module/order/service/SalesOrderService.java"),
@@ -235,15 +281,25 @@ class CommercialHardeningStaticTest {
     }
 
     @Test
-    void miniUnifiedOrderDetailShouldRecognizeDelimitedSalesOrderIds() throws Exception {
-        OrderService orderService = new OrderService();
-        Method method = OrderService.class.getDeclaredMethod("isSalesOrder", String.class);
-        method.setAccessible(true);
+    void miniUnifiedOrderDetailShouldUseCanonicalOrderId() throws IOException {
+        Path service = MAIN_SOURCE.resolve("my/hive_back/module/order/service/OrderService.java");
+        String content = Files.readString(service, StandardCharsets.UTF_8);
+        assertTrue(content.contains("salesOrderService.getByIdandTenantId"),
+                "Unified order detail must resolve the canonical order record");
+        assertTrue(!content.contains("private boolean isSalesOrder"),
+                "Unified order operations must not guess a retired order type from the order-id naming convention");
+    }
 
-        assertTrue((Boolean) method.invoke(orderService, "TEST-SO-003"),
-                "Unified mini order detail must route imported/test sales order ids to sales detail");
-        assertFalse((Boolean) method.invoke(orderService, "TEST-PO-003"),
-                "Unified mini order detail must not route production order ids to sales detail");
+    @Test
+    void miniUnifiedOrderPrintingShouldNotCreateFulfillmentTasks() throws IOException {
+        Path service = MAIN_SOURCE.resolve("my/hive_back/module/order/service/OrderFlowPrintService.java");
+        String content = Files.readString(service, StandardCharsets.UTF_8);
+        assertTrue(!content.contains("createProductionTask"),
+                "Mini order printing must not expose a production-order print path");
+        assertTrue(!content.contains("buildProductionPayload"),
+                "Mini order printing must not generate fulfillment QR payloads");
+        assertTrue(!content.contains("\"production_order\""),
+                "Mini order printing must only enqueue canonical sales-order tasks");
     }
 
     @Test

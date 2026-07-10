@@ -1,43 +1,56 @@
 package my.hive_back.module.order.service;
 
-import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import my.hive.common.annotation.RequirePermission;
 import my.hive.common.dto.PageResult;
 import my.hive.common.exception.BusinessException;
 import my.hive_back.module.order.model.dto.BaseOrderListRequest;
-import my.hive_back.module.order.model.dto.ProductionOrderListRequest;
+import my.hive_back.module.order.model.dto.OrderFlowPrintTaskRequest;
+import my.hive_back.module.order.model.dto.ProductionOrderUpdateRequest;
+import my.hive_back.module.order.model.dto.SalesOrderAddRequest;
 import my.hive_back.module.order.model.dto.SalesOrderListRequest;
+import my.hive_back.module.order.model.dto.SalesOrderUpdateRequest;
+import my.hive_back.module.order.model.dto.UnifiedOrderUpdateRequest;
 import my.hive_back.module.order.model.entity.ProductionOrder;
-import my.hive_back.module.order.model.entity.ProductionOrderStatusLog;
 import my.hive_back.module.order.model.entity.SalesOrderStatusLog;
+import my.hive_back.module.order.model.vo.OrderFlowPrintTaskVO;
 import my.hive_back.module.order.model.vo.ProductionOrderVO;
 import my.hive_back.module.order.model.vo.SalesOrderVO;
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.BeanWrapperImpl;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.beans.PropertyDescriptor;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
+/**
+ * Canonical order facade. Sales orders are the single business-order record;
+ * linked production rows are fulfillment details and never become list rows.
+ */
 @Service
 public class OrderService {
 
-    private static final ZoneId ZONE_ID = ZoneId.of("Asia/Shanghai");
     private static final int DEFAULT_PAGE_NUM = 1;
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 200;
-    private static final List<DateTimeFormatter> DATE_TIME_FORMATTERS = List.of(
-            DateTimeFormatter.ISO_LOCAL_DATE_TIME,
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    private static final List<String> FULFILLMENT_VIEW_FIELDS = List.of(
+            "process",
+            "processText",
+            "currentProcessText",
+            "completedProcessText",
+            "processProgressPercent",
+            "processSteps"
     );
 
     @Resource
@@ -46,123 +59,180 @@ public class OrderService {
     @Resource
     private ProductionOrderService productionOrderService;
 
+    @Resource
+    private OrderFlowPrintService orderFlowPrintService;
+
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限查询订单列表")
     public PageResult<Map<String, Object>> page(BaseOrderListRequest request) {
         BaseOrderListRequest safeRequest = request == null ? new BaseOrderListRequest() : request;
         int pageNum = safePageNum(safeRequest.getPageNum());
         int pageSize = safePageSize(safeRequest.getPageSize());
         safeRequest.setPageNum(pageNum);
         safeRequest.setPageSize(pageSize);
-        SalesOrderListRequest salesRequest = salesRequest(safeRequest);
-        ProductionOrderListRequest productionRequest = productionRequest(safeRequest);
 
-        Page<SalesOrderVO> salesPage = salesOrderService.selectSalesOrder(salesRequest);
-        IPage<ProductionOrder> productionPage = productionOrderService.selectProductionOrder(productionRequest);
-
-        List<Map<String, Object>> rows = new ArrayList<>();
-        for (SalesOrderVO item : salesPage.getRecords()) {
-            Map<String, Object> row = beanToMap(item);
-            row.put("orderType", "sales");
-            rows.add(row);
-        }
-        for (ProductionOrder item : productionPage.getRecords()) {
-            ProductionOrderVO vo = productionOrderService.toVO(item);
-            Map<String, Object> row = beanToMap(vo);
-            row.put("orderType", "production");
-            rows.add(row);
-        }
-
-        rows.sort((left, right) -> compareRows(right, left));
-        long total = safeTotal(salesPage.getTotal()) + safeTotal(productionPage.getTotal());
-        int end = (int) Math.min(rows.size(), pageSize);
+        Page<SalesOrderVO> canonicalPage = salesOrderService.selectSalesOrder(salesRequest(safeRequest));
+        List<Map<String, Object>> rows = canonicalPage.getRecords().stream()
+                .map(this::beanToMap)
+                .collect(Collectors.toCollection(ArrayList::new));
+        enrichFulfillment(rows);
 
         PageResult<Map<String, Object>> result = new PageResult<>();
-        result.setCurrent((long) pageNum);
-        result.setSize((long) pageSize);
-        result.setTotal(total);
-        result.setPages(pageSize <= 0 ? 0L : (total + pageSize - 1) / pageSize);
-        result.setData(rows.subList(0, end));
+        result.setCurrent(canonicalPage.getCurrent());
+        result.setSize(canonicalPage.getSize());
+        result.setTotal(canonicalPage.getTotal());
+        result.setPages(canonicalPage.getPages());
+        result.setData(rows);
         return result;
     }
 
-    private int safePageNum(Integer pageNum) {
-        return pageNum == null || pageNum <= 0 ? DEFAULT_PAGE_NUM : pageNum;
-    }
-
-    private int safePageSize(Integer pageSize) {
-        if (pageSize == null || pageSize <= 0) {
-            return DEFAULT_PAGE_SIZE;
-        }
-        return Math.min(pageSize, MAX_PAGE_SIZE);
-    }
-
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限查询订单统计")
     public Map<String, Long> countStatuses() {
-        Map<String, Long> result = new LinkedHashMap<>();
-        merge(result, salesOrderService.countSalesOrderStatuses());
-        merge(result, productionOrderService.countProductionOrderStatuses());
-        return result;
+        return salesOrderService.countSalesOrderStatuses();
     }
 
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_DETAIL, message = "您没有权限查询订单详情")
     public Map<String, Object> detail(@NotBlank String orderId) {
-        return isSalesOrder(orderId) ? salesDetail(orderId) : productionDetail(orderId);
+        Map<String, Object> row = beanToMap(salesOrderService.getByIdandTenantId(normalizeOrderId(orderId)));
+        List<Map<String, Object>> rows = new ArrayList<>();
+        rows.add(row);
+        enrichFulfillment(rows);
+        return row;
     }
 
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_DETAIL, message = "您没有权限查询订单状态变更日志")
     public List<Map<String, Object>> statusLog(@NotBlank String orderId) {
-        if (isSalesOrder(orderId)) {
-            return salesOrderService.selectSalesOrderStatusLog(normalizeOrderId(orderId)).stream()
-                    .map(this::salesLog)
-                    .toList();
-        }
-        return productionOrderService.selectOrderStausLog(normalizeOrderId(orderId)).stream()
-                .map(this::productionLog)
+        return salesOrderService.selectSalesOrderStatusLog(normalizeOrderId(orderId)).stream()
+                .map(this::salesLog)
                 .toList();
     }
 
-    private Map<String, Object> salesDetail(String orderId) {
-        SalesOrderVO order = salesOrderService.getByIdandTenantId(normalizeOrderId(orderId));
-        Map<String, Object> row = beanToMap(order);
-        row.put("orderType", "sales");
-        return row;
+    @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限更新订单")
+    public Map<String, Object> update(@NotBlank String orderId, @Valid UnifiedOrderUpdateRequest request) {
+        String canonicalOrderId = normalizeOrderId(orderId);
+        if (request == null) {
+            throw new BusinessException(400, "订单更新内容不能为空");
+        }
+        SalesOrderVO current = salesOrderService.getByIdandTenantId(canonicalOrderId);
+        boolean processUpdate = request.getProcess() != null;
+        if (!StringUtils.hasText(request.getStatus()) && !processUpdate) {
+            throw new BusinessException(400, "目标状态或履约工序不能为空");
+        }
+
+        if (processUpdate) {
+            productionOrderService.updateLinkedStatusAndProcess(canonicalOrderId, productionUpdateRequest(request));
+        }
+
+        if (StringUtils.hasText(request.getStatus()) && !request.getStatus().trim().equals(current.getStatus())) {
+            salesOrderService.updateStatusAndProcess(canonicalOrderId, salesUpdateRequest(request));
+        } else if (!processUpdate && (request.getExpressInfo() != null || request.getIsInvoice() != null)) {
+            throw new BusinessException(400, "物流或开票信息必须随下一阶段状态一起提交");
+        }
+        return detail(canonicalOrderId);
     }
 
-    private Map<String, Object> productionDetail(String orderId) {
-        ProductionOrder order = productionOrderService.selectProductionOrderDetail(normalizeOrderId(orderId));
-        Map<String, Object> row = beanToMap(productionOrderService.toVO(order));
-        row.put("orderType", "production");
-        return row;
+    @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限提交订单回退审批")
+    public Map<String, Object> submitRollback(@NotBlank String orderId, UnifiedOrderUpdateRequest request) {
+        String canonicalOrderId = normalizeOrderId(orderId);
+        salesOrderService.submitRollbackApproval(canonicalOrderId,
+                request == null ? new SalesOrderUpdateRequest() : salesUpdateRequest(request));
+        return detail(canonicalOrderId);
     }
 
-    private Map<String, Object> salesLog(SalesOrderStatusLog log) {
-        Map<String, Object> row = beanToMap(log);
-        row.put("orderType", "sales");
-        return row;
+    @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限推进订单")
+    public Map<String, Object> advanceByFlowCode(@NotBlank String flowCode) {
+        String orderId = salesOrderService.advanceByFlowCode(flowCode).getOrderId();
+        return detail(orderId);
     }
 
-    private Map<String, Object> productionLog(ProductionOrderStatusLog log) {
-        Map<String, Object> row = beanToMap(log);
-        row.put("orderType", "production");
-        return row;
+    @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_CREATE, message = "您没有权限添加订单")
+    public void add(@Valid SalesOrderAddRequest request) {
+        if (request == null) {
+            throw new BusinessException(400, "订单内容不能为空");
+        }
+        request.setCreateProductionOrder(1);
+        salesOrderService.addSalesOrder(request);
     }
 
-    private SalesOrderListRequest salesRequest(BaseOrderListRequest request) {
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限生成订单流转码")
+    public OrderFlowPrintTaskVO createFlowPrintTask(@Valid OrderFlowPrintTaskRequest request) {
+        return orderFlowPrintService.createSalesTask(request);
+    }
+
+    private void enrichFulfillment(List<Map<String, Object>> rows) {
+        List<String> orderIds = rows.stream()
+                .map(row -> String.valueOf(row.getOrDefault("orderId", "")).trim())
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
+        Map<String, List<ProductionOrder>> fulfillmentByOrder = productionOrderService.listBySalesOrderIds(orderIds)
+                .stream()
+                .filter(order -> StringUtils.hasText(order.getSalesOrderId()))
+                .collect(Collectors.groupingBy(ProductionOrder::getSalesOrderId, LinkedHashMap::new, Collectors.toList()));
+
+        for (Map<String, Object> row : rows) {
+            String orderId = String.valueOf(row.getOrDefault("orderId", ""));
+            List<ProductionOrder> fulfillmentRows = fulfillmentByOrder.getOrDefault(orderId, List.of());
+            row.put("fulfillmentTracked", !fulfillmentRows.isEmpty());
+            row.put("fulfillmentRecordCount", fulfillmentRows.size());
+            if (fulfillmentRows.isEmpty()) {
+                continue;
+            }
+            ProductionOrder representative = fulfillmentRows.stream()
+                    .min(Comparator.comparingInt(item -> item.getProcess() == null ? -1 : item.getProcess()))
+                    .orElse(fulfillmentRows.get(0));
+            ProductionOrder snapshot = new ProductionOrder();
+            BeanUtils.copyProperties(representative, snapshot);
+            snapshot.setStatus(String.valueOf(row.getOrDefault("status", representative.getStatus())));
+            ProductionOrderVO fulfillmentView = productionOrderService.toVO(snapshot);
+            Map<String, Object> fulfillmentMap = beanToMap(fulfillmentView);
+            for (String field : FULFILLMENT_VIEW_FIELDS) {
+                row.put(field, fulfillmentMap.get(field));
+            }
+        }
+    }
+
+    private SalesOrderListRequest salesRequest(BaseOrderListRequest source) {
         SalesOrderListRequest target = new SalesOrderListRequest();
-        copyRequest(request, target);
-        return target;
-    }
-
-    private ProductionOrderListRequest productionRequest(BaseOrderListRequest request) {
-        ProductionOrderListRequest target = new ProductionOrderListRequest();
-        copyRequest(request, target);
-        target.setIsInvoice(null);
-        return target;
-    }
-
-    private void copyRequest(BaseOrderListRequest source, BaseOrderListRequest target) {
         target.setStatus(source.getStatus());
         target.setKeyWord(source.getKeyWord());
         target.setOrderCategory(source.getOrderCategory());
         target.setIsInvoice(source.getIsInvoice());
         target.setPageNum(source.getPageNum());
         target.setPageSize(source.getPageSize());
+        return target;
+    }
+
+    private SalesOrderUpdateRequest salesUpdateRequest(UnifiedOrderUpdateRequest source) {
+        SalesOrderUpdateRequest target = new SalesOrderUpdateRequest();
+        target.setStatus(source.getStatus());
+        target.setRemark(source.getRemark());
+        target.setAuditorIds(source.getAuditorIds());
+        target.setIsInvoice(source.getIsInvoice());
+        if (source.getExpressInfo() != null) {
+            SalesOrderUpdateRequest.ExpressInfo expressInfo = new SalesOrderUpdateRequest.ExpressInfo();
+            expressInfo.setExpressCompany(source.getExpressInfo().getExpressCompany());
+            expressInfo.setExpressNo(source.getExpressInfo().getExpressNo());
+            target.setExpressInfo(expressInfo);
+        }
+        return target;
+    }
+
+    private ProductionOrderUpdateRequest productionUpdateRequest(UnifiedOrderUpdateRequest source) {
+        ProductionOrderUpdateRequest target = new ProductionOrderUpdateRequest();
+        target.setStatus(source.getStatus());
+        target.setProcess(source.getProcess());
+        target.setOperateType(source.getOperateType());
+        target.setRemark(source.getRemark());
+        target.setAuditorIds(source.getAuditorIds());
+        return target;
+    }
+
+    private Map<String, Object> salesLog(SalesOrderStatusLog log) {
+        return beanToMap(log);
     }
 
     private Map<String, Object> beanToMap(Object source) {
@@ -181,69 +251,19 @@ public class OrderService {
         return result;
     }
 
-    private void merge(Map<String, Long> target, Map<String, Long> source) {
-        if (source == null || source.isEmpty()) {
-            return;
-        }
-        source.forEach((key, value) -> target.merge(key, value == null ? 0L : value, Long::sum));
+    private int safePageNum(Integer pageNum) {
+        return pageNum == null || pageNum <= 0 ? DEFAULT_PAGE_NUM : pageNum;
     }
 
-    private int compareRows(Map<String, Object> left, Map<String, Object> right) {
-        long leftTime = timestamp(left.get("createTime"));
-        long rightTime = timestamp(right.get("createTime"));
-        int timeCompare = Long.compare(leftTime, rightTime);
-        if (timeCompare != 0) {
-            return timeCompare;
+    private int safePageSize(Integer pageSize) {
+        if (pageSize == null || pageSize <= 0) {
+            return DEFAULT_PAGE_SIZE;
         }
-        return String.valueOf(left.getOrDefault("orderId", ""))
-                .compareTo(String.valueOf(right.getOrDefault("orderId", "")));
-    }
-
-    private long timestamp(Object value) {
-        if (value instanceof LocalDateTime dateTime) {
-            return dateTime.atZone(ZONE_ID).toInstant().toEpochMilli();
-        }
-        if (value instanceof LocalDate date) {
-            return date.atStartOfDay(ZONE_ID).toInstant().toEpochMilli();
-        }
-        if (value == null) {
-            return 0L;
-        }
-        String text = String.valueOf(value).trim();
-        if (text.isEmpty()) {
-            return 0L;
-        }
-        for (DateTimeFormatter formatter : DATE_TIME_FORMATTERS) {
-            try {
-                return LocalDateTime.parse(text.replace('T', ' '), formatter)
-                        .atZone(ZONE_ID)
-                        .toInstant()
-                        .toEpochMilli();
-            } catch (RuntimeException ignored) {
-                // try the next supported format
-            }
-        }
-        try {
-            return LocalDate.parse(text.substring(0, Math.min(10, text.length())))
-                    .atStartOfDay(ZONE_ID)
-                    .toInstant()
-                    .toEpochMilli();
-        } catch (RuntimeException ignored) {
-            return 0L;
-        }
-    }
-
-    private long safeTotal(Long value) {
-        return value == null ? 0L : value;
-    }
-
-    private boolean isSalesOrder(String orderId) {
-        String normalized = normalizeOrderId(orderId).toUpperCase();
-        return normalized.startsWith("SO") || normalized.contains("-SO-") || normalized.contains("_SO_");
+        return Math.min(pageSize, MAX_PAGE_SIZE);
     }
 
     private String normalizeOrderId(String orderId) {
-        if (orderId == null || orderId.trim().isEmpty()) {
+        if (!StringUtils.hasText(orderId)) {
             throw new BusinessException(400, "订单编号不能为空");
         }
         return orderId.trim();

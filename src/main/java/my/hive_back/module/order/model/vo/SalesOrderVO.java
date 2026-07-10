@@ -4,6 +4,7 @@ import lombok.Data;
 import my.hive_back.module.order.model.entity.SalesOrderDetail;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -21,6 +22,8 @@ public class SalesOrderVO {
 
     private String customerName;
 
+    private String customerPhone;
+
     /**
      * 项目名称
      */
@@ -30,6 +33,9 @@ public class SalesOrderVO {
 
     private String orderCategory;
 
+    private String goodsDesc;
+
+    private Integer totalQuantity;
 
     private String deliveryDate;
 
@@ -42,7 +48,17 @@ public class SalesOrderVO {
 
     private String expressNo;
 
-    private String createTime;
+    private String remark;
+
+    private String attachmentName;
+
+    private String attachmentUrl;
+
+    private Long attachmentSize;
+
+    private LocalDateTime createTime;
+
+    private LocalDateTime updateTime;
 
     /**
      * 是否开票 0-否 1-是

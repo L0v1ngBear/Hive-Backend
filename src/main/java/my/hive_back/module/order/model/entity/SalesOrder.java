@@ -39,6 +39,9 @@ public class SalesOrder {
      */
     private String customerName;
 
+    @TableField("customer_phone")
+    private String customerPhone;
+
     /**
      * 项目名称
      */
@@ -79,6 +82,17 @@ public class SalesOrder {
      * 是否需要发票 (0-否，1-是)
      */
     private Integer isInvoice;
+
+    private String remark;
+
+    @TableField("attachment_name")
+    private String attachmentName;
+
+    @TableField("attachment_url")
+    private String attachmentUrl;
+
+    @TableField("attachment_size")
+    private Long attachmentSize;
 
     /**
      * 订单创建人

@@ -39,6 +39,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -595,37 +597,102 @@ public class ProductionOrderService {
         productionOrderMapper.insert(productionOrder);
     }
 
-    public void syncLinkedSalesOrderToPendingMaterial(String salesOrderId, String remark) {
-        if (StringUtils.isBlank(salesOrderId)) {
+    public List<ProductionOrder> listBySalesOrderIds(Collection<String> salesOrderIds) {
+        if (salesOrderIds == null || salesOrderIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> normalizedIds = salesOrderIds.stream()
+                .filter(StringUtils::isNotBlank)
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (normalizedIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return productionOrderMapper.selectList(new LambdaQueryWrapper<ProductionOrder>()
+                .in(ProductionOrder::getSalesOrderId, normalizedIds)
+                .orderByAsc(ProductionOrder::getSalesOrderId)
+                .orderByAsc(ProductionOrder::getOrderId));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void updateLinkedStatusAndProcess(String salesOrderId, ProductionOrderUpdateRequest request) {
+        List<ProductionOrder> linkedOrders = listBySalesOrderIds(List.of(salesOrderId));
+        if (linkedOrders.isEmpty()) {
+            throw new BusinessException(400, "当前订单没有可更新的履约工序");
+        }
+        for (ProductionOrder linkedOrder : linkedOrders) {
+            updateStatusAndProcessInternal(linkedOrder.getOrderId(), copyUpdateRequest(request), false);
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void syncLinkedOrderStatus(String salesOrderId, String targetStatus, String remark) {
+        if (StringUtils.isBlank(salesOrderId) || !supportsLinkedStatusSync(targetStatus)) {
             return;
         }
-        List<ProductionOrder> linkedOrders = productionOrderMapper.selectList(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getSalesOrderId, salesOrderId));
-        for (ProductionOrder order : linkedOrders) {
+        for (ProductionOrder order : listBySalesOrderIds(List.of(salesOrderId))) {
             String oldStatus = order.getStatus();
             Integer oldProcess = order.getProcess();
-            if (!OrderStatusEnum.PENDING_CONFIRM.getCode().equals(oldStatus)) {
+            if (Objects.equals(oldStatus, targetStatus)) {
                 continue;
             }
-            order.setStatus(OrderStatusEnum.PENDING_MATERIAL.getCode());
-            order.setProcess(null);
-            order.setUpdater(resolveCurrentUserIdText());
+            Integer targetProcess = syncedProcess(targetStatus, oldProcess);
             LambdaUpdateWrapper<ProductionOrder> updateWrapper = new LambdaUpdateWrapper<ProductionOrder>()
                     .eq(ProductionOrder::getOrderId, order.getOrderId())
                     .eq(ProductionOrder::getStatus, oldStatus)
-                    .set(ProductionOrder::getStatus, order.getStatus())
-                    .set(ProductionOrder::getProcess, order.getProcess())
-                    .set(ProductionOrder::getUpdater, order.getUpdater())
+                    .set(ProductionOrder::getStatus, targetStatus)
+                    .set(ProductionOrder::getProcess, targetProcess)
+                    .set(ProductionOrder::getUpdater, resolveCurrentUserIdText())
                     .set(ProductionOrder::getUpdateTime, LocalDateTime.now());
-            int updatedRows = productionOrderMapper.update(null, updateWrapper);
-            if (updatedRows == 0) {
-                continue;
+            if (productionOrderMapper.update(null, updateWrapper) == 0) {
+                throw new BusinessException(409, "订单履约状态已被其他操作更新，请刷新后重试");
             }
-            ProductionOrderUpdateRequest request = new ProductionOrderUpdateRequest();
-            request.setRemark(StringUtils.isNotBlank(remark) ? remark : "销售订单审批通过，同步进入备料中");
-            insertStatusLog(order.getOrderId(), oldStatus, oldProcess, order.getStatus(), order.getProcess(), request);
+            order.setStatus(targetStatus);
+            order.setProcess(targetProcess);
+            order.setUpdater(resolveCurrentUserIdText());
+            order.setUpdateTime(LocalDateTime.now());
+            ProductionOrderUpdateRequest logRequest = new ProductionOrderUpdateRequest();
+            logRequest.setStatus(targetStatus);
+            logRequest.setProcess(targetProcess);
+            logRequest.setOperateType("status_change");
+            logRequest.setRemark(StringUtils.isNotBlank(remark) ? remark.trim() : "订单主状态同步更新");
+            insertStatusLog(order.getOrderId(), oldStatus, oldProcess, targetStatus, targetProcess, logRequest);
             notifyProductionOrderChanged(order, oldStatus, oldProcess);
         }
+    }
+
+    private ProductionOrderUpdateRequest copyUpdateRequest(ProductionOrderUpdateRequest source) {
+        ProductionOrderUpdateRequest target = new ProductionOrderUpdateRequest();
+        if (source == null) {
+            return target;
+        }
+        target.setStatus(source.getStatus());
+        target.setProcess(source.getProcess());
+        target.setOperateType(source.getOperateType());
+        target.setRemark(source.getRemark());
+        target.setAuditorIds(source.getAuditorIds());
+        return target;
+    }
+
+    private boolean supportsLinkedStatusSync(String status) {
+        return OrderStatusEnum.PENDING_CONFIRM.getCode().equals(status)
+                || OrderStatusEnum.PENDING_MATERIAL.getCode().equals(status)
+                || OrderStatusEnum.PRODUCING.getCode().equals(status)
+                || OrderStatusEnum.PENDING_SHIP.getCode().equals(status)
+                || OrderStatusEnum.SHIPPED.getCode().equals(status)
+                || OrderStatusEnum.COMPLETED.getCode().equals(status)
+                || OrderStatusEnum.CANCELLED.getCode().equals(status);
+    }
+
+    private Integer syncedProcess(String status, Integer currentProcess) {
+        if (OrderStatusEnum.PRODUCING.getCode().equals(status)) {
+            return currentProcess;
+        }
+        if (OrderStatusEnum.PENDING_SHIP.getCode().equals(status)) {
+            return ProcessEnum.FINISHED_SHIPPING.getCode();
+        }
+        return null;
     }
 
     private void insertStatusLog(String orderId,

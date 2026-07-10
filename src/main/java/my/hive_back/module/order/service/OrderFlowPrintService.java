@@ -8,11 +8,9 @@ import my.hive.common.order.OrderFlowCodeUtil;
 import my.hive.common.print.PrintTaskService;
 import my.hive_back.module.order.OrderCategoryEnum;
 import my.hive_back.module.order.OrderStatusEnum;
-import my.hive_back.module.order.mapper.ProductionOrderMapper;
 import my.hive_back.module.order.mapper.SalesOrderDetailMapper;
 import my.hive_back.module.order.mapper.SalesOrderMapper;
 import my.hive_back.module.order.model.dto.OrderFlowPrintTaskRequest;
-import my.hive_back.module.order.model.entity.ProductionOrder;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.order.model.entity.SalesOrderDetail;
 import my.hive_back.module.order.model.vo.OrderFlowPrintTaskVO;
@@ -40,9 +38,6 @@ public class OrderFlowPrintService {
 
     @Resource
     private SalesOrderDetailMapper salesOrderDetailMapper;
-
-    @Resource
-    private ProductionOrderMapper productionOrderMapper;
 
     @Resource
     private PrintTaskService printTaskService;
@@ -75,31 +70,6 @@ public class OrderFlowPrintService {
         return buildVO(taskNo, order.getOrderId(), "sales", payload);
     }
 
-    public OrderFlowPrintTaskVO createProductionTask(OrderFlowPrintTaskRequest request) {
-        String orderId = requireOrderId(request);
-        ProductionOrder order = productionOrderMapper.selectOne(new LambdaQueryWrapper<ProductionOrder>()
-                .eq(ProductionOrder::getOrderId, orderId)
-                .last("LIMIT 1"));
-        if (order == null) {
-            throw new BusinessException("订单不存在");
-        }
-        Map<String, Object> payload = buildProductionPayload(order);
-        String taskNo = printTaskService.createTask(
-                "order_flow",
-                "production_order",
-                order.getOrderId(),
-                order.getSalesOrderId(),
-                payload,
-                null,
-                null,
-                "小程序创建订单流转码打印任务");
-        if (!StringUtils.hasText(taskNo)) {
-            throw new BusinessException("订单流转码打印任务创建失败");
-        }
-        payload.put("printTaskNo", taskNo);
-        return buildVO(taskNo, order.getOrderId(), "production", payload);
-    }
-
     private String requireOrderId(OrderFlowPrintTaskRequest request) {
         if (request == null || !StringUtils.hasText(request.getOrderId())) {
             throw new BusinessException("订单号不能为空");
@@ -123,26 +93,6 @@ public class OrderFlowPrintService {
                 order.getBrandName(),
                 firstItem == null ? order.getGoodsDesc() : firstItem.getModelCode());
         payload.put("deliveryDate", safeText(order.getDeliveryDate(), ""));
-        payload.put("printReason", "订单流转码待打印");
-        payload.put("flowQrPayload", buildQrPayload(payload));
-        return payload;
-    }
-
-    private Map<String, Object> buildProductionPayload(ProductionOrder order) {
-        Map<String, Object> payload = basePayload(
-                order.getOrderId(),
-                "production",
-                "订单",
-                order.getStatus(),
-                order.getOrderCategory(),
-                order.getCustomerName(),
-                order.getProjectName(),
-                order.getBrandName(),
-                order.getModelCode());
-        payload.put("salesOrderId", safeText(order.getSalesOrderId(), ""));
-        payload.put("process", order.getProcess());
-        payload.put("processText", order.getProcess() == null ? "" : "工序 " + (order.getProcess() + 1));
-        payload.put("deliveryDate", order.getDeliveryDate() == null ? "" : DATE_TIME_FORMATTER.format(order.getDeliveryDate()));
         payload.put("printReason", "订单流转码待打印");
         payload.put("flowQrPayload", buildQrPayload(payload));
         return payload;

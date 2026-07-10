@@ -17,6 +17,7 @@ import my.hive.common.order.OrderFlowCodeUtil;
 import my.hive_back.common.utils.CodeGeneratorUtil;
 import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
 import my.hive_back.module.approval.service.ApprovalDefaultAuditorService;
+import my.hive_back.module.installation.service.InstallationTaskSyncService;
 import my.hive_back.module.order.IsInvoiceEnum;
 import my.hive_back.module.order.OrderCategoryEnum;
 import my.hive_back.module.order.OrderStatusEnum;
@@ -106,6 +107,9 @@ public class SalesOrderService {
 
     @Resource
     private ApprovalDefaultAuditorService approvalDefaultAuditorService;
+
+    @Resource
+    private InstallationTaskSyncService installationTaskSyncService;
 
     @Value("${ORDER_FLOW_CODE_SECRET:${AUTH_TOKEN_SECRET:hive-local-order-flow-secret}}")
     private String orderFlowCodeSecret;
@@ -646,6 +650,8 @@ public class SalesOrderService {
         insertSalesStatusLog(order, oldStatus, targetStatus, OPERATE_TYPE_ROLLBACK_APPROVED,
                 StringUtils.isNotBlank(remark) ? remark.trim() : "订单回退审批通过");
         notifySalesOrderChanged(order, oldStatus);
+        productionOrderService.syncLinkedOrderStatus(order.getOrderId(), targetStatus,
+                StringUtils.isNotBlank(remark) ? remark.trim() : "订单回退审批通过，同步履约状态");
         return order;
     }
 
@@ -748,11 +754,9 @@ public class SalesOrderService {
         if (!Objects.equals(oldStatus, order.getStatus())) {
             insertSalesStatusLog(order, oldStatus, order.getStatus(), "status_change", logRemark);
             notifySalesOrderChanged(order, oldStatus);
-            if (OrderStatusEnum.PENDING_PAY.getCode().equals(oldStatus)
-                    && OrderStatusEnum.PENDING_MATERIAL.getCode().equals(order.getStatus())) {
-                productionOrderService.syncLinkedSalesOrderToPendingMaterial(order.getOrderId(), logRemark);
-            }
+            productionOrderService.syncLinkedOrderStatus(order.getOrderId(), order.getStatus(), logRemark);
         }
+        installationTaskSyncService.createOrSyncFromCompletedOrder(order);
 
         return order;
     }
