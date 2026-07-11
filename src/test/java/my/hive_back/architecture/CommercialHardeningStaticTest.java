@@ -266,15 +266,35 @@ class CommercialHardeningStaticTest {
         List<String> violations = new ArrayList<>();
         for (Path service : services) {
             String content = Files.readString(service, StandardCharsets.UTF_8);
-            int methodIndex = content.indexOf("private boolean hasUnrestrictedOrderStatusPermission");
+            int methodIndex = content.indexOf("private Set<String> permittedOrderStatuses");
             if (methodIndex < 0) {
-                violations.add(service + " missing hasUnrestrictedOrderStatusPermission");
+                violations.add(service + " missing permittedOrderStatuses");
                 continue;
             }
-            int methodEnd = content.indexOf("    }", methodIndex);
-            String methodBody = methodEnd < 0 ? content.substring(methodIndex) : content.substring(methodIndex, methodEnd);
-            if (methodBody.contains("PermissionCodeEnum.CODE_ORDER_LIST")) {
-                violations.add(service + " treats order:list as unrestricted order status permission");
+            int assertionIndex = content.indexOf("private void assertOrderStatusPermission", methodIndex);
+            if (assertionIndex < 0) {
+                violations.add(service + " missing assertOrderStatusPermission");
+                continue;
+            }
+            int permissionCodeIndex = content.indexOf("private String orderStatusPermission", assertionIndex);
+            if (permissionCodeIndex < 0) {
+                violations.add(service + " missing orderStatusPermission");
+                continue;
+            }
+            String listScopeBody = content.substring(methodIndex, assertionIndex);
+            String assertionBody = content.substring(assertionIndex, permissionCodeIndex);
+            String exactStatusCheck = "TenantPermissionContext.hasPermission(orderStatusPermission(status))";
+            if (!listScopeBody.contains(exactStatusCheck)) {
+                violations.add(service + " does not evaluate each visible order status through TenantPermissionContext");
+            }
+            if (listScopeBody.contains("TenantPermissionContext.getPermCodes()")) {
+                violations.add(service + " scans raw permission codes and can bypass personal deny overrides");
+            }
+            if (!assertionBody.contains("TenantPermissionContext.hasPermission(requiredPermission)")) {
+                violations.add(service + " does not evaluate status updates through TenantPermissionContext");
+            }
+            if (assertionBody.contains("CODE_ORDER_ALL") || assertionBody.contains("CODE_ORDER_STATUS_ALL")) {
+                violations.add(service + " bypasses exact status deny rules during order updates");
             }
         }
         assertTrue(violations.isEmpty(), "Order status data must be scoped by status permissions, not only by order:list:\n"

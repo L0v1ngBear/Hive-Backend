@@ -195,36 +195,17 @@ public class ProductionOrderService {
     }
 
     private Set<String> permittedOrderStatuses(List<String> supportedStatuses) {
-        Set<String> permCodes = TenantPermissionContext.getPermCodes();
-        if (hasUnrestrictedOrderStatusPermission(permCodes)) {
-            return null;
-        }
         Set<String> supported = new LinkedHashSet<>(supportedStatuses);
         Set<String> permittedStatuses = new LinkedHashSet<>();
-        for (String permCode : permCodes) {
-            if (StringUtils.isBlank(permCode) || !permCode.startsWith(PermissionCodeEnum.CODE_ORDER_STATUS_PREFIX)) {
-                continue;
-            }
-            String status = permCode.substring(PermissionCodeEnum.CODE_ORDER_STATUS_PREFIX.length()).replace('-', '_');
-            if (supported.contains(status)) {
+        for (String status : supported) {
+            if (TenantPermissionContext.hasPermission(orderStatusPermission(status))) {
                 permittedStatuses.add(status);
             }
         }
-        return permittedStatuses;
-    }
-
-    private boolean hasUnrestrictedOrderStatusPermission(Set<String> permCodes) {
-        return permCodes.contains("*")
-                || permCodes.contains("*:*")
-                || permCodes.contains(PermissionCodeEnum.CODE_ORDER_ALL)
-                || permCodes.contains(PermissionCodeEnum.CODE_ORDER_STATUS_ALL);
+        return permittedStatuses.size() == supported.size() ? null : permittedStatuses;
     }
 
     private void assertOrderStatusPermission(String status) {
-        if (TenantPermissionContext.hasPermission(PermissionCodeEnum.CODE_ORDER_ALL)
-                || TenantPermissionContext.hasPermission(PermissionCodeEnum.CODE_ORDER_STATUS_ALL)) {
-            return;
-        }
         String requiredPermission = orderStatusPermission(status);
         if (TenantPermissionContext.hasPermission(requiredPermission)) {
             return;
