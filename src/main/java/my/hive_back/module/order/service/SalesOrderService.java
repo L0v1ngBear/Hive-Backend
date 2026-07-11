@@ -683,6 +683,9 @@ public class SalesOrderService {
                 && OrderStatusEnum.PENDING_MATERIAL.getCode().equals(targetStatus)) {
             throw new BusinessException(400, "待收款订单转备料中需要先通过订单审批");
         }
+        if (!approvalBypass) {
+            assertOrderStatusPermission(targetStatus);
+        }
 
         // 2. 核心业务逻辑：状态与物流信息校验
         // 如果目标状态是“已发货 (shipped)”，强制要求填写完整的物流信息

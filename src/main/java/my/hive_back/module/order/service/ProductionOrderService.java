@@ -371,6 +371,9 @@ public class ProductionOrderService {
                     throw new BusinessException(400, "订单状态不合法");
                 }
             }
+            if (!approvalBypass) {
+                assertOrderStatusPermission(targetStatus);
+            }
 
             if (STATUS_PRODUCING.equals(targetStatus) && !STATUS_PRODUCING.equals(order.getStatus())) {
                 Integer requestedProcess = request.getProcess();
