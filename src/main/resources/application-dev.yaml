@@ -1,0 +1,70 @@
+spring:
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 4
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/hive?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: 123456
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: guest
+    password: guest
+
+xxl:
+  job:
+    # Local dev registers with XXL-JOB by default; start local xxl-job-admin first.
+    enabled: ${XXL_JOB_ENABLED:true}
+    admin-addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:8088/xxl-job-admin}
+    access-token: ${XXL_JOB_ACCESS_TOKEN:dev_xxl_token}
+    executor:
+      app-name: ${XXL_JOB_EXECUTOR_APP_NAME:hive-mini}
+      port: ${XXL_JOB_EXECUTOR_PORT:9998}
+
+hive:
+  operation-log:
+    enabled: true
+    collect-to-db: true
+    collect-to-slf4j: true
+    async-db: true
+    queue-type: rabbitmq
+    rabbit-exchange: hive.operation.log.exchange
+    rabbit-routing-key: hive.operation.log
+    rabbit-queue: hive.operation.log.queue
+    cleanup-enabled: false
+    retention-days: 90
+    cleanup-batch-size: 5000
+    cleanup-cron: "0 20 3 * * ?"
+
+logging:
+  level:
+    root: INFO
+    my.hive_back: DEBUG
+    my.hive_back.module: DEBUG
+    my.hive_back.api: DEBUG
+    my.hive_back.module.auth.mapper: TRACE
+    my.hive_back.module.attendance.mapper: DEBUG
+    my.hive_back.module.badproduct.mapper: DEBUG
+    my.hive_back.module.customer.mapper: DEBUG
+    my.hive_back.module.document.mapper: DEBUG
+    my.hive_back.module.finance.mapper: DEBUG
+    my.hive_back.module.inventory.mapper: DEBUG
+    my.hive_back.module.label.mapper: DEBUG
+    my.hive_back.module.leave.mapper: DEBUG
+    my.hive_back.module.order.mapper: DEBUG
+    my.hive_back.module.price.mapper: DEBUG
+    my.hive_back.module.statics: DEBUG
+    com.baomidou.mybatisplus: DEBUG
+    org.apache.ibatis: TRACE
+    org.mybatis: DEBUG
+    java.sql: DEBUG
+    javax.sql: DEBUG
+
+auth:
+  allow-legacy-header: true
+  token:
+    secret: hive-back-dev-token-secret

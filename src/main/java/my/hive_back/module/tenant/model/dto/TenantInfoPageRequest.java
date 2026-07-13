@@ -7,8 +7,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
- * 租户信息分页查询请求DTO
- * 适配MyBatis-Plus分页查询，包含基础分页参数和租户查询条件
+ * TenantInfoPageRequest 属于小程序后端租户模块，定义入参结构。
  */
 @Data
 public class TenantInfoPageRequest {

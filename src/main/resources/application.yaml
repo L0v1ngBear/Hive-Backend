@@ -1,14 +1,148 @@
 server:
+  port: 8080
   servlet:
-    port: 8080
     context-path: /api
+
+spring:
+  jackson:
+    serialization:
+      fail-on-empty-beans: false
+  profiles:
+    active: dev
+
+tenant:
+  isolation:
+    # Reserved for future one-tenant-one-database routing. Keep FIELD for now.
+    mode: FIELD
+    default-datasource-key: default
+    registry-table: tenant_database_config
+    # Future database registry is stored in a shared table instead of yaml rows.
+    # Login still stays on the shared database until you later decide how to
+    # resolve tenantCode from phone/openId/user identity before routing.
+
 mybatis-plus:
-  type-aliases-package: my.Hive_Back.module.*.model.entity
+  type-aliases-package: my.hive_back.module.*.model.entity
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
     map-underscore-to-camel-case: true
   global-config:
     db-config:
-      logic-delete-field: isDeleted # 全局逻辑删除字段名
-      logic-delete-value: 1 # 逻辑删除值
-      logic-not-delete-value: 0 # 逻辑未删除值
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  mapper-locations: classpath:xml/*.xml
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    use-root-path: false
+    enabled: true
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+
+auth:
+  token:
+    secret: ${AUTH_TOKEN_SECRET:hive-mini-dev-token-secret}
+    expire-hours: ${AUTH_TOKEN_EXPIRE_HOURS:720}
+    renew-enabled: ${AUTH_TOKEN_RENEW_ENABLED:true}
+    renew-before-minutes: ${AUTH_TOKEN_RENEW_BEFORE_MINUTES:120}
+  allow-legacy-header: false
+  login:
+    max-fail-count: 5
+    max-ip-fail-count: 20
+    lock-minutes: 15
+
+security:
+  response:
+    key: ${RESPONSE_ENCRYPT_KEY:sygav9Iec4kZiRvivnwSVe3iWq66cTCleo8gr3qL2GyXTcQHXJ1E57ZqfhqfIyWp70Imy0rJ7ZkS5SI4T0asRQ==}
+  privacy:
+    # 手机号等隐私字段的一致性哈希密钥；生产环境必须通过环境变量提供并妥善保管。
+    hash-secret: ${PRIVACY_HASH_SECRET:${AUTH_TOKEN_SECRET:hive-mini-dev-privacy-secret}}
+
+redis:
+  key-prefix:
+    barCode:
+      prefix: ${BARCODE_DAILY_NUMBER_KEY_PREFIX:${HIVE_REDIS_NAMESPACE:hive}:${HIVE_REDIS_ENV:${spring.profiles.active:dev}}:seq:barcode:}
+    inventory:
+    trend:
+      today_in: ${INVENTORY_TODAY_IN_KEY_PREFIX:${HIVE_REDIS_NAMESPACE:hive}:${HIVE_REDIS_ENV:${spring.profiles.active:dev}}:counter:inventory:today:in:}
+      today_out: ${INVENTORY_TODAY_OUT_KEY_PREFIX:${HIVE_REDIS_NAMESPACE:hive}:${HIVE_REDIS_ENV:${spring.profiles.active:dev}}:counter:inventory:today:out:}
+
+wechat:
+  mini-program:
+    # 测试阶段默认关闭；上线前填入真实 app-id/app-secret/template-id 后改为 true。
+    enabled: ${WECHAT_MINI_ENABLED:false}
+    app-id: ${WECHAT_MINI_APP_ID:}
+    app-secret: ${WECHAT_MINI_APP_SECRET:}
+    subscribe:
+      enabled: ${WECHAT_SUBSCRIBE_ENABLED:${WECHAT_MINI_ENABLED:false}}
+      todo-template-id: ${WECHAT_TODO_TEMPLATE_ID:}
+      todo-operator-key: ${WECHAT_TODO_OPERATOR_KEY:}
+      todo-operator-name: ${WECHAT_TODO_OPERATOR_NAME:系统提醒}
+      todo-title-key: ${WECHAT_TODO_TITLE_KEY:thing1}
+      todo-content-key: ${WECHAT_TODO_CONTENT_KEY:thing2}
+      todo-time-key: ${WECHAT_TODO_TIME_KEY:time3}
+
+external-api:
+  guard:
+    wechat:
+      window-seconds: ${EXTERNAL_API_WECHAT_WINDOW_SECONDS:60}
+      code2session:
+        max-calls-per-window: ${EXTERNAL_API_WECHAT_CODE2SESSION_MAX_CALLS_PER_WINDOW:120}
+      phone-number:
+        max-calls-per-window: ${EXTERNAL_API_WECHAT_PHONE_NUMBER_MAX_CALLS_PER_WINDOW:60}
+      access-token:
+        max-calls-per-window: ${EXTERNAL_API_WECHAT_ACCESS_TOKEN_MAX_CALLS_PER_WINDOW:20}
+      subscribe-send:
+        max-calls-per-window: ${EXTERNAL_API_WECHAT_SUBSCRIBE_SEND_MAX_CALLS_PER_WINDOW:120}
+    oss:
+      max-uploads-per-tenant-window: ${EXTERNAL_API_OSS_MAX_UPLOADS_PER_TENANT_WINDOW:120}
+      upload-window-seconds: ${EXTERNAL_API_OSS_UPLOAD_WINDOW_SECONDS:3600}
+
+storage:
+  oss:
+    enabled: ${ALIYUN_OSS_ENABLED:false}
+    endpoint: ${ALIYUN_OSS_ENDPOINT:}
+    bucket-name: ${ALIYUN_OSS_BUCKET:}
+    access-key-id: ${ALIYUN_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:}
+    public-base-url: ${ALIYUN_OSS_PUBLIC_BASE_URL:}
+    path-prefix: ${ALIYUN_OSS_PATH_PREFIX:hive}
+    max-file-size-mb: ${ALIYUN_OSS_MAX_FILE_SIZE_MB:20}
+    allowed-extensions: ${ALIYUN_OSS_ALLOWED_EXTENSIONS:jpg,jpeg,png,pdf,doc,docx,xls,xlsx}
+    allowed-content-types: ${ALIYUN_OSS_ALLOWED_CONTENT_TYPES:image/jpeg,image/png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet}
+
+xxl:
+  job:
+    enabled: ${XXL_JOB_ENABLED:false}
+    admin-addresses: ${XXL_JOB_ADMIN_ADDRESSES:http://127.0.0.1:8088/xxl-job-admin}
+    access-token: ${XXL_JOB_ACCESS_TOKEN:}
+    executor:
+      app-name: ${XXL_JOB_EXECUTOR_APP_NAME:hive-mini}
+      address: ${XXL_JOB_EXECUTOR_ADDRESS:}
+      ip: ${XXL_JOB_EXECUTOR_IP:}
+      port: ${XXL_JOB_EXECUTOR_PORT:9998}
+      log-path: ${XXL_JOB_EXECUTOR_LOG_PATH:logs/xxl-job}
+      log-retention-days: ${XXL_JOB_EXECUTOR_LOG_RETENTION_DAYS:30}
+
+hive:
+  tenant:
+    # BOUNDED = keep tenant_code isolation, but only allow the configured fixed tenants.
+    # OPEN is reserved for a future multi-tenant platform and should not be used now.
+    mode: ${HIVE_TENANT_MODE:BOUNDED}
+    default-code: ${HIVE_DEFAULT_TENANT_CODE:${HIVE_SINGLE_TENANT_CODE:}}
+    allowed-codes: ${HIVE_ALLOWED_TENANT_CODES:}
+    max-count: ${HIVE_TENANT_MAX_COUNT:2}
+  single-tenant:
+    enabled: ${HIVE_SINGLE_TENANT_ENABLED:false}
+    code: ${HIVE_SINGLE_TENANT_CODE:TENANT_001}
+    name: ${HIVE_SINGLE_TENANT_NAME:当前组织}
+  redis:
+    namespace: ${HIVE_REDIS_NAMESPACE:hive}
+    environment: ${HIVE_REDIS_ENV:${spring.profiles.active:dev}}
+  system-event:
+    enabled: ${SYSTEM_EVENT_ENABLED:true}
+    source-app: ${SYSTEM_EVENT_SOURCE_APP:hive-mini}
+    max-title-length: ${SYSTEM_EVENT_MAX_TITLE_LENGTH:180}
+    max-content-length: ${SYSTEM_EVENT_MAX_CONTENT_LENGTH:1000}
+    max-json-length: ${SYSTEM_EVENT_MAX_JSON_LENGTH:4000}

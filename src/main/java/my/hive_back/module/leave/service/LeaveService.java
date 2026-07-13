@@ -1,0 +1,592 @@
+package my.hive_back.module.leave.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import jakarta.annotation.Resource;
+import jakarta.validation.constraints.NotBlank;
+import my.hive.common.context.TenantPermissionContext;
+import my.hive.common.exception.BusinessException;
+import my.hive_back.common.utils.CodeGeneratorUtil;
+import my.hive_back.module.attendance.PunchStatusEnum;
+import my.hive_back.module.attendance.mapper.AttendanceRecordMapper;
+import my.hive_back.module.attendance.model.entity.AttendanceRecord;
+import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
+import my.hive_back.module.approval.service.ApprovalAccessService;
+import my.hive_back.module.approval.service.ApprovalDefaultAuditorService;
+import my.hive_back.module.leave.ApprovalActionEnum;
+import my.hive_back.module.leave.LeaveStatusEnum;
+import my.hive_back.module.leave.mapper.LeaveMapper;
+import my.hive_back.module.leave.model.dto.AuditRequest;
+import my.hive_back.module.leave.model.dto.LeaveSubmitRequest;
+import my.hive_back.module.leave.model.entity.UserLeave;
+import my.hive_back.module.leave.model.vo.LeaveApprovalListVO;
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
+import my.hive_back.module.tenant.mapper.TenantAttendanceRuleMapper;
+import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
+import my.hive_back.module.user.mapper.UserMapper;
+import my.hive_back.module.user.model.entity.User;
+import my.hive_back.module.user.service.UserService;
+import my.hive_back.module.wechat.service.WechatSubscribeNotificationService;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+/**
+ * LeaveService 属于小程序后端请假模块，实现核心业务编排与规则逻辑。
+ */
+@Service
+public class LeaveService {
+
+    private static final String APPROVAL_TYPE_LEAVE = "LEAVE";
+    private static final int MAX_PARALLEL_APPROVERS = 30;
+
+    @Resource
+    private LeaveMapper leaveMapper;
+
+    @Resource
+    private UserService userService;
+
+    @Resource
+    private UserMapper userMapper;
+
+    @Resource
+    private CodeGeneratorUtil codeGeneratorUtil;
+
+    @Resource
+    private AttendanceRecordMapper attendanceRecordMapper;
+
+    @Resource
+    private TenantAttendanceRuleMapper tenantAttendanceRuleMapper;
+
+    @Resource
+    private WechatSubscribeNotificationService wechatSubscribeNotificationService;
+
+    @Resource
+    private ApprovalAuditorCandidateService approvalAuditorCandidateService;
+
+    @Resource
+    private ApprovalDefaultAuditorService approvalDefaultAuditorService;
+
+    @Resource
+    private ApprovalAccessService approvalAccessService;
+
+    public boolean isInApprovalLeave(LocalDateTime punchStartTime, LocalDateTime punchEndTime) {
+        Long userId = TenantPermissionContext.getUserId();
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        if (userId == null || tenantCode == null || punchStartTime == null || punchEndTime == null
+                || !punchStartTime.isBefore(punchEndTime)) {
+            return false;
+        }
+
+        QueryWrapper<UserLeave> queryWrapper = new QueryWrapper<UserLeave>()
+                .eq("tenant_code", tenantCode)
+                .eq("apply_user_id", userId)
+                .eq("status", LeaveStatusEnum.APPROVED.getCode())
+                .le("start_time", punchStartTime)
+                .ge("end_time", punchEndTime);
+
+        Long count = leaveMapper.selectCount(queryWrapper);
+        return count > 0;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public String submitLeaveApproval(LeaveSubmitRequest request) {
+        Long userId = TenantPermissionContext.getUserId();
+        String tenantCode = TenantPermissionContext.getTenantCode();
+
+        if (request.getStartTime().isAfter(request.getEndTime()) || request.getStartTime().isEqual(request.getEndTime())) {
+            throw new BusinessException("提交失败：请假开始时间必须早于结束时间");
+        }
+
+        if (request.getStartTime().isBefore(LocalDateTime.now())) {
+            throw new BusinessException("提交失败：不能提交过去的请假申请(如需补单请联系HR)");
+        }
+
+        boolean hasOverlap = leaveMapper.exists(
+                new LambdaQueryWrapper<UserLeave>()
+                        .eq(UserLeave::getApplyUserId, userId)
+                        .ne(UserLeave::getStatus, LeaveStatusEnum.REJECTED.getCode())
+                        .and(wrapper -> wrapper
+                                .lt(UserLeave::getStartTime, request.getEndTime())
+                                .gt(UserLeave::getEndTime, request.getStartTime())
+                        )
+        );
+        if (hasOverlap) {
+            throw new BusinessException("提交失败：您在该时间段内已有待审批或已通过的请假单，请勿重复提交");
+        }
+
+        String leaveCode = codeGeneratorUtil.generateLeaveCode();
+
+        UserLeave approval = new UserLeave();
+        approval.setTenantCode(tenantCode);
+        approval.setLeaveCode(leaveCode);
+        approval.setApplyUserId(userId);
+        approval.setLeaveType(request.getLeaveType());
+        approval.setStartTime(request.getStartTime());
+        approval.setEndTime(request.getEndTime());
+        approval.setReason(request.getReason());
+        approval.setStatus(LeaveStatusEnum.PENDING.getCode());
+        leaveMapper.insert(approval);
+
+        triggerApprovalFlow(approval, request.getAuditorId(), request.getAuditorIds());
+        notifyLeavePendingApprover(approval);
+        return leaveCode;
+    }
+
+    private void triggerApprovalFlow(UserLeave approval, Long auditorId, List<Long> auditorIds) {
+        assignAuditors(approval, auditorId, auditorIds, true);
+        leaveMapper.updateById(approval);
+    }
+
+    public UserLeave getLeaveByCode(@NotBlank String leaveCode) {
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        UserLeave userLeave = leaveMapper.selectOne(new LambdaQueryWrapper<UserLeave>()
+                .eq(UserLeave::getLeaveCode, leaveCode));
+        if (userLeave == null) {
+            throw new BusinessException("请假单不存在");
+        }
+        approvalAccessService.requireDetailAccess(ApprovalAccessService.Type.LEAVE,
+                userLeave.getApplyUserId(), userLeave.getAuditorId(), userLeave.getAuditorIds());
+        return userLeave;
+    }
+
+    public List<LeaveApprovalListVO> listApprovals(String scope, Integer status) {
+        String normalizedScope = approvalAccessService.requireListScope(ApprovalAccessService.Type.LEAVE, scope);
+        Long userId = TenantPermissionContext.getUserId();
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        if (tenantCode == null || tenantCode.isBlank()) {
+            return List.of();
+        }
+        LambdaQueryWrapper<UserLeave> queryWrapper = new LambdaQueryWrapper<>();
+        if (status != null) {
+            queryWrapper.eq(UserLeave::getStatus, status);
+        }
+        if ("mine".equals(normalizedScope)) {
+            queryWrapper.eq(UserLeave::getApplyUserId, userId);
+        } else if ("self_pending".equals(normalizedScope)) {
+            queryWrapper.eq(UserLeave::getApplyUserId, userId)
+                    .eq(UserLeave::getStatus, LeaveStatusEnum.PENDING.getCode());
+            appendAuditorFilter(queryWrapper, userId);
+        } else if ("others_pending".equals(normalizedScope)) {
+            queryWrapper.ne(UserLeave::getApplyUserId, userId)
+                    .eq(UserLeave::getStatus, LeaveStatusEnum.PENDING.getCode());
+            appendAuditorFilter(queryWrapper, userId);
+        } else if (!"all".equals(normalizedScope)) {
+            appendAuditorFilter(queryWrapper, userId);
+        }
+        queryWrapper.orderByDesc(UserLeave::getCreateTime);
+        return leaveMapper.selectList(queryWrapper).stream().map(this::toListVO).toList();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void auditLeaveApproval(AuditRequest auditRequest) {
+        Long currentUserId = TenantPermissionContext.getUserId();
+        UserLeave approval = getLeaveByCode(auditRequest.getLeaveCode());
+        if (!canCurrentUserAudit(currentUserId, approval.getAuditorId(), approval.getAuditorIds())) {
+            throw new BusinessException("您不是请假单的审批人，不能审批");
+        }
+        if (approval.getStatus() == null || approval.getStatus() != LeaveStatusEnum.PENDING.getCode()) {
+            throw new BusinessException("该请假单已处理，请勿重复审批");
+        }
+
+        Long previousAuditorId = approval.getAuditorId();
+        String previousAuditorIds = approval.getAuditorIds();
+        String auditComment = auditRequest.getComment();
+        boolean approve = auditRequest.getAction() == ApprovalActionEnum.APPROVE.getCode();
+        boolean candidateFlow = markCandidateDecisionIfPresent(
+                approval.getTenantCode(), APPROVAL_TYPE_LEAVE, approval.getLeaveCode(), currentUserId, approve, auditComment);
+        approval.setAuditComment(auditComment);
+        if (candidateFlow && !approve) {
+            approval.setStatus(LeaveStatusEnum.REJECTED.getCode());
+            approvalAuditorCandidateService.closeActiveCandidates(
+                    approval.getTenantCode(), APPROVAL_TYPE_LEAVE, approval.getLeaveCode());
+            leaveMapper.updateById(approval);
+            notifyLeaveAuditChange(approval, previousAuditorId, previousAuditorIds);
+            return;
+        }
+        if (candidateFlow && approvalAuditorCandidateService.hasPendingAuditors(
+                approval.getTenantCode(), APPROVAL_TYPE_LEAVE, approval.getLeaveCode())) {
+            leaveMapper.updateById(approval);
+            return;
+        }
+        if (approve) {
+            long hours = Duration.between(approval.getStartTime(), approval.getEndTime()).toHours();
+            double leaveDays = hours / 24.0;
+            boolean isFinalApprover = checkIsFinalApprover(currentUserId, leaveDays);
+
+            if (isFinalApprover) {
+                approval.setStatus(LeaveStatusEnum.APPROVED.getCode());
+                syncLeaveToAttendance(approval);
+            } else {
+                Long nextManagerId = userService.getManagerId(currentUserId);
+                if (nextManagerId != null) {
+                    assignAuditors(approval, nextManagerId);
+                } else {
+                    approval.setStatus(LeaveStatusEnum.APPROVED.getCode());
+                    syncLeaveToAttendance(approval);
+                }
+            }
+        } else {
+            approval.setStatus(LeaveStatusEnum.REJECTED.getCode());
+            approval.setAuditComment(auditRequest.getComment());
+        }
+        if (approval.getStatus() == null || approval.getStatus() != LeaveStatusEnum.PENDING.getCode()) {
+            approvalAuditorCandidateService.closeActiveCandidates(
+                    approval.getTenantCode(), APPROVAL_TYPE_LEAVE, approval.getLeaveCode());
+        }
+        leaveMapper.updateById(approval);
+        notifyLeaveAuditChange(approval, previousAuditorId, previousAuditorIds);
+    }
+
+    private void notifyLeavePendingApprover(UserLeave approval) {
+        String applicantName = buildApplicantName(approval.getApplyUserId());
+        for (Long auditorId : resolveNotifyAuditorIds(approval.getAuditorId(), approval.getAuditorIds())) {
+            wechatSubscribeNotificationService.sendTodoAfterCommit(
+                    auditorId,
+                    applicantName,
+                    "请假审批待处理",
+                    applicantName + " 提交了请假单 " + approval.getLeaveCode(),
+                    "/pages/approval/approval"
+            );
+        }
+    }
+
+    private void notifyLeaveAuditChange(UserLeave approval, Long previousAuditorId, String previousAuditorIds) {
+        if (approval.getStatus() != null && approval.getStatus() == LeaveStatusEnum.PENDING.getCode()
+                && !sameAuditorGroup(previousAuditorId, previousAuditorIds, approval.getAuditorId(), approval.getAuditorIds())) {
+            notifyLeavePendingApprover(approval);
+            return;
+        }
+        if (approval.getStatus() != null
+                && (approval.getStatus() == LeaveStatusEnum.APPROVED.getCode()
+                || approval.getStatus() == LeaveStatusEnum.REJECTED.getCode())) {
+            wechatSubscribeNotificationService.sendTodoAfterCommit(
+                    approval.getApplyUserId(),
+                    "请假审批结果",
+                    "请假单 " + approval.getLeaveCode() + " " + statusText(approval.getStatus()),
+                    "/pages/approval/approval"
+            );
+        }
+    }
+
+    private String buildApplicantName(Long userId) {
+        User user = userService.getUserById(userId);
+        if (user == null || user.getName() == null || user.getName().isBlank()) {
+            return "员工";
+        }
+        return user.getName();
+    }
+
+    private boolean checkIsFinalApprover(Long currentApproverId, double leaveDays) {
+        Integer currentRoleLevel = userService.getRoleLevel(currentApproverId);
+        if (currentRoleLevel == null) {
+            currentRoleLevel = 1;
+        }
+        if (currentRoleLevel >= 3) {
+            return true;
+        }
+        if (leaveDays <= 2.0) {
+            return currentRoleLevel >= 1;
+        } else if (leaveDays <= 5.0) {
+            return currentRoleLevel >= 2;
+        } else {
+            return false;
+        }
+    }
+
+    private void syncLeaveToAttendance(UserLeave approval) {
+        LocalDate startDate = approval.getStartTime().toLocalDate();
+        LocalDate endDate = approval.getEndTime().toLocalDate();
+        Long applyUserId = approval.getApplyUserId();
+        String tenantCode = approval.getTenantCode();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
+        TenantAttendanceRule rule = tenantAttendanceRuleMapper.selectOne(new LambdaQueryWrapper<TenantAttendanceRule>()
+                .last("LIMIT 1"));
+
+        LocalDate currentDate = startDate;
+        while (!currentDate.isAfter(endDate)) {
+            boolean coverSignIn = isLeaveOverlapTimeRange(currentDate, rule == null ? null : rule.getWorkStartTime(),
+                    rule == null ? null : rule.getWorkEndTime(), approval);
+            boolean coverSignOut = isLeaveOverlapTimeRange(currentDate, rule == null ? null : rule.getOffWorkStartTime(),
+                    rule == null ? null : rule.getOffWorkEndTime(), approval);
+            if (!coverSignIn && !coverSignOut) {
+                currentDate = currentDate.plusDays(1);
+                continue;
+            }
+
+            String dateStr = currentDate.format(formatter);
+            String punchId = dateStr + "_" + applyUserId;
+
+            AttendanceRecord existingRecord = attendanceRecordMapper.selectOne(
+                    new LambdaQueryWrapper<AttendanceRecord>().eq(AttendanceRecord::getPunchId, punchId)
+            );
+
+            if (existingRecord == null) {
+                AttendanceRecord leaveRecord = new AttendanceRecord();
+                leaveRecord.setPunchId(punchId);
+                leaveRecord.setUserId(applyUserId);
+                leaveRecord.setTenantCode(tenantCode);
+                if (coverSignIn) {
+                    leaveRecord.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
+                }
+                if (coverSignOut) {
+                    leaveRecord.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
+                }
+                attendanceRecordMapper.insert(leaveRecord);
+            } else {
+                boolean needUpdate = false;
+                if (coverSignIn && (existingRecord.getSignInStatus() == null
+                        || existingRecord.getSignInStatus().equals(PunchStatusEnum.ABSENT.getCode())
+                        || existingRecord.getSignInStatus().equals(PunchStatusEnum.LATE.getCode())
+                        || existingRecord.getSignInStatus().equals(PunchStatusEnum.MISS.getCode()))) {
+                    existingRecord.setSignInStatus(PunchStatusEnum.LEAVE.getCode());
+                    needUpdate = true;
+                }
+                if (coverSignOut && (existingRecord.getSignOutStatus() == null
+                        || existingRecord.getSignOutStatus().equals(PunchStatusEnum.ABSENT.getCode())
+                        || existingRecord.getSignOutStatus().equals(PunchStatusEnum.EARLY.getCode())
+                        || existingRecord.getSignOutStatus().equals(PunchStatusEnum.MISS.getCode()))) {
+                    existingRecord.setSignOutStatus(PunchStatusEnum.LEAVE.getCode());
+                    needUpdate = true;
+                }
+                if (needUpdate) {
+                    attendanceRecordMapper.updateById(existingRecord);
+                }
+            }
+            currentDate = currentDate.plusDays(1);
+        }
+    }
+
+    /**
+     * 判断请假时间是否覆盖指定打卡时间段。
+     * 如果老租户暂未配置考勤规则，则沿用历史策略按全天请假同步。
+     */
+    private boolean isLeaveOverlapTimeRange(LocalDate date, LocalTime rangeStart, LocalTime rangeEnd, UserLeave leave) {
+        if (rangeStart == null || rangeEnd == null) {
+            return true;
+        }
+        LocalDateTime segmentStart = LocalDateTime.of(date, rangeStart);
+        LocalDateTime segmentEnd = LocalDateTime.of(date, rangeEnd);
+        return leave.getStartTime().isBefore(segmentEnd) && leave.getEndTime().isAfter(segmentStart);
+    }
+
+    private LeaveApprovalListVO toListVO(UserLeave approval) {
+        LeaveApprovalListVO vo = new LeaveApprovalListVO();
+        vo.setId(approval.getId());
+        vo.setLeaveCode(approval.getLeaveCode());
+        vo.setLeaveType(approval.getLeaveType());
+        vo.setLeaveTypeText(leaveTypeText(approval.getLeaveType()));
+        vo.setStartTime(approval.getStartTime());
+        vo.setEndTime(approval.getEndTime());
+        vo.setReason(approval.getReason());
+        vo.setStatus(approval.getStatus());
+        vo.setStatusText(statusText(approval.getStatus()));
+        vo.setAuditComment(approval.getAuditComment());
+        vo.setApplyUserId(approval.getApplyUserId());
+        vo.setAuditorId(approval.getAuditorId());
+        vo.setAuditorIds(approval.getAuditorIds());
+        vo.setCreateTime(approval.getCreateTime());
+
+        User applyUser = userService.getUserById(approval.getApplyUserId());
+        if (applyUser != null) {
+            vo.setApplyUserName(applyUser.getName());
+            vo.setApplyDepartmentName(applyUser.getDepartmentName());
+        }
+        vo.setAuditorName(resolveAuditorNames(approval.getAuditorId(), approval.getAuditorIds()));
+        return vo;
+    }
+
+    private void appendAuditorFilter(LambdaQueryWrapper<UserLeave> wrapper, Long userId) {
+        if (userId == null) {
+            wrapper.apply("1 = 0");
+            return;
+        }
+        wrapper.and(q -> q.eq(UserLeave::getAuditorId, userId)
+                .or()
+                .apply("FIND_IN_SET({0}, auditor_ids) > 0", String.valueOf(userId)));
+    }
+
+    private void assignAuditors(UserLeave approval, Long primaryAuditorId) {
+        assignAuditors(approval, primaryAuditorId, false);
+    }
+
+    private void assignAuditors(UserLeave approval, Long primaryAuditorId, boolean strictPrimary) {
+        assignAuditors(approval, primaryAuditorId, null, strictPrimary);
+    }
+
+    private void assignAuditors(UserLeave approval, Long primaryAuditorId, List<Long> specifiedAuditorIds, boolean strictPrimary) {
+        List<Long> auditorIds = resolveAuditorIds(
+                approval.getTenantCode(),
+                approval.getApplyUserId(),
+                primaryAuditorId,
+                specifiedAuditorIds,
+                APPROVAL_TYPE_LEAVE,
+                PermissionCodeEnum.CODE_APPROVAL_LEAVE_AUDIT,
+                strictPrimary
+        );
+        applyAuditors(approval, auditorIds);
+        approvalAuditorCandidateService.replaceActiveCandidates(
+                approval.getTenantCode(), APPROVAL_TYPE_LEAVE, approval.getLeaveCode(), auditorIds);
+    }
+
+    private List<Long> resolveAuditorIds(String tenantCode,
+                                         Long applyUserId,
+                                         Long primaryAuditorId,
+                                         List<Long> specifiedAuditorIds,
+                                         String approvalType,
+                                         String permissionCode,
+                                         boolean strictPrimary) {
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        if (specifiedAuditorIds != null && !specifiedAuditorIds.isEmpty()) {
+            List<Long> permittedIds = userMapper.selectActiveApproverIdsByPermission(tenantCode, permissionCode);
+            for (Long auditorId : specifiedAuditorIds) {
+                addCandidateAuditor(ids, auditorId, applyUserId);
+            }
+            if (ids.isEmpty()) {
+                throw new BusinessException("审批人不能为空");
+            }
+            if (ids.size() > MAX_PARALLEL_APPROVERS) {
+                throw new BusinessException("审批人最多选择 " + MAX_PARALLEL_APPROVERS + " 人");
+            }
+            if (!permittedIds.containsAll(ids)) {
+                throw new BusinessException("选择的审批人没有对应审批权限");
+            }
+            return new ArrayList<>(ids);
+        }
+        Long auditorId = approvalDefaultAuditorService.resolveAuditorId(
+                tenantCode, approvalType, applyUserId, primaryAuditorId, permissionCode, strictPrimary);
+        addCandidateAuditor(ids, auditorId, applyUserId);
+        if (ids.isEmpty()) {
+            throw new BusinessException("审批人不能为空");
+        }
+        return new ArrayList<>(ids);
+    }
+
+    private void applyAuditors(UserLeave approval, List<Long> auditorIds) {
+        approval.setAuditorId(auditorIds.get(0));
+        approval.setAuditorIds(auditorIds.size() > 1 ? joinAuditorIds(auditorIds) : null);
+    }
+
+    private boolean markCandidateDecisionIfPresent(String tenantCode,
+                                                   String approvalType,
+                                                   String approvalCode,
+                                                   Long auditorId,
+                                                   boolean approve,
+                                                   String comment) {
+        if (!approvalAuditorCandidateService.isPendingAuditor(tenantCode, approvalType, approvalCode, auditorId)) {
+            return false;
+        }
+        approvalAuditorCandidateService.markAuditorDecision(
+                tenantCode,
+                approvalType,
+                approvalCode,
+                auditorId,
+                approve,
+                comment
+        );
+        return true;
+    }
+
+    private void addCandidateAuditor(LinkedHashSet<Long> ids, Long auditorId, Long applyUserId) {
+        if (auditorId == null || auditorId <= 0) {
+            return;
+        }
+        if (applyUserId != null && applyUserId.equals(auditorId)) {
+            return;
+        }
+        ids.add(auditorId);
+    }
+
+    private boolean canCurrentUserAudit(Long currentUserId, Long auditorId, String auditorIds) {
+        if (currentUserId == null) {
+            return false;
+        }
+        if (currentUserId.equals(auditorId)) {
+            return true;
+        }
+        return parseAuditorIds(auditorIds).contains(currentUserId);
+    }
+
+    private String resolveAuditorNames(Long auditorId, String auditorIds) {
+        List<Long> ids = resolveNotifyAuditorIds(auditorId, auditorIds);
+        List<String> names = new ArrayList<>();
+        for (Long id : ids) {
+            User auditor = userService.getUserById(id);
+            if (auditor != null && StringUtils.hasText(auditor.getName())) {
+                names.add(auditor.getName());
+            }
+        }
+        return names.isEmpty() ? "待分配" : String.join("、", names);
+    }
+
+    private List<Long> resolveNotifyAuditorIds(Long auditorId, String auditorIds) {
+        List<Long> ids = parseAuditorIds(auditorIds);
+        if (ids.isEmpty() && auditorId != null) {
+            ids = List.of(auditorId);
+        }
+        return ids;
+    }
+
+    private boolean sameAuditorGroup(Long previousAuditorId, String previousAuditorIds,
+                                     Long currentAuditorId, String currentAuditorIds) {
+        return resolveNotifyAuditorIds(previousAuditorId, previousAuditorIds)
+                .equals(resolveNotifyAuditorIds(currentAuditorId, currentAuditorIds));
+    }
+
+    private List<Long> parseAuditorIds(String auditorIds) {
+        if (!StringUtils.hasText(auditorIds)) {
+            return List.of();
+        }
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        for (String raw : auditorIds.split(",")) {
+            if (!StringUtils.hasText(raw)) {
+                continue;
+            }
+            try {
+                Long id = Long.valueOf(raw.trim());
+                if (id > 0) {
+                    ids.add(id);
+                }
+            } catch (NumberFormatException ignored) {
+                // Ignore dirty historical data instead of breaking approval list rendering.
+            }
+        }
+        return new ArrayList<>(ids);
+    }
+
+    private String joinAuditorIds(List<Long> auditorIds) {
+        if (auditorIds == null || auditorIds.isEmpty()) {
+            return null;
+        }
+        return String.join(",", auditorIds.stream().map(String::valueOf).toList());
+    }
+
+    private String leaveTypeText(Integer leaveType) {
+        if (leaveType == null) return "未填写";
+        return switch (leaveType) {
+            case 1 -> "事假";
+            case 2 -> "病假";
+            case 3 -> "年假";
+            case 4 -> "调休";
+            default -> "其他";
+        };
+    }
+
+    private String statusText(Integer status) {
+        if (status == null) return "未知";
+        return switch (status) {
+            case 1 -> "待审批";
+            case 2 -> "已通过";
+            case 3 -> "已拒绝";
+            default -> "未知";
+        };
+    }
+}

@@ -13,8 +13,8 @@
     <groupId>my</groupId>
     <artifactId>Hive_Back</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>Hive_Back</name>
-    <description>Hive_Back</description>
+    <name>hive_back</name>
+    <description>hive_back</description>
     <packaging>jar</packaging> <!-- 单体阶段仍为jar，微服务父工程改为pom -->
     <properties>
         <java.version>21</java.version>
@@ -23,9 +23,14 @@
         <lombok.version>1.18.30</lombok.version>
         <!-- 新增：MyBatis-Plus版本（适配Spring Boot 3.2.5） -->
         <mybatis-plus.version>3.5.5</mybatis-plus.version>
-        <security.version>5.7.8</security.version>
         <com.google.zxing.version>3.5.2</com.google.zxing.version>
         <jSerialComm.version>2.9.2</jSerialComm.version>
+        <fastjson.version>2.0.33</fastjson.version>
+        <springdoc.version>2.2.0</springdoc.version>
+        <xxl-job.version>2.4.1</xxl-job.version>
+        <aliyun-oss.version>3.18.5</aliyun-oss.version>
+        <hive-httpclient.version>4.5.14</hive-httpclient.version>
+        <hive-commons-logging.version>1.3.4</hive-commons-logging.version>
     </properties>
 
     <!-- 核心：dependencyManagement 统一管理版本，不实际引入依赖 -->
@@ -42,7 +47,6 @@
                 <artifactId>spring-boot-starter-aop</artifactId>
                 <version>${project.parent.version}</version>
             </dependency>
-
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-starter-web</artifactId>
@@ -103,11 +107,47 @@
                 <artifactId>mybatis-plus-boot-starter</artifactId>
                 <version>${mybatis-plus.version}</version>
             </dependency>
+
+            <dependency>
+                <groupId>com.alibaba.fastjson2</groupId>
+                <artifactId>fastjson2</artifactId>
+                <version>${fastjson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.xuxueli</groupId>
+                <artifactId>xxl-job-core</artifactId>
+                <version>${xxl-job.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aliyun.oss</groupId>
+                <artifactId>aliyun-sdk-oss</artifactId>
+                <version>${aliyun-oss.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpclient</artifactId>
+                <version>${hive-httpclient.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-logging</groupId>
+                <artifactId>commons-logging</artifactId>
+                <version>${hive-commons-logging.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
     <!-- 实际引入依赖-->
     <dependencies>
+        <dependency>
+            <groupId>my.hive</groupId>
+            <artifactId>hive-backend-common</artifactId>
+            <version>0.1.0</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
@@ -134,10 +174,6 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-security</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
@@ -157,6 +193,10 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
 
         <!-- MyBatis-Plus依赖 -->
         <dependency>
@@ -169,6 +209,25 @@
             <groupId>com.fazecast</groupId>
             <artifactId>jSerialComm</artifactId>
         </dependency>
+
+        <dependency>
+            <groupId>com.alibaba.fastjson2</groupId>
+            <artifactId>fastjson2</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.xuxueli</groupId>
+            <artifactId>xxl-job-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>

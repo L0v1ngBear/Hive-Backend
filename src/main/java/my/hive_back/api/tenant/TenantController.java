@@ -1,46 +1,31 @@
 package my.hive_back.api.tenant;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
-import my.hive_back.common.dto.PageResultVO;
-import my.hive_back.common.dto.ResultDTO;
-import my.hive_back.module.tenant.model.dto.TenantInfoPageRequest;
-import my.hive_back.module.tenant.model.entity.Tenant;
-import my.hive_back.module.tenant.model.vo.TenantVO;
+import my.hive.common.annotation.RequirePermission;
+import my.hive.common.dto.Result;
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
+import my.hive_back.module.tenant.model.entity.TenantAttendanceRule;
 import my.hive_back.module.tenant.service.TenantService;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Optional;
-import java.util.stream.Collectors;
-
-@Controller
+/**
+ * Mini-program tenant endpoints for reading attendance location configuration.
+ *
+ * <p>The mini-program is no longer allowed to change company attendance coordinates.
+ * Coordinates are maintained by the management backend as the single auditable source of truth.</p>
+ */
+@RestController
 @RequestMapping("/tenant")
 public class TenantController {
 
     @Resource
     private TenantService tenantService;
 
-    @GetMapping("/page-search")
-    public ResultDTO<PageResultVO<TenantVO>> pageSearchTenant(@Valid @RequestBody TenantInfoPageRequest searchDTO) {
-
-        Page<Tenant> tenantPage = Optional.ofNullable(tenantService.pageSearchTenant(searchDTO))
-                .orElse(new Page<>()); // 若返回null，初始化空分页对象
-
-        PageResultVO<TenantVO> tenantVoPage = new PageResultVO<>() {{
-            // 复制分页核心参数（初始化块简化setter调用）
-            setCurrent(tenantPage.getCurrent());
-            setSize(tenantPage.getSize());
-            setTotal(tenantPage.getTotal());
-            setPages(tenantPage.getPages());
-            setData(tenantPage.getRecords().stream()
-                    .map(TenantVO::new)
-                    .collect(Collectors.toList()));
-        }};
-
-        return ResultDTO.success(tenantVoPage);
+    @GetMapping("/attendance-location")
+    @RequirePermission(value = PermissionCodeEnum.CODE_ATTENDANCE_PUNCH, message = "您没有权限查看考勤规则")
+    public Result<TenantAttendanceRule> getAttendanceLocation() {
+        return Result.success(tenantService.getTenantLocation());
     }
 }

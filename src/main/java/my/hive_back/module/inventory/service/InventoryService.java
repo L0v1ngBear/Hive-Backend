@@ -1,108 +1,426 @@
 package my.hive_back.module.inventory.service;
 
+import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.StringUtils;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
-import lombok.Synchronized;
-import my.hive_back.common.context.TenantPermissionContext;
-import my.hive_back.common.interceptor.TenantInterceptor;
+import lombok.extern.slf4j.Slf4j;
+import my.hive.common.annotation.CollectLog;
+import my.hive.common.annotation.RequirePermission;
+import my.hive.common.context.TenantPermissionContext;
+import my.hive.common.dto.PageResult;
+import my.hive.common.exception.BusinessException;
+import my.hive.common.print.PrintTaskService;
+import my.hive.common.redis.HiveRedisKeyBuilder;
+import my.hive.common.utils.RedisCacheHelper;
+import my.hive_back.common.storage.BusinessImageAttachmentService;
+import my.hive_back.common.storage.BusinessImageAttachmentVO;
 import my.hive_back.common.utils.BarCodeUtil;
+import my.hive_back.common.utils.CodeGeneratorUtil;
+import my.hive_back.common.utils.RedisUtil;
 import my.hive_back.module.inventory.InventoryInTypeEnum;
 import my.hive_back.module.inventory.InventoryOperateTypeEnum;
+import my.hive_back.module.inventory.InventoryRecordOperateTypeEnum;
 import my.hive_back.module.inventory.mapper.ClothMapper;
+import my.hive_back.module.inventory.mapper.ClothModelSpecMapper;
 import my.hive_back.module.inventory.mapper.InventoryRecordMapper;
+import my.hive_back.module.inventory.mapper.OutboundItemMapper;
+import my.hive_back.module.inventory.mapper.OutboundOrderMapper;
 import my.hive_back.module.inventory.model.dto.InventoryInRequest;
+import my.hive_back.module.inventory.model.dto.InventoryOutRequest;
+import my.hive_back.module.inventory.model.dto.InventoryPageRequest;
 import my.hive_back.module.inventory.model.entity.Cloth;
+import my.hive_back.module.inventory.model.entity.ClothModelSpec;
 import my.hive_back.module.inventory.model.entity.InventoryRecord;
-import my.hive_back.module.inventory.model.entity.InventoryStatics;
-import my.hive_back.module.inventory.mapper.InventoryStaticsMapper;
+import my.hive_back.module.inventory.model.entity.OutboundItem;
+import my.hive_back.module.inventory.model.entity.OutboundOrder;
+import my.hive_back.module.inventory.model.vo.ClothInfoVO;
+import my.hive_back.module.inventory.model.vo.InventoryImageRecognitionVO;
+import my.hive_back.module.inventory.model.vo.InventoryDailyMetersVO;
+import my.hive_back.module.inventory.model.vo.InventoryModelSummaryVO;
+import my.hive_back.module.inventory.model.vo.InventoryRecordVO;
+import my.hive_back.module.inventory.model.vo.OutboundOrderOptionVO;
+import my.hive_back.module.price.mapper.PriceSkuMapper;
+import my.hive_back.module.statics.inventory.mapper.InventoryTrendStaticsMapper;
+import my.hive_back.module.statics.inventory.model.entity.InventoryTrendStatics;
+import my.hive_back.module.statics.inventory.model.vo.InventoryTrendVO;
+import my.hive_back.module.order.mapper.SalesOrderMapper;
+import my.hive_back.module.order.OrderStatusEnum;
+import my.hive_back.module.order.model.entity.SalesOrder;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-
-
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+/**
+ * InventoryService 属于小程序后端库存模块，实现核心业务编排与规则逻辑。
+ */
+@Slf4j
 @Service
 public class InventoryService {
 
-    @Resource
-    private InventoryStaticsMapper staticsMapper;
+    private static final int OUTBOUND_MAX_RETRY = 3;
+    private static final long DEFAULT_PAGE_NUM = 1L;
+    private static final long DEFAULT_PAGE_SIZE = 20L;
+    private static final long MAX_PAGE_SIZE = 200L;
+    private static final float METERS_EPSILON = 0.0001F;
+    private static final String TIME_ORDER_LIFO = "lifo";
+    private static final long MAX_IMAGE_RECOGNITION_BYTES = 5L * 1024 * 1024;
+    private static final String IMAGE_RECOGNITION_MODULE = "inventory-recognition";
+    private static final Set<String> IMAGE_RECOGNITION_EXTENSIONS = Set.of("png", "jpg", "jpeg", "webp");
+    private static final Pattern METERS_FILENAME_PATTERN = Pattern.compile("(?i)(\\d+(?:\\.\\d{1,2})?)\\s*(?:m|meter|meters|米)");
+    private static final Pattern SPEC_FILENAME_PATTERN = Pattern.compile("(?i)(?:spec|规格|克重|门幅|幅宽|width)[-_\\s]*(\\d+(?:\\.\\d{1,2})?)");
 
+    @Resource
+    private InventoryTrendStaticsMapper staticsMapper;
     @Resource
     private InventoryRecordMapper inventoryRecordMapper;
-
+    @Resource
+    private ClothModelSpecMapper clothModelSpecMapper;
     @Resource
     private BarCodeUtil barCodeUtil;
-
     @Resource
     private ClothMapper clothMapper;
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+    @Resource
+    private RedisCacheHelper redisCacheHelper;
+    @Resource
+    private HiveRedisKeyBuilder redisKeyBuilder;
+    @Resource
+    private RedisUtil redisUtil;
+    @Resource
+    private OutboundOrderMapper outboundOrderMapper;
+    @Resource
+    private CodeGeneratorUtil codeGeneratorUtil;
+    @Resource
+    private OutboundItemMapper outboundItemMapper;
+    @Resource
+    private PriceSkuMapper priceSkuMapper;
+    @Resource
+    private SalesOrderMapper salesOrderMapper;
+    @Resource
+    private PrintTaskService printTaskService;
+    @Resource
+    private InventoryWarningCacheService inventoryWarningCacheService;
+    @Resource
+    private BusinessImageAttachmentService businessImageAttachmentService;
 
-    public InventoryStatics selectInventoryStatics() {
+    @Value("${redis.key-prefix.trend.today_in}")
+    private String REDIS_TODAY_IN;
+    @Value("${redis.key-prefix.trend.today_out}")
+    private String REDIS_TODAY_OUT;
 
-        // 构造当前日期的时间范围
-        LocalDate today = LocalDate.now();
-        LocalDateTime startTime = today.atStartOfDay(); // 当天00:00:00
-        LocalDateTime endTime = today.plusDays(1).atStartOfDay().minusNanos(1); // 当天23:59:59.999999999
-
-        // 数据来源于定时任务的统计
-        // TODO 统计数据
-        LambdaQueryWrapper<InventoryStatics> wrapper = new LambdaQueryWrapper<>();
-        wrapper.between(InventoryStatics::getCreateTime, startTime, endTime);
-
-        return staticsMapper.selectOne(wrapper);
-    }
-
-    /**
-     * 统一入库入口（兼容扫码/手动/自动入库）
-     *
-     * @param inventoryInRequest 入库请求
-     */
-    @Synchronized
     @Transactional(rollbackFor = Exception.class)
-    public void inCloth(@Valid InventoryInRequest inventoryInRequest) {
+    @CollectLog(module = "inventory", action = "cloth_in", bizType = "cloth", bizNo = "#p0.barcode", description = "小程序布匹入库")
+    @RequirePermission(value = PermissionCodeEnum.CODE_INVENTORY_CLOTH_IN, message = "您没有权限执行布匹入库")
+    public ClothInfoVO inCloth(@Valid InventoryInRequest inventoryInRequest) {
+        InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.getCode(inventoryInRequest.getInType());
+        if (inTypeEnum == InventoryInTypeEnum.IMAGE_RECOGNITION && !Boolean.TRUE.equals(inventoryInRequest.getManualVerified())) {
+            throw new BusinessException("图片识别入库请先完成人工校验");
+        }
+        String barcode;
 
-        InventoryInTypeEnum inTypeEnum = InventoryInTypeEnum.valueOf(inventoryInRequest.getInType());
         switch (inTypeEnum) {
-            case SCAN:
-                InventoryScanIn(inventoryInRequest.getBarcode());
-                break;
-            case HAND:
-                //手动入库补充条码信息入库
-                CompleteBarcode(inventoryInRequest);
-                InventoryHandIn(inventoryInRequest);
-                break;
-            case AUTO:
-                // 自动入库补充条码信息入库
-                CompleteBarcode(inventoryInRequest);
-                InventoryAutoIn(inventoryInRequest);
-                break;
-            default:
-                throw new IllegalArgumentException("未知的入库类型");
+            case SCAN -> barcode = inventoryInRequest.getBarcode();
+            case HAND, AUTO, IMAGE_RECOGNITION -> {
+                barcode = barCodeUtil.createBarCode(TenantPermissionContext.getTenantCode());
+                inventoryInRequest.setBarcode(barcode);
+                inventoryHandIn(inventoryInRequest);
+            }
+            default -> throw new BusinessException("不支持的入库类型");
         }
 
-        //TODO 统一放入redis库存统计
+        saveClothModelSpecAsync(inventoryInRequest.getModelCode(), inventoryInRequest.getSpec(), TenantPermissionContext.getTenantCode());
+
+        ClothInfoVO clothInfoVO = new ClothInfoVO();
+        BeanUtils.copyProperties(inventoryInRequest, clothInfoVO);
+        clothInfoVO.setBarcode(barcode);
+        clothInfoVO.setInboundTime(java.time.LocalDateTime.now());
+        clothInfoVO.setStatus(InventoryOperateTypeEnum.IN.getCode());
+        clothInfoVO.setNeedPrintLabel(true);
+        clothInfoVO.setPrintReason("首次入库，请打印并粘贴布匹标签");
+        clothInfoVO.setPrintTaskNo(printTaskService.createLabelTask(barcode, clothInfoVO, null, null, clothInfoVO.getPrintReason()));
+        return clothInfoVO;
     }
 
-    private void CompleteBarcode(InventoryInRequest request) {
-        String barCode = barCodeUtil.createBarCode(TenantPermissionContext.getTenantCode());
-        request.setBarcode(barCode);
+    public InventoryImageRecognitionVO recognizeInboundImage(MultipartFile file) {
+        validateRecognitionImage(file);
+        BusinessImageAttachmentVO attachment = businessImageAttachmentService.uploadImage(file, IMAGE_RECOGNITION_MODULE);
+        InventoryImageRecognitionVO.Candidate candidate = buildRecognitionCandidate(attachment.getFileName());
+        boolean hasCandidate = cleanText(candidate.getModelCode()) != null
+                || candidate.getSpec() != null
+                || candidate.getMeters() != null
+                || cleanText(candidate.getBarcode()) != null;
+
+        InventoryImageRecognitionVO vo = new InventoryImageRecognitionVO();
+        vo.setFileName(attachment.getFileName());
+        vo.setFileUrl(attachment.getFileUrl());
+        vo.setFileSize(attachment.getFileSize());
+        vo.setStatus("NEED_CONFIRM");
+        vo.setConfidence(candidate.getConfidence());
+        vo.setCandidates(List.of(candidate));
+        vo.setMessage(hasCandidate
+                ? "图片已上传，系统已带出可疑字段，请人工核对后确认入库。"
+                : "图片已上传，请确认型号、规格和米数后完成入库。");
+        return vo;
     }
 
-    private void InventoryAutoIn(@Valid InventoryInRequest inventoryInRequest) {
+    @RequirePermission(value = PermissionCodeEnum.CODE_INVENTORY_CLOTH_OUT, message = "您没有权限执行布匹出库")
+    @Transactional(rollbackFor = Exception.class)
+    @CollectLog(module = "inventory", action = "cloth_out", bizType = "cloth", bizNo = "#p0.barcode", description = "小程序扫码出库")
+    public ClothInfoVO outCloth(@Valid InventoryOutRequest request) {
+        String tenantCode = TenantPermissionContext.getTenantCode();
+        Long userId = TenantPermissionContext.getUserId();
+        String barCode = request.getBarcode();
+        String businessOrderNo = request.getOrderNo();
+        String requestId = normalizeRequestId(request.getRequestId());
+
+        if (!StringUtils.isNotBlank(barCode)) {
+            throw new BusinessException("条码不能为空");
+        }
+        if (!StringUtils.isNotBlank(businessOrderNo)) {
+            throw new BusinessException("业务单号不能为空");
+        }
+
+        ClothInfoVO idempotentResult = findIdempotentOutboundResult(tenantCode, requestId);
+        if (idempotentResult != null) {
+            return idempotentResult;
+        }
+
+        String lockKey = redisKeyBuilder.lock("cloth", "out", tenantCode, barCode);
+        String lockValue = UUID.randomUUID().toString();
+        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, 30, TimeUnit.SECONDS);
+        if (Boolean.FALSE.equals(locked)) {
+            throw new BusinessException("该布匹正在出库处理中，请稍后重试");
+        }
+
+        try {
+            ClothInfoVO afterLockResult = findIdempotentOutboundResult(tenantCode, requestId);
+            if (afterLockResult != null) {
+                return afterLockResult;
+            }
+
+            Cloth cloth = selectClothByBarCode(barCode);
+            if (cloth == null) {
+                throw new BusinessException("布匹不存在");
+            }
+
+            Float metersToOut = request.getMeters();
+            if (metersToOut == null || metersToOut <= 0) {
+                metersToOut = cloth.getRemainingMeters();
+            }
+            if (metersToOut == null || metersToOut <= 0) {
+                throw new BusinessException("出库米数必须大于0");
+            }
+
+            Float beforeMeters = cloth.getRemainingMeters();
+            Cloth latestCloth = deductClothMeters(cloth, metersToOut, userId);
+            saveInventoryOutRecord(latestCloth, metersToOut, userId);
+            OutboundOrder order = getOrCreatePendingOutboundOrder(tenantCode, businessOrderNo, request.getCustomerName(), userId);
+            saveOutboundItem(order.getId(), latestCloth, metersToOut, tenantCode, requestId);
+            asyncRefreshTrendCache(barCode, tenantCode, metersToOut, REDIS_TODAY_OUT);
+
+            ClothInfoVO clothInfoVO = new ClothInfoVO();
+            BeanUtils.copyProperties(latestCloth, clothInfoVO);
+            clothInfoVO.setMeters(latestCloth.getRemainingMeters());
+            clothInfoVO.setInboundTime(latestCloth.getInTime());
+            clothInfoVO.setCustomerName(request.getCustomerName());
+            clothInfoVO.setBeforeMeters(beforeMeters);
+            clothInfoVO.setOutMeters(metersToOut);
+            clothInfoVO.setNeedPrintLabel(latestCloth.getRemainingMeters() != null && latestCloth.getRemainingMeters() > 0);
+            clothInfoVO.setPrintReason(Boolean.TRUE.equals(clothInfoVO.getNeedPrintLabel())
+                    ? "部分出库，请重新打印剩余布匹标签"
+                    : "整匹出库，无需重新打印布匹标签");
+            if (Boolean.TRUE.equals(clothInfoVO.getNeedPrintLabel())) {
+                clothInfoVO.setPrintTaskNo(printTaskService.createLabelTask(latestCloth.getBarcode(), clothInfoVO, null, null, clothInfoVO.getPrintReason()));
+            }
+            invalidateManagementDashboardCache(tenantCode);
+            return clothInfoVO;
+        } finally {
+            safeReleaseLock(lockKey, lockValue);
+        }
     }
 
-
-
-    private void InventoryScanIn(String barcode) {
-
+    private String normalizeRequestId(String requestId) {
+        return StringUtils.isBlank(requestId) ? null : requestId.trim();
     }
 
-    private void InventoryHandIn(InventoryInRequest inventoryInRequest) {
+    private ClothInfoVO findIdempotentOutboundResult(String tenantCode, String requestId) {
+        if (!StringUtils.isNotBlank(requestId)) {
+            return null;
+        }
+        OutboundItem item = outboundItemMapper.selectOne(new LambdaQueryWrapper<OutboundItem>()
+                .eq(OutboundItem::getRequestId, requestId)
+                .last("limit 1"));
+        if (item == null) {
+            return null;
+        }
+        Cloth cloth = selectClothByBarCode(item.getBarcode());
+        if (cloth == null) {
+            return null;
+        }
+        ClothInfoVO vo = new ClothInfoVO();
+        BeanUtils.copyProperties(cloth, vo);
+        vo.setMeters(cloth.getRemainingMeters());
+        return vo;
+    }
 
+    private Cloth deductClothMeters(Cloth originalCloth, Float metersToOut, Long userId) {
+        for (int retry = 0; retry < OUTBOUND_MAX_RETRY; retry++) {
+            Cloth current = clothMapper.selectById(originalCloth.getId());
+            if (current == null) {
+                throw new BusinessException("布匹不存在或已被删除");
+            }
+            Float currentRemaining = current.getRemainingMeters();
+            if (currentRemaining == null || currentRemaining <= 0) {
+                throw new BusinessException("该布匹已全部出库");
+            }
+            if (currentRemaining + METERS_EPSILON < metersToOut) {
+                throw new BusinessException("剩余米数不足，无法完成本次出库");
+            }
+
+            float newRemaining = currentRemaining - metersToOut;
+            if (Math.abs(newRemaining) < METERS_EPSILON) {
+                newRemaining = 0F;
+            }
+            current.setRemainingMeters(newRemaining);
+            current.setOutTime(LocalDateTime.now());
+            current.setOutOperatorId(userId);
+            current.setStatus(newRemaining <= 0F ? InventoryOperateTypeEnum.OUT.getCode() : InventoryOperateTypeEnum.PART_OUT.getCode());
+
+            int updatedRows = clothMapper.updateById(current);
+            if (updatedRows > 0) {
+                return current;
+            }
+        }
+        throw new BusinessException("出库冲突，请刷新后重试");
+    }
+
+    private void saveInventoryOutRecord(Cloth cloth, Float metersToOut, Long userId) {
+        InventoryRecord record = new InventoryRecord();
+        record.setTenantCode(cloth.getTenantCode());
+        record.setClothId(cloth.getId());
+        record.setModelCode(cloth.getModelCode());
+        record.setOperatorId(userId);
+        record.setOperateType(InventoryOperateTypeEnum.OUT.getCode());
+        record.setOperateMeters(metersToOut);
+        record.setRemainingMeters(cloth.getRemainingMeters());
+        inventoryRecordMapper.insert(record);
+    }
+
+    private OutboundOrder getOrCreatePendingOutboundOrder(String tenantCode, String businessOrderNo, String customerName, Long userId) {
+        String lockKey = redisKeyBuilder.lock("outbound", "order", tenantCode, businessOrderNo);
+        String lockValue = UUID.randomUUID().toString();
+        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, 15, TimeUnit.SECONDS);
+        if (Boolean.FALSE.equals(locked)) {
+            throw new BusinessException("当前业务单正在结转出库单，请稍后再试");
+        }
+        try {
+            OutboundOrder order = outboundOrderMapper.selectOne(new LambdaQueryWrapper<OutboundOrder>()
+                    .eq(OutboundOrder::getBizOrderNo, businessOrderNo)
+                    .eq(OutboundOrder::getPrintStatus, 0)
+                    .last("limit 1"));
+            if (order != null) {
+                return order;
+            }
+
+            OutboundOrder newOrder = new OutboundOrder();
+            newOrder.setTenantCode(tenantCode);
+            newOrder.setOrderNo(codeGeneratorUtil.generateOutboundOrderNo());
+            newOrder.setBizOrderNo(businessOrderNo);
+            newOrder.setCustomerName(customerName);
+            newOrder.setOrderStatus(0);
+            newOrder.setPrintStatus(0);
+            newOrder.setOperatorId(userId);
+            newOrder.setCreateTime(LocalDateTime.now());
+            outboundOrderMapper.insert(newOrder);
+            return newOrder;
+        } finally {
+            safeReleaseLock(lockKey, lockValue);
+        }
+    }
+
+    private void saveOutboundItem(Long orderId, Cloth cloth, Float metersToOut, String tenantCode, String requestId) {
+        OutboundItem item = new OutboundItem();
+        item.setTenantCode(tenantCode);
+        item.setOrderId(orderId);
+        item.setBarcode(cloth.getBarcode());
+        item.setModelCode(cloth.getModelCode());
+        item.setSpec(cloth.getSpec());
+        item.setMeters(metersToOut);
+        item.setRequestId(requestId);
+        BigDecimal price = priceSkuMapper.getPrice(tenantCode, cloth.getModelCode());
+        if (price == null) {
+            price = BigDecimal.ZERO;
+        }
+        item.setPrice(price);
+        item.setTotalAmount(price.multiply(BigDecimal.valueOf(metersToOut)));
+        try {
+            outboundItemMapper.insert(item);
+        } catch (DuplicateKeyException ex) {
+            if (StringUtils.isNotBlank(requestId)) {
+                log.warn("检测到重复出库请求, requestId={}", requestId);
+                return;
+            }
+            throw ex;
+        }
+    }
+
+    private void safeReleaseLock(String lockKey, String lockValue) {
+        try {
+            String currentValue = stringRedisTemplate.opsForValue().get(lockKey);
+            if (lockValue.equals(currentValue)) {
+                stringRedisTemplate.delete(lockKey);
+            }
+        } catch (Exception e) {
+            log.error("释放出库锁失败, lockKey={}", lockKey, e);
+        }
+    }
+
+    @Async
+    public void asyncRefreshTrendCache(String barCode, String tenantCode, Float meters, String staticsPrefix) {
+        try {
+            String key = staticsPrefix + tenantCode + ":" + LocalDate.now();
+            stringRedisTemplate.opsForValue().increment(key, meters.doubleValue());
+            stringRedisTemplate.expire(key, redisUtil.getSecondsToAfterDays(2), TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.error("刷新库存趋势缓存失败, barcode: {}", barCode, e);
+        }
+    }
+
+    @Async
+    public void saveClothModelSpecAsync(String modelCode, Float spec, String tenantCode) {
+        ClothModelSpec specEntity = new ClothModelSpec();
+        specEntity.setModelCode(modelCode);
+        specEntity.setSpec(spec);
+        specEntity.setTenantCode(tenantCode);
+        try {
+            clothModelSpecMapper.insert(specEntity);
+        } catch (DuplicateKeyException ignored) {
+        }
+    }
+
+    private void inventoryHandIn(InventoryInRequest inventoryInRequest) {
         Cloth cloth = new Cloth();
         BeanUtils.copyProperties(inventoryInRequest, cloth);
         cloth.setInOperatorId(TenantPermissionContext.getUserId());
@@ -110,10 +428,312 @@ public class InventoryService {
         cloth.setTotalMeters(inventoryInRequest.getMeters());
         cloth.setRemainingMeters(inventoryInRequest.getMeters());
         cloth.setStatus(InventoryOperateTypeEnum.IN.getCode());
-
+        cloth.setTenantCode(TenantPermissionContext.getTenantCode());
         clothMapper.insert(cloth);
 
-        //TODO 打印条形码
-        barCodeUtil.createBarCodeImage(cloth.getBarcode(), 200, 100);
+        InventoryRecord record = new InventoryRecord();
+        record.setClothId(cloth.getId());
+        record.setModelCode(inventoryInRequest.getModelCode());
+        record.setTenantCode(TenantPermissionContext.getTenantCode());
+        record.setOperatorId(TenantPermissionContext.getUserId());
+        record.setOperateType(InventoryOperateTypeEnum.IN.getCode());
+        record.setOperateMeters(inventoryInRequest.getMeters());
+        record.setRemainingMeters(inventoryInRequest.getMeters());
+        inventoryRecordMapper.insert(record);
+
+        String key = REDIS_TODAY_IN + TenantPermissionContext.getTenantCode() + ":" + LocalDate.now();
+        stringRedisTemplate.opsForValue().increment(key, inventoryInRequest.getMeters().doubleValue());
+        stringRedisTemplate.expire(key, redisUtil.getSecondsToAfterDays(2), TimeUnit.SECONDS);
+        invalidateManagementDashboardCache(TenantPermissionContext.getTenantCode());
+    }
+
+    public Cloth selectClothByBarCode(String barCode) {
+        return clothMapper.selectOne(new LambdaQueryWrapper<Cloth>()
+                .eq(Cloth::getBarcode, barCode));
+    }
+
+    public List<ClothModelSpec> searchModelSpec(String keyword) {
+        LambdaQueryWrapper<ClothModelSpec> queryWrapper = new LambdaQueryWrapper<>();
+        if (!StringUtils.isBlank(keyword)) {
+            queryWrapper.like(ClothModelSpec::getModelCode, keyword);
+        }
+        return clothModelSpecMapper.selectList(queryWrapper);
+    }
+
+    public List<OutboundOrderOptionVO> searchOutboundBizOrders(String keyword) {
+        String safeKeyword = keyword == null ? "" : keyword.trim();
+        LambdaQueryWrapper<SalesOrder> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.in(SalesOrder::getStatus, List.of(OrderStatusEnum.PENDING_SHIP.getCode(), OrderStatusEnum.SHIPPED.getCode()))
+                .and(StringUtils.isNotBlank(safeKeyword), wrapper -> wrapper
+                        .like(SalesOrder::getOrderId, safeKeyword)
+                        .or()
+                        .like(SalesOrder::getCustomerName, safeKeyword)
+                        .or()
+                        .like(SalesOrder::getProjectName, safeKeyword))
+                .orderByDesc(SalesOrder::getUpdateTime)
+                .last("limit 10");
+        return salesOrderMapper.selectList(queryWrapper).stream().map(order -> {
+            OutboundOrderOptionVO vo = new OutboundOrderOptionVO();
+            vo.setOrderNo(order.getOrderId());
+            vo.setCustomerName(order.getCustomerName());
+            vo.setProjectName(order.getProjectName());
+            return vo;
+        }).toList();
+    }
+
+    public List<InventoryRecord> getUserRecentRecord() {
+        Long userId = TenantPermissionContext.getUserId();
+        Page<InventoryRecord> page = new Page<>(1, 7);
+        page.setSearchCount(false);
+        LambdaQueryWrapper<InventoryRecord> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(InventoryRecord::getOperatorId, userId)
+                .orderByDesc(InventoryRecord::getCreateTime);
+        return inventoryRecordMapper.selectPage(page, queryWrapper).getRecords();
+    }
+
+    public List<InventoryRecordVO> warningList() {
+        return inventoryWarningCacheService.warningList(TenantPermissionContext.getTenantCode(), 10);
+    }
+
+    public PageResult<InventoryModelSummaryVO> modelPage(InventoryPageRequest request) {
+        InventoryPageRequest safeRequest = request == null ? new InventoryPageRequest() : request;
+        Page<InventoryModelSummaryVO> page = clothMapper.selectModelSummaryPage(
+                new Page<>(safePageNum(safeRequest.getPageNum()), safePageSize(safeRequest.getPageSize())),
+                TenantPermissionContext.getTenantCode(),
+                cleanText(safeRequest.getKeyword()),
+                safeRequest.getStatus(),
+                normalizeTimeOrder(safeRequest.getTimeOrder()));
+
+        PageResult<InventoryModelSummaryVO> result = new PageResult<>();
+        result.setCurrent(page.getCurrent());
+        result.setSize(page.getSize());
+        result.setTotal(page.getTotal());
+        result.setPages(page.getPages());
+        result.setData(page.getRecords());
+        return result;
+    }
+
+    public InventoryTrendVO getLastWeekTrend() {
+        InventoryTrendVO vo = new InventoryTrendVO();
+        LocalDate today = LocalDate.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd");
+        String tenantCode = TenantPermissionContext.getTenantCode();
+
+        LocalDateTime dbStartDate = today.minusDays(6).atStartOfDay();
+        LocalDateTime dbEndDate = today.atStartOfDay();
+        LambdaQueryWrapper<InventoryTrendStatics> wrapper = new LambdaQueryWrapper<>();
+        wrapper.ge(InventoryTrendStatics::getStatDate, dbStartDate);
+        wrapper.lt(InventoryTrendStatics::getStatDate, dbEndDate);
+        wrapper.orderByAsc(InventoryTrendStatics::getStatDate);
+        List<InventoryTrendStatics> dbList = staticsMapper.selectList(wrapper);
+
+        InventoryDailyMetersVO todayMeters = inventoryRecordMapper.sumDailyMeters(
+                tenantCode,
+                InventoryRecordOperateTypeEnum.IN.getCode(),
+                InventoryRecordOperateTypeEnum.EXTERNAL_IMPORT.getCode(),
+                InventoryRecordOperateTypeEnum.OUT.getCode(),
+                today.atStartOfDay(),
+                today.plusDays(1).atStartOfDay()
+        );
+        Float todayIn = toMetersFloat(todayMeters == null ? null : todayMeters.getInMeters());
+        Float todayOut = toMetersFloat(todayMeters == null ? null : todayMeters.getOutMeters());
+
+        List<String> dateList = new ArrayList<>();
+        List<Float> inList = new ArrayList<>();
+        List<Float> outList = new ArrayList<>();
+
+        for (int i = 6; i >= 0; i--) {
+            LocalDate currentDay = today.minusDays(i);
+            dateList.add(currentDay.format(formatter));
+            if (i == 0) {
+                inList.add(todayIn == null ? 0f : todayIn);
+                outList.add(todayOut == null ? 0f : todayOut);
+            } else {
+                InventoryTrendStatics stat = dbList.stream()
+                        .filter(item -> item.getStatDate().toLocalDate().equals(currentDay))
+                        .findFirst().orElse(null);
+                inList.add(stat == null ? 0f : stat.getDayInMeters());
+                outList.add(stat == null ? 0f : stat.getDayOutMeters());
+            }
+        }
+
+        vo.setDates(dateList);
+        vo.setInMeters(inList);
+        vo.setOutMeters(outList);
+        return vo;
+    }
+
+    private Float toMetersFloat(BigDecimal value) {
+        return value == null ? 0f : value.floatValue();
+    }
+
+    public void finishOutbound(String orderNo) {
+        submitOutboundToPrint(orderNo);
+    }
+
+    @CollectLog(module = "inventory", action = "submit_outbound_print", bizType = "outbound_order", bizNo = "#p0", description = "提交出库单打印")
+    public void submitOutboundToPrint(String orderNo) {
+        OutboundOrder order = outboundOrderMapper.selectOne(new LambdaQueryWrapper<OutboundOrder>()
+                .and(wrapper -> wrapper.eq(OutboundOrder::getOrderNo, orderNo).or().eq(OutboundOrder::getBizOrderNo, orderNo))
+                .eq(OutboundOrder::getPrintStatus, 0)
+                .in(OutboundOrder::getOrderStatus, List.of(0, 1))
+                .orderByDesc(OutboundOrder::getId)
+                .last("limit 1"));
+        if (order == null) {
+            throw new BusinessException("出库单不存在或已打印");
+        }
+
+        LambdaUpdateWrapper<OutboundOrder> luw = new LambdaUpdateWrapper<>();
+        luw.eq(OutboundOrder::getId, order.getId())
+                .eq(OutboundOrder::getPrintStatus, 0)
+                .in(OutboundOrder::getOrderStatus, 0, 1)
+                .set(OutboundOrder::getOrderStatus, 1)
+                .set(OutboundOrder::getUpdateTime, LocalDateTime.now());
+        int rows = outboundOrderMapper.update(null, luw);
+        if (rows == 0) {
+            throw new BusinessException("出库单不存在或已打印");
+        }
+        invalidateManagementDashboardCache(TenantPermissionContext.getTenantCode());
+    }
+
+    private void validateRecognitionImage(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException("请选择需要识别的入库图片");
+        }
+        if (file.getSize() <= 0) {
+            throw new BusinessException("图片内容为空，无法识别");
+        }
+        if (file.getSize() > MAX_IMAGE_RECOGNITION_BYTES) {
+            throw new BusinessException("图片大小不能超过 5MB");
+        }
+        String originalFilename = file.getOriginalFilename();
+        String extension = resolveExtension(originalFilename);
+        if (!IMAGE_RECOGNITION_EXTENSIONS.contains(extension)) {
+            throw new BusinessException("图片识别入库仅支持 PNG、JPG、JPEG、WEBP 格式");
+        }
+        String contentType = file.getContentType();
+        if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+            throw new BusinessException("上传文件不是有效图片");
+        }
+    }
+
+    private InventoryImageRecognitionVO.Candidate buildRecognitionCandidate(String fileName) {
+        String sourceText = stripExtension(fileName);
+        InventoryImageRecognitionVO.Candidate candidate = new InventoryImageRecognitionVO.Candidate();
+        candidate.setSourceText(sourceText);
+        candidate.setBarcode(resolveBarcodeCandidate(sourceText));
+        candidate.setModelCode(resolveModelCandidate(sourceText));
+        candidate.setSpec(resolveDecimalCandidate(SPEC_FILENAME_PATTERN, sourceText));
+        candidate.setMeters(resolveDecimalCandidate(METERS_FILENAME_PATTERN, sourceText));
+        int recognizedFields = 0;
+        if (cleanText(candidate.getBarcode()) != null) recognizedFields++;
+        if (cleanText(candidate.getModelCode()) != null) recognizedFields++;
+        if (candidate.getSpec() != null) recognizedFields++;
+        if (candidate.getMeters() != null) recognizedFields++;
+        candidate.setConfidence(BigDecimal.valueOf(Math.min(0.85D, 0.08D + recognizedFields * 0.18D)));
+        return candidate;
+    }
+
+    private String resolveExtension(String originalFilename) {
+        String safeName = cleanText(originalFilename);
+        if (safeName == null) {
+            return "";
+        }
+        int dotIndex = safeName.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex == safeName.length() - 1) {
+            return "";
+        }
+        return safeName.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private String stripExtension(String fileName) {
+        String safeName = cleanText(fileName);
+        if (safeName == null) {
+            return "";
+        }
+        int dotIndex = safeName.lastIndexOf('.');
+        return dotIndex > 0 ? safeName.substring(0, dotIndex) : safeName;
+    }
+
+    private String resolveBarcodeCandidate(String sourceText) {
+        if (sourceText == null) {
+            return null;
+        }
+        for (String token : sourceText.split("[\\s_\\-]+")) {
+            String cleaned = cleanText(token);
+            if (cleaned != null && cleaned.length() >= 8 && cleaned.matches("[A-Za-z0-9]+")) {
+                return cleaned;
+            }
+        }
+        return null;
+    }
+
+    private String resolveModelCandidate(String sourceText) {
+        if (sourceText == null) {
+            return null;
+        }
+        for (String token : sourceText.split("[\\s_\\-]+")) {
+            String cleaned = cleanText(token);
+            if (cleaned == null || cleaned.matches("\\d+(\\.\\d+)?")) {
+                continue;
+            }
+            String lower = cleaned.toLowerCase(Locale.ROOT);
+            if (lower.contains("入库") || lower.contains("库存") || lower.contains("image") || lower.contains("photo")) {
+                continue;
+            }
+            return cleaned.length() > 80 ? cleaned.substring(0, 80) : cleaned;
+        }
+        return null;
+    }
+
+    private BigDecimal resolveDecimalCandidate(Pattern pattern, String sourceText) {
+        if (sourceText == null) {
+            return null;
+        }
+        Matcher matcher = pattern.matcher(sourceText);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            BigDecimal value = new BigDecimal(matcher.group(1));
+            return value.compareTo(BigDecimal.ZERO) > 0 ? value : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private String cleanText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String cleaned = value.trim();
+        if (cleaned.isEmpty() || "null".equalsIgnoreCase(cleaned) || "undefined".equalsIgnoreCase(cleaned)) {
+            return null;
+        }
+        return cleaned;
+    }
+
+    private long safePageNum(Long pageNum) {
+        return pageNum == null || pageNum <= 0 ? DEFAULT_PAGE_NUM : pageNum;
+    }
+
+    private long safePageSize(Long pageSize) {
+        if (pageSize == null || pageSize <= 0) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize, MAX_PAGE_SIZE);
+    }
+
+    private String normalizeTimeOrder(String timeOrder) {
+        return TIME_ORDER_LIFO.equalsIgnoreCase(cleanText(timeOrder)) ? TIME_ORDER_LIFO : null;
+    }
+
+    private void invalidateManagementDashboardCache(String tenantCode) {
+        inventoryWarningCacheService.invalidate(tenantCode);
+        deleteCacheByPattern(redisKeyBuilder.cachePattern("management", "dashboard", "overview", tenantCode, "*"));
+    }
+
+    private void deleteCacheByPattern(String pattern) {
+        redisCacheHelper.deleteByPattern(pattern);
     }
 }

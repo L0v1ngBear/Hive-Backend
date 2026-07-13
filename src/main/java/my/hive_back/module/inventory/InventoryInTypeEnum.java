@@ -1,12 +1,18 @@
 package my.hive_back.module.inventory;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
-
+import my.hive.common.exception.BusinessException;
+/**
+ * InventoryInTypeEnum 属于小程序后端库存模块，属于该领域的细分实现。
+ */
 @Getter
 public enum InventoryInTypeEnum {
+
     SCAN("scan", "扫码入库"),
     HAND("hand", "手动入库"),
-    AUTO("auto", "检验机自动入库");
+    AUTO("auto", "检验机自动入库"),
+    IMAGE_RECOGNITION("image_recognition", "图片识别入库");
 
     private final String code;
     private final String desc;
@@ -14,5 +20,15 @@ public enum InventoryInTypeEnum {
     InventoryInTypeEnum(String code, String desc) {
         this.code = code;
         this.desc = desc;
+    }
+
+    public static InventoryInTypeEnum getCode(@NotBlank String inType) {
+        String normalized = inType == null ? "" : inType.trim().toLowerCase();
+        for (InventoryInTypeEnum inTypeEnum : InventoryInTypeEnum.values()) {
+            if (inTypeEnum.getCode().equals(normalized)) {
+                return inTypeEnum;
+            }
+        }
+        throw new BusinessException("未知的入库类型");
     }
 }

@@ -4,50 +4,42 @@ import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-
-@TableName("sys_permission")
+/**
+ * SysPermission 属于小程序后端系统模块，定义持久化实体结构，用于表字段映射。
+ */
 @Data
 public class SysPermission {
 
-    /**
-     * 权限主键ID
-     */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * 权限编码（全局唯一）
-     * 格式：资源:操作，示例：user:add、order:view、order:*
+     * 父级权限ID（用于前端构建菜单树，顶级菜单为0）
      */
-    private String permCode;
+    private Long parentId;
 
     /**
-     * 权限名称
-     * 示例：用户添加、订单查看、订单所有权限
+     * 权限名称 (示例：用户管理、订单查看)
      */
     private String permName;
 
     /**
-     * 资源类型：menu（菜单）、button（按钮）、api（接口）
+     * 权限编码（全局唯一核心标识）
+     * 格式：资源:操作，示例：user:add、order:view
      */
-    private String resourceType;
+    private String permCode;
 
     /**
-     * 资源路径（接口URL/菜单路径）
-     * 示例：/api/tenant/user/add、/tenant/order/list
+     * 排序号 (用于前端菜单展示顺序)
      */
-    private String resourcePath;
+    private Integer sort;
 
-    /**
-     * 创建时间（自动填充）
-     */
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
-    /**
-     * 逻辑删除标识
-     */
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updateTime;
+
     @TableLogic
     private Integer isDeleted;
-
 }

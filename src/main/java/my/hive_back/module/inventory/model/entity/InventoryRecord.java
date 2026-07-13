@@ -1,26 +1,46 @@
 package my.hive_back.module.inventory.model.entity;
 
-import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
-import my.hive_back.module.BaseEntity;
+
+import java.time.LocalDateTime;
 
 
 /**
- * 库存出入记录实体类
+ * InventoryRecord 属于小程序后端库存模块，定义持久化实体结构，用于表字段映射。
  */
-@EqualsAndHashCode(callSuper = true)
-@TableName("inventory_record")
 @Data
-public class InventoryRecord extends BaseEntity {
+public class InventoryRecord {
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    /**
+     * 租户ID（多租户隔离）
+     */
+    private String tenantCode;
+
+    /**
+     * 创建时间（自动填充）
+     */
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createTime;
+
+    /**
+     * 更新时间（自动填充）
+     */
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updateTime;
 
     /**
      * 关联的布匹ID
      */
     private Long clothId;
 
+    private String modelCode;
+
     /**
-     * 操作类型（1-入库，2-出库）
+     * 操作类型（0-入库，1-出库）
      */
     private Integer operateType;
 
@@ -34,16 +54,7 @@ public class InventoryRecord extends BaseEntity {
     /**
      * 操作人ID（关联用户表）
      */
-    private String operatorId;
+    private Long operatorId;
 
-    /**
-     * 操作人名称（冗余）
-     */
-    private String operatorName;
-
-    /**
-     * 操作备注（如“扫码入库”“手动出库”）
-     */
-    private String remark;
 
 }

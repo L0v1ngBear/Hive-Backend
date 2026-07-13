@@ -6,16 +6,16 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @TableName("sales_order")
 @Data
 public class SalesOrder {
+
     /**
-     * 订单ID（主键）
+     * 订单ID（主键，如：SO20260331001）
      */
-    @TableId(type = IdType.INPUT) // 订单号手动生成，不使用自增
+    @TableId(type = IdType.INPUT)
     private String orderId;
 
     @TableField("tenant_code")
@@ -31,35 +31,43 @@ public class SalesOrder {
      */
     private String status;
 
+    @TableField("order_category")
+    private String orderCategory;
+
     /**
      * 客户名称
      */
     private String customerName;
 
-    /**
-     * 客户联系方式（扩展字段）
-     */
+    @TableField("customer_phone")
     private String customerPhone;
 
     /**
-     * 商品描述（列表页展示用）
+     * 项目名称
      */
+    @TableField("project_name")
+    private String projectName;
+
+    @TableField("brand_name")
+    private String brandName;
+
+    /**
+     * 聚合后的商品说明，方便管理端列表快速展示订单内容。
+     */
+    @TableField("goods_desc")
     private String goodsDesc;
 
     /**
-     * 订单总金额
+     * 聚合后的订单总数量。
      */
-    private BigDecimal totalAmount;
-
-    /**
-     * 订单总数量
-     */
+    @TableField("total_quantity")
     private Integer totalQuantity;
 
     /**
-     * 预计发货日期
+     * 信息渠道
      */
-    private String deliveryDate;
+    @TableField("information_channel")
+    private String informationChannel;
 
     /**
      * 物流公司
@@ -72,22 +80,29 @@ public class SalesOrder {
     private String expressNo;
 
     /**
-     * 订单创建时间
+     * 是否需要发票 (0-否，1-是)
      */
-    private LocalDateTime createTime;
+    private Integer isInvoice;
+
+    private String remark;
+
+    @TableField("attachment_name")
+    private String attachmentName;
+
+    @TableField("attachment_url")
+    private String attachmentUrl;
+
+    @TableField("attachment_size")
+    private Long attachmentSize;
 
     /**
      * 订单创建人
      */
     private String creator;
 
-    /**
-     * 订单更新时间
-     */
-    private LocalDateTime updateTime;
+    private String updater;
 
-    /**
-     * 操作备注
-     */
-    private String remark;
+    private LocalDateTime createTime;
+
+    private LocalDateTime updateTime;
 }

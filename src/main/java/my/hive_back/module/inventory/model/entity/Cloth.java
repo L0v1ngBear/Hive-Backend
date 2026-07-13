@@ -1,68 +1,58 @@
 package my.hive_back.module.inventory.model.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
-import my.hive_back.module.BaseEntity;
 
 import java.time.LocalDateTime;
-
-@EqualsAndHashCode(callSuper = true)
-@TableName("cloth")
+/**
+ * Cloth 属于小程序后端库存模块，定义持久化实体结构，用于表字段映射。
+ */
+@TableName
 @Data
-public class Cloth extends BaseEntity {
+public class Cloth {
 
-    /**
-     * 布匹条码（唯一索引）
-     */
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
+    private String tenantCode;
+
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createTime;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updateTime;
+
     private String barcode;
 
-    /**
-     * 型号编码
-     */
     private String modelCode;
 
-    /**
-     * 门幅（如1.8m）
-     */
-    private String width;
+    private Float spec;
 
-    /**
-     * 总米数（高精度）
-     */
     private Float meters;
 
-    /**
-     * 状态（0-在库，1-已出库，2-部分出库）
-     */
     private Integer status;
 
-    /** 总米数（高精度，8字节） */
     private Float totalMeters;
 
-    /** 剩余米数（支持部分出库，8字节） */
     private Float remainingMeters;
 
-    /**
-     * 入库时间
-     */
     private LocalDateTime inTime;
 
-    /**
-     * 出库时间（部分出库时为首次出库时间）
-     */
     private LocalDateTime outTime;
 
-    /**
-     * 入库操作人ID（关联用户表）
-     */
     private Long inOperatorId;
 
-    /**
-     * 出库操作人ID（关联用户表）
-     */
     private Long outOperatorId;
 
-
     private String inType;
+
+    private Integer isBad;
+
+    @Version
+    private Integer version;
 }

@@ -6,8 +6,10 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-
-@TableName("user")
+/**
+ * User 属于小程序后端用户模块，定义持久化实体结构，用于表字段映射。
+ */
+@TableName
 @Data
 public class User {
 
@@ -28,9 +30,29 @@ public class User {
     private String name;
 
     /**
+     * 登录账号
+     */
+    private String loginName;
+
+    /**
+     * 登录密码
+     */
+    private String password;
+
+    /**
      * 手机号
      */
     private String phone;
+
+    /**
+     * 手机号不可逆哈希，用于手机号登录和查重。
+     */
+    private String phoneHash;
+
+    /**
+     * 手机号脱敏值，用于接口展示，避免返回完整手机号。
+     */
+    private String phoneMask;
 
     /**
      * 部门名称
@@ -49,9 +71,24 @@ public class User {
     private Long managerId;
 
     /**
+     * 角色级别
+     */
+    private Integer roleLevel;
+
+    /**
      * 创建时间
      */
     private LocalDateTime createTime;
+
+    /**
+     * 状态 (0: 离职, 1: 在职， 2：试用)
+     */
+    private Integer status;
+
+    /**
+     * 是否需要打卡：1需要，0免打卡。
+     */
+    private Integer attendanceRequired;
 
     /**
      * 更新时间

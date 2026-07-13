@@ -1,33 +1,60 @@
 package my.hive_back.module.order;
 
 import lombok.Getter;
-
+/**
+ * ProcessEnum 属于小程序后端订单模块，属于该领域的细分实现。
+ */
 @Getter
 public enum ProcessEnum {
     /**
-     * 整经（第一道工序）
+     * 原料入库
      */
-    WARPING(0, "整经"),
+    MATERIAL_INBOUND(0, "原料入库"),
 
     /**
-     * 浆纱（第二道工序）
+     * 原料检验
      */
-    SIZING(1, "浆纱"),
+    MATERIAL_INSPECTION(1, "原料检验"),
 
     /**
-     * 织造（第三道工序）
+     * 尺寸裁剪
      */
-    WEAVING(2, "织造"),
+    CUTTING(2, "尺寸裁剪"),
 
     /**
-     * 验布（第四道工序）
+     * 窗帘缝制
      */
-    INSPECTION(3, "验布"),
+    SEWING(3, "窗帘缝制"),
 
     /**
-     * 卷布（第五道工序）
+     * 窗帘熨烫
      */
-    WINDING(4, "卷布");
+    IRONING(4, "窗帘熨烫"),
+
+    /**
+     * 成品检验
+     */
+    FINISHED_INSPECTION(5, "成品检验"),
+
+    /**
+     * 高温定型
+     */
+    HEAT_SETTING(6, "高温定型"),
+
+    /**
+     * 打包装箱
+     */
+    PACKING(7, "打包装箱"),
+
+    /**
+     * 成品入库
+     */
+    FINISHED_INBOUND(8, "成品入库"),
+
+    /**
+     * 成品发货
+     */
+    FINISHED_SHIPPING(9, "成品发货");
 
     /**
      * 工序编码（对应数据库process字段）
@@ -61,10 +88,10 @@ public enum ProcessEnum {
     }
 
     /**
-     * 判断当前工序是否是最后一道（卷布）
+     * 判断当前工序是否是最后一道。
      */
     public boolean isLastProcess() {
-        return this == WINDING;
+        return this == FINISHED_SHIPPING;
     }
 
     /**

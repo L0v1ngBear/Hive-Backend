@@ -1,9 +1,12 @@
 package my.hive_back.module.inventory.model.dto;
 
-import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-
+/**
+ * InventoryInRequest 属于小程序后端库存模块，定义入参结构。
+ */
 @Data
 public class InventoryInRequest {
 
@@ -12,14 +15,20 @@ public class InventoryInRequest {
     @NotBlank
     private String modelCode;
 
-    @NotBlank
-    @Min(value = 1, message = "米数不能小于等于0")
+    @NotNull
+    @DecimalMin(value = "0.0", inclusive = false, message = "米数必须大于0")
     private Float meters;
 
-    @NotBlank
-    private String width;
+    @NotNull
+    @DecimalMin(value = "0.0", inclusive = false, message = "规格必须大于0")
+    private Float spec;
 
     // 入库类型
     @NotBlank
     private String inType;
+
+    /**
+     * 图片识别入库必须人工核对后提交，后端兜底拦截未校验请求。
+     */
+    private Boolean manualVerified;
 }

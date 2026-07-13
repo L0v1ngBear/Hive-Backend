@@ -1,0 +1,50 @@
+package my.hive_back.module.finance.model.vo;
+
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+/**
+ * FinanceApprovalVO 属于小程序后端财务模块，定义出参结构。
+ */
+@Data
+public class FinanceApprovalVO {
+
+    private Long id;
+
+    private String approvalCode;
+
+    private String category;
+
+    private BigDecimal amount;
+
+    private String reason;
+
+    private String attachmentName;
+
+    private String attachmentUrl;
+
+    private Long attachmentSize;
+
+    private Integer status;
+
+    private String statusText;
+
+    private Long applyUserId;
+
+    private String applyUserName;
+
+    private String applyDepartmentName;
+
+    private Long auditorId;
+
+    private String auditorIds;
+
+    private String auditorName;
+
+    private String auditComment;
+
+    private LocalDateTime createTime;
+
+    private LocalDateTime updateTime;
+}

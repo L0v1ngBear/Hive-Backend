@@ -2,7 +2,9 @@ package my.hive_back.module.tenant.model.vo;
 
 import lombok.Data;
 import my.hive_back.module.tenant.model.entity.Tenant;
-
+/**
+ * TenantVO 属于小程序后端租户模块，定义出参结构。
+ */
 @Data
 public class TenantVO {
 
