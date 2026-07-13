@@ -10,14 +10,14 @@ public interface InstallationTaskMapper extends BaseMapper<InstallationTask> {
             INSERT INTO installation_task (
                 tenant_code, order_id, order_status, installation_status,
                 customer_name, customer_phone, project_name, brand_name,
-                order_category, goods_desc, total_quantity, delivery_date,
+                order_category, goods_desc, total_quantity, information_channel,
                 express_company, express_no, is_invoice, creator, remark,
                 order_attachment_name, order_attachment_url, order_attachment_size,
                 order_completed_time, create_time, update_time
             ) VALUES (
                 #{tenantCode}, #{orderId}, #{orderStatus}, #{installationStatus},
                 #{customerName}, #{customerPhone}, #{projectName}, #{brandName},
-                #{orderCategory}, #{goodsDesc}, #{totalQuantity}, #{deliveryDate},
+                #{orderCategory}, #{goodsDesc}, #{totalQuantity}, #{informationChannel},
                 #{expressCompany}, #{expressNo}, #{isInvoice}, #{creator}, #{remark},
                 #{orderAttachmentName}, #{orderAttachmentUrl}, #{orderAttachmentSize},
                 #{orderCompletedTime}, #{createTime}, #{updateTime}
@@ -31,7 +31,7 @@ public interface InstallationTaskMapper extends BaseMapper<InstallationTask> {
                 order_category = VALUES(order_category),
                 goods_desc = VALUES(goods_desc),
                 total_quantity = VALUES(total_quantity),
-                delivery_date = VALUES(delivery_date),
+                information_channel = VALUES(information_channel),
                 express_company = VALUES(express_company),
                 express_no = VALUES(express_no),
                 is_invoice = VALUES(is_invoice),

@@ -37,7 +37,7 @@ public class SalesOrderVO {
 
     private Integer totalQuantity;
 
-    private String deliveryDate;
+    private String informationChannel;
 
     /**
      * 是否同步创建生产订单 0-否 1-是
@@ -98,6 +98,6 @@ public class SalesOrderVO {
         /**
          * 规格/幅宽
          */
-        private Float spec;
+        private String spec;
     }
 }

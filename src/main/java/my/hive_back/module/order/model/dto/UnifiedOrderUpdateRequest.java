@@ -6,12 +6,14 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 import org.hibernate.validator.constraints.Range;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
  * Unified order status and fulfillment update request.
  */
 @Data
+@ValidSalesOrderInformationChannel
 public class UnifiedOrderUpdateRequest {
 
     @Pattern(
@@ -26,6 +28,22 @@ public class UnifiedOrderUpdateRequest {
     private String operateType;
 
     private String remark;
+
+    private String informationChannel;
+
+    @Size(max = 100)
+    private String customerName;
+
+    @Size(max = 100)
+    private String projectName;
+
+    @Size(max = 100)
+    private String brandName;
+
+    private String orderCategory;
+
+    @Valid
+    private List<OrderItemDTO> items;
 
     private List<Long> auditorIds;
 
@@ -42,5 +60,18 @@ public class UnifiedOrderUpdateRequest {
 
         @Size(max = 50, message = "物流单号长度不能超过50个字符")
         private String expressNo;
+    }
+
+    @Data
+    public static class OrderItemDTO {
+
+        private String modelCode;
+
+        private BigDecimal quantity;
+
+        private String weight;
+
+        @Size(max = 50, message = "规格长度不能超过50个字符")
+        private String spec;
     }
 }

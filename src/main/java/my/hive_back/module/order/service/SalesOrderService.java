@@ -73,12 +73,22 @@ public class SalesOrderService {
             OrderStatusEnum.PENDING_CANCEL.getCode(),
             OrderStatusEnum.CANCELLED.getCode()
     );
+    private static final List<String> STANDARD_SALES_FLOW_STATUS_CODES = List.of(
+            OrderStatusEnum.PENDING_CONFIRM.getCode(),
+            OrderStatusEnum.PENDING_PAY.getCode(),
+            OrderStatusEnum.PENDING_MATERIAL.getCode(),
+            OrderStatusEnum.PRODUCING.getCode(),
+            OrderStatusEnum.PENDING_SHIP.getCode(),
+            OrderStatusEnum.SHIPPED.getCode(),
+            OrderStatusEnum.COMPLETED.getCode()
+    );
     private static final String CATEGORY_DRAWING_BUDGET = OrderCategoryEnum.DRAWING_BUDGET.getCode();
     private static final String CATEGORY_SPECIAL_ORDER = OrderCategoryEnum.SPECIAL_ORDER.getCode();
     private static final String APPROVAL_TYPE_ORDER = "ORDER";
     private static final String ORDER_TYPE_SALES = "sales";
     private static final String OPERATE_TYPE_ROLLBACK_PENDING = "rollback_pending";
     private static final String OPERATE_TYPE_ROLLBACK_APPROVED = "rollback_approved";
+    private static final String OPERATE_TYPE_SHIPMENT_APPROVAL_PENDING = "shipment_approval_pending";
     private static final int MAX_PARALLEL_APPROVERS = 10;
 
     @Resource
@@ -357,12 +367,13 @@ public class SalesOrderService {
         if (OrderStatusEnum.PENDING_PAY.getCode().equals(currentStatus)) {
             throw new BusinessException(400, "待收款订单转备料中需要先通过订单审批");
         }
-        String nextStatus = resolveNextSalesStatus(currentStatus);
+        String nextStatus = resolveNextSalesStatus(order.getOrderCategory(), currentStatus);
         if (StringUtils.isBlank(nextStatus)) {
+            if (isDrawingBudgetOrder(order.getOrderCategory())
+                    && OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(currentStatus)) {
+                throw new BusinessException(400, "图纸预算已完成，当前状态无法继续流转");
+            }
             throw new BusinessException(400, "当前状态无法继续流转");
-        }
-        if (OrderStatusEnum.SHIPPED.getCode().equals(nextStatus)) {
-            throw new BusinessException(400, "发货前需要先补充物流信息");
         }
         SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
         request.setStatus(nextStatus);
@@ -413,7 +424,10 @@ public class SalesOrderService {
             SalesOrderDetail detail = new SalesOrderDetail();
             detail.setOrderId(order.getOrderId());
             detail.setTenantCode(TenantPermissionContext.getTenantCode());
-            BeanUtils.copyProperties(item, detail);
+            detail.setModelCode(trimToNull(item.getModelCode()));
+            detail.setQuantity(item.getQuantity());
+            detail.setWeight(trimToNull(item.getWeight()));
+            detail.setSpec(trimToNull(item.getSpec()));
             salesOrderDetailMapper.insert(detail);
         });
 
@@ -423,7 +437,7 @@ public class SalesOrderService {
                 ProductionOrderAddRequest productionOrderRequest = new ProductionOrderAddRequest();
                 BeanUtils.copyProperties(request, productionOrderRequest);
                 productionOrderRequest.setModelCode(item.getModelCode());
-                productionOrderRequest.setSpec(item.getSpec());
+                productionOrderRequest.setSpec(parseProductionSpec(item.getSpec()));
                 productionOrderRequest.setQuantity(item.getQuantity() == null ? null : item.getQuantity().intValue());
                 productionOrderRequest.setWeight(null);
                 productionOrderService.addProductionOrder(productionOrderRequest, order.getOrderId());
@@ -441,7 +455,7 @@ public class SalesOrderService {
         return normalizedItems.stream()
                 .map(item -> {
                     String category = safeText(item.getWeight(), "");
-                    String spec = numberText(item.getSpec());
+                    String spec = safeText(item.getSpec(), "");
                     return safeText(item.getModelCode(), "未填写型号")
                             + " / " + (StringUtils.isNotBlank(category) ? category : "未填写类别")
                             + " / " + (StringUtils.isNotBlank(spec) ? spec + "规格" : "未填写规格")
@@ -472,7 +486,7 @@ public class SalesOrderService {
         return StringUtils.isNotBlank(item.getModelCode())
                 || item.getQuantity() != null
                 || StringUtils.isNotBlank(item.getWeight())
-                || item.getSpec() != null;
+                || StringUtils.isNotBlank(item.getSpec());
     }
 
     private String safeText(String value, String fallback) {
@@ -486,10 +500,90 @@ public class SalesOrderService {
         return BigDecimal.valueOf(value.doubleValue()).stripTrailingZeros().toPlainString();
     }
 
+    private Float parseProductionSpec(String value) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        try {
+            return Float.valueOf(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
     @Transactional(rollbackFor = Exception.class)
     @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限更新订单状态")
     public SalesOrder updateStatusAndProcess(@NotBlank String orderId, @Valid SalesOrderUpdateRequest request) {
         return updateStatusAndProcessInternal(orderId, request, false, "小程序更新销售订单状态");
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限更新订单")
+    public SalesOrder updateEditableContent(@NotBlank String orderId, @Valid UnifiedOrderUpdateRequest request) {
+        SalesOrder order = salesOrderMapper.selectByOrderIdForUpdate(orderId);
+        if (order == null) {
+            throw new BusinessException(400, "销售订单不存在");
+        }
+        assertOrderStatusPermission(order.getStatus());
+        validateEditableOrder(order, request);
+
+        if (request.getCustomerName() != null) {
+            order.setCustomerName(trimToNull(request.getCustomerName()));
+        }
+        if (request.getProjectName() != null) {
+            order.setProjectName(trimToNull(request.getProjectName()));
+        }
+        if (request.getBrandName() != null) {
+            order.setBrandName(trimToNull(request.getBrandName()));
+        }
+        if (request.getOrderCategory() != null) {
+            order.setOrderCategory(OrderCategoryEnum.normalize(request.getOrderCategory()));
+        }
+        if (request.getInformationChannel() != null) {
+            order.setInformationChannel(trimToNull(request.getInformationChannel()));
+        }
+        if (request.getRemark() != null) {
+            order.setRemark(trimToNull(request.getRemark()));
+        }
+        if (request.getIsInvoice() != null) {
+            order.setIsInvoice(request.getIsInvoice());
+        }
+        if (request.getExpressInfo() != null) {
+            order.setExpressCompany(trimToNull(request.getExpressInfo().getExpressCompany()));
+            order.setExpressNo(trimToNull(request.getExpressInfo().getExpressNo()));
+        }
+
+        List<UnifiedOrderUpdateRequest.OrderItemDTO> items = normalizeEditableOrderItems(request.getItems());
+        if (request.getItems() != null) {
+            order.setGoodsDesc(buildGoodsDescForEditableItems(items));
+            order.setTotalQuantity(sumEditableOrderQuantity(items));
+        }
+        order.setUpdater(resolveCurrentUserIdText());
+        LambdaUpdateWrapper<SalesOrder> updateWrapper = new LambdaUpdateWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderId, order.getOrderId())
+                .eq(SalesOrder::getStatus, order.getStatus());
+        if (salesOrderMapper.update(order, updateWrapper) == 0) {
+            throw new BusinessException(409, "订单状态已被其他人修改，操作失败，请刷新后重试");
+        }
+
+        if (request.getItems() != null) {
+            salesOrderDetailMapper.delete(new LambdaQueryWrapper<SalesOrderDetail>()
+                    .eq(SalesOrderDetail::getOrderId, order.getOrderId())
+                    .eq(SalesOrderDetail::getTenantCode, order.getTenantCode()));
+            for (UnifiedOrderUpdateRequest.OrderItemDTO item : items) {
+                SalesOrderDetail detail = new SalesOrderDetail();
+                detail.setOrderId(order.getOrderId());
+                detail.setTenantCode(order.getTenantCode());
+                detail.setModelCode(trimToNull(item.getModelCode()));
+                detail.setQuantity(item.getQuantity());
+                detail.setWeight(trimToNull(item.getWeight()));
+                detail.setSpec(trimToNull(item.getSpec()));
+                salesOrderDetailMapper.insert(detail);
+            }
+        }
+        productionOrderService.syncLinkedEditableContent(
+                order, request.getItems() == null ? null : items);
+        return order;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -636,13 +730,28 @@ public class SalesOrderService {
         return order;
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public SalesOrder approveShipment(@NotBlank String orderId, String remark) {
+        SalesOrder order = salesOrderMapper.selectByOrderIdForUpdate(orderId);
+        if (order == null) {
+            throw new BusinessException(400, "销售订单不存在");
+        }
+        SalesOrderStatusLog shipmentLog = findPendingSalesShipmentLog(order.getOrderId());
+        if (shipmentLog == null || !OrderStatusEnum.PENDING_SHIP.getCode().equals(order.getStatus())) {
+            throw new BusinessException(400, "未找到待审批的发货申请");
+        }
+        SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
+        request.setStatus(OrderStatusEnum.SHIPPED.getCode());
+        return updateStatusAndProcessInternal(orderId, request, true,
+                StringUtils.isNotBlank(remark) ? remark.trim() : "发货审批通过");
+    }
+
     private SalesOrder updateStatusAndProcessInternal(String orderId,
                                                       SalesOrderUpdateRequest request,
                                                       boolean approvalBypass,
                                                       String logRemark) {
         // 1. 查询当前销售订单
-        SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getOrderId, orderId));
+        SalesOrder order = salesOrderMapper.selectByOrderIdForUpdate(orderId);
 
         if (order == null) {
             throw new BusinessException(400, "销售订单不存在");
@@ -687,24 +796,36 @@ public class SalesOrderService {
             assertOrderStatusPermission(targetStatus);
         }
 
+        if (!approvalBypass
+                && OrderStatusEnum.PENDING_SHIP.getCode().equals(oldStatus)
+                && OrderStatusEnum.SHIPPED.getCode().equals(targetStatus)) {
+            return submitShipmentApproval(order, oldStatus, request);
+        }
+
         // 2. 核心业务逻辑：状态与物流信息校验
         // 如果目标状态是“已发货 (shipped)”，强制要求填写完整的物流信息
         if (OrderStatusEnum.SHIPPED.getCode().equals(targetStatus)) {
             SalesOrderUpdateRequest.ExpressInfo expressInfo = request.getExpressInfo();
-            if (expressInfo == null
-                    || StringUtils.isBlank(expressInfo.getExpressCompany())
-                    || StringUtils.isBlank(expressInfo.getExpressNo())) {
+            String expressCompany = expressInfo == null ? order.getExpressCompany() : expressInfo.getExpressCompany();
+            String expressNo = expressInfo == null ? order.getExpressNo() : expressInfo.getExpressNo();
+            if (StringUtils.isBlank(expressCompany) || StringUtils.isBlank(expressNo)) {
                 throw new BusinessException(400, "发货操作必须填写完整的物流公司和物流单号");
             }
-            // 填入物流信息，保留发货追溯依据。
-            order.setExpressCompany(expressInfo.getExpressCompany().trim());
-            order.setExpressNo(expressInfo.getExpressNo().trim());
+            order.setExpressCompany(expressCompany.trim());
+            order.setExpressNo(expressNo.trim());
         }
         // 如果是其他状态（如 pending_ship 待发货）
         // 这里采取覆盖策略，如果传了物流信息就更新，没传就不动
         else if (request.getExpressInfo() != null) {
             order.setExpressCompany(request.getExpressInfo().getExpressCompany());
             order.setExpressNo(request.getExpressInfo().getExpressNo());
+        }
+
+        if (request.getInformationChannel() != null) {
+            order.setInformationChannel(trimToNull(request.getInformationChannel()));
+        }
+        if (request.getRemark() != null) {
+            order.setRemark(trimToNull(request.getRemark()));
         }
 
         // 更新订单状态和开票状态
@@ -745,6 +866,98 @@ public class SalesOrderService {
         return order;
     }
 
+    private SalesOrder submitShipmentApproval(SalesOrder order,
+                                               String currentStatus,
+                                               SalesOrderUpdateRequest request) {
+        SalesOrderUpdateRequest.ExpressInfo expressInfo = request.getExpressInfo();
+        String expressCompany = expressInfo == null ? order.getExpressCompany() : expressInfo.getExpressCompany();
+        String expressNo = expressInfo == null ? order.getExpressNo() : expressInfo.getExpressNo();
+        if (StringUtils.isBlank(expressCompany) || StringUtils.isBlank(expressNo)) {
+            throw new BusinessException(400, "发货操作必须填写完整的物流公司和物流单号");
+        }
+        String approvalCode = orderApprovalCode(ORDER_TYPE_SALES, order.getOrderId());
+        if (!approvalAuditorCandidateService.findPendingAuditorIds(
+                order.getTenantCode(), APPROVAL_TYPE_ORDER, approvalCode).isEmpty()) {
+            throw new BusinessException(400, "该订单已有待处理审批，请审批完成后再操作");
+        }
+
+        List<Long> auditorIds = normalizeApprovalAuditorIds(request.getAuditorIds());
+        if (auditorIds.isEmpty()) {
+            auditorIds = approvalDefaultAuditorService.resolveAuditorIds(
+                    order.getTenantCode(),
+                    APPROVAL_TYPE_ORDER,
+                    TenantPermissionContext.getUserId(),
+                    null,
+                    null,
+                    PermissionCodeEnum.CODE_APPROVAL_ORDER_AUDIT,
+                    false);
+        }
+        List<Long> permittedIds = userMapper.selectActiveApproverIdsByPermission(
+                order.getTenantCode(), PermissionCodeEnum.CODE_APPROVAL_ORDER_AUDIT);
+        for (Long auditorId : auditorIds) {
+            if (permittedIds == null || !permittedIds.contains(auditorId)) {
+                throw new BusinessException(400, "所选审批人没有订单审核权限");
+            }
+        }
+
+        order.setExpressCompany(expressCompany.trim());
+        order.setExpressNo(expressNo.trim());
+        if (request.getInformationChannel() != null) {
+            order.setInformationChannel(trimToNull(request.getInformationChannel()));
+        }
+        if (request.getRemark() != null) {
+            order.setRemark(trimToNull(request.getRemark()));
+        }
+        order.setUpdater(resolveCurrentUserIdText());
+        LambdaUpdateWrapper<SalesOrder> updateWrapper = new LambdaUpdateWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderId, order.getOrderId())
+                .eq(SalesOrder::getStatus, currentStatus);
+        if (salesOrderMapper.update(order, updateWrapper) == 0) {
+            throw new BusinessException(409, "订单状态已被其他人修改，操作失败，请刷新后重试");
+        }
+
+        insertSalesStatusLog(order, currentStatus, OrderStatusEnum.SHIPPED.getCode(),
+                OPERATE_TYPE_SHIPMENT_APPROVAL_PENDING,
+                StringUtils.isNotBlank(order.getRemark()) ? order.getRemark() : "提交发货审批");
+        approvalAuditorCandidateService.createActiveCandidates(
+                order.getTenantCode(), APPROVAL_TYPE_ORDER, approvalCode, auditorIds);
+        return order;
+    }
+
+    private List<UnifiedOrderUpdateRequest.OrderItemDTO> normalizeEditableOrderItems(
+            List<UnifiedOrderUpdateRequest.OrderItemDTO> items) {
+        if (items == null || items.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return items.stream()
+                .filter(Objects::nonNull)
+                .filter(item -> StringUtils.isNotBlank(item.getModelCode())
+                        || item.getQuantity() != null
+                        || StringUtils.isNotBlank(item.getWeight())
+                        || StringUtils.isNotBlank(item.getSpec()))
+                .toList();
+    }
+
+    private String buildGoodsDescForEditableItems(List<UnifiedOrderUpdateRequest.OrderItemDTO> items) {
+        if (items.isEmpty()) {
+            return null;
+        }
+        return items.stream()
+                .map(item -> safeText(item.getModelCode(), "未填写型号")
+                        + " / " + safeText(item.getWeight(), "未填写类别")
+                        + " / " + (StringUtils.isBlank(item.getSpec()) ? "未填写规格" : item.getSpec().trim() + "规格")
+                        + " × " + (item.getQuantity() == null ? "未填写数量" : item.getQuantity().stripTrailingZeros().toPlainString()))
+                .collect(Collectors.joining("；"));
+    }
+
+    private Integer sumEditableOrderQuantity(List<UnifiedOrderUpdateRequest.OrderItemDTO> items) {
+        return items.stream()
+                .map(UnifiedOrderUpdateRequest.OrderItemDTO::getQuantity)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .intValue();
+    }
+
     private void insertSalesStatusLog(SalesOrder order, String oldStatus, String newStatus, String operateType, String remark) {
         SalesOrderStatusLog log = new SalesOrderStatusLog();
         log.setTenantCode(order.getTenantCode());
@@ -768,6 +981,29 @@ public class SalesOrderService {
                 .eq(SalesOrderStatusLog::getOperateType, OPERATE_TYPE_ROLLBACK_PENDING)
                 .orderByDesc(SalesOrderStatusLog::getId)
                 .last("LIMIT 1"));
+    }
+
+    public SalesOrderStatusLog findPendingSalesShipmentLog(String orderId) {
+        if (StringUtils.isBlank(orderId)) {
+            return null;
+        }
+        return salesOrderStatusLogMapper.selectOne(new LambdaQueryWrapper<SalesOrderStatusLog>()
+                .eq(SalesOrderStatusLog::getOrderId, orderId.trim())
+                .eq(SalesOrderStatusLog::getOperateType, OPERATE_TYPE_SHIPMENT_APPROVAL_PENDING)
+                .orderByDesc(SalesOrderStatusLog::getId)
+                .last("LIMIT 1"));
+    }
+
+    public boolean hasPendingSalesShipmentApproval(String orderId) {
+        SalesOrder order = StringUtils.isNotBlank(orderId) ? salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
+                .eq(SalesOrder::getOrderId, orderId.trim())
+                .last("LIMIT 1")) : null;
+        if (order == null || !OrderStatusEnum.PENDING_SHIP.getCode().equals(order.getStatus())
+                || findPendingSalesShipmentLog(order.getOrderId()) == null) {
+            return false;
+        }
+        return !approvalAuditorCandidateService.findPendingAuditorIds(
+                order.getTenantCode(), APPROVAL_TYPE_ORDER, orderApprovalCode(ORDER_TYPE_SALES, order.getOrderId())).isEmpty();
     }
 
     public boolean hasPendingSalesRollbackApproval(String orderId) {
@@ -821,9 +1057,9 @@ public class SalesOrderService {
         boolean drawingBudget = isDrawingBudgetOrder(order.getOrderCategory());
         if (drawingBudget) {
             if (OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(currentStatus)) {
-                return OrderStatusEnum.BUDGETING.getCode();
+                throw new BusinessException(400, "图纸预算已完成，不能提交回退审批");
             }
-            throw new BusinessException(400, "图纸预算订单当前状态不能回退");
+            throw new BusinessException(400, "图纸预算订单不能提交回退审批");
         }
         if (isBudgetStatus(currentStatus)) {
             throw new BusinessException(400, "普通订单不能使用预算状态回退");
@@ -975,6 +1211,20 @@ public class SalesOrderService {
         if (oldStatusEnum == null || targetStatusEnum == null) {
             throw new BusinessException(400, "订单状态不合法");
         }
+        if (OrderStatusEnum.COMPLETED == oldStatusEnum || OrderStatusEnum.CANCELLED == oldStatusEnum) {
+            throw new BusinessException(400, "终态订单不能取消、回退或继续流转");
+        }
+        boolean drawingBudget = isDrawingBudgetOrder(orderCategory);
+        if (drawingBudget) {
+            if (OrderStatusEnum.BUDGETING == oldStatusEnum
+                    && OrderStatusEnum.BUDGET_COMPLETED == targetStatusEnum) {
+                return;
+            }
+            if (OrderStatusEnum.BUDGET_COMPLETED == oldStatusEnum) {
+                throw new BusinessException(400, "图纸预算已完成，不能取消、回退或继续流转");
+            }
+            throw new BusinessException(400, "图纸预算订单只能从预算中流转到预算完成");
+        }
         if (OrderStatusEnum.PENDING_CANCEL == targetStatusEnum) {
             if (OrderStatusEnum.CANCELLED == oldStatusEnum) {
                 throw new BusinessException(400, "已取消的订单不能重复提交取消审核");
@@ -984,17 +1234,6 @@ public class SalesOrderService {
         if (OrderStatusEnum.CANCELLED == targetStatusEnum) {
             if (OrderStatusEnum.PENDING_CANCEL != oldStatusEnum) {
                 throw new BusinessException(400, "取消订单需要先通过订单审核");
-            }
-            return;
-        }
-        boolean drawingBudget = isDrawingBudgetOrder(orderCategory);
-        if (drawingBudget) {
-            if (!isBudgetStatus(oldStatusEnum.getCode()) || !isBudgetStatus(targetStatusEnum.getCode())) {
-                throw new BusinessException(400, "图纸预算订单只能在预算中和预算完成之间流转");
-            }
-            if (!OrderStatusEnum.BUDGETING.getCode().equals(oldStatusEnum.getCode())
-                    || !OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(targetStatusEnum.getCode())) {
-                throw new BusinessException(400, "图纸预算订单只能从预算中流转到预算完成");
             }
             return;
         }
@@ -1014,6 +1253,52 @@ public class SalesOrderService {
         return !CATEGORY_DRAWING_BUDGET.equals(normalized) && !CATEGORY_SPECIAL_ORDER.equals(normalized);
     }
 
+    private void validateEditableOrder(SalesOrder order, UnifiedOrderUpdateRequest request) {
+        String currentStatus = normalizeStatus(order.getStatus());
+        if (OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(currentStatus)
+                || OrderStatusEnum.COMPLETED.getCode().equals(currentStatus)
+                || OrderStatusEnum.PENDING_CANCEL.getCode().equals(currentStatus)
+                || OrderStatusEnum.CANCELLED.getCode().equals(currentStatus)) {
+            throw new BusinessException(400, "当前订单状态禁止编辑");
+        }
+
+        String currentCategory = OrderCategoryEnum.normalize(order.getOrderCategory());
+        String targetCategory = request.getOrderCategory() == null
+                ? currentCategory
+                : requireKnownOrderCategory(request.getOrderCategory());
+        if (!Objects.equals(currentCategory, targetCategory)) {
+            if (CATEGORY_SPECIAL_ORDER.equals(currentCategory)
+                    || CATEGORY_DRAWING_BUDGET.equals(currentCategory)
+                    || CATEGORY_SPECIAL_ORDER.equals(targetCategory)
+                    || CATEGORY_DRAWING_BUDGET.equals(targetCategory)) {
+                throw new BusinessException(400, "特殊订单和图纸预算订单创建后不能变更类别");
+            }
+            if (!OrderStatusEnum.PENDING_CONFIRM.getCode().equals(currentStatus)) {
+                throw new BusinessException(400, "订单类别只能在待确认阶段的普通类别之间变更");
+            }
+        }
+
+        String resultingChannel = request.getInformationChannel() == null
+                ? order.getInformationChannel()
+                : trimToNull(request.getInformationChannel());
+        if (!CATEGORY_DRAWING_BUDGET.equals(targetCategory) && StringUtils.isBlank(resultingChannel)) {
+            throw new BusinessException(400, "普通销售订单的信息渠道不能为空");
+        }
+    }
+
+    private String requireKnownOrderCategory(String value) {
+        if (StringUtils.isBlank(value)) {
+            throw new BusinessException(400, "订单类别不能为空");
+        }
+        String normalized = value.trim();
+        for (OrderCategoryEnum category : OrderCategoryEnum.values()) {
+            if (category.getCode().equalsIgnoreCase(normalized)) {
+                return category.getCode();
+            }
+        }
+        throw new BusinessException(400, "订单类别不合法");
+    }
+
     private boolean isDrawingBudgetOrder(String orderCategory) {
         return CATEGORY_DRAWING_BUDGET.equals(OrderCategoryEnum.normalize(orderCategory));
     }
@@ -1023,16 +1308,16 @@ public class SalesOrderService {
                 || OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(status);
     }
 
-    private String resolveNextSalesStatus(String currentStatus) {
-        if (OrderStatusEnum.COMPLETED.getCode().equals(currentStatus)
-                || OrderStatusEnum.PENDING_CANCEL.getCode().equals(currentStatus)
-                || OrderStatusEnum.CANCELLED.getCode().equals(currentStatus)) {
+    private String resolveNextSalesStatus(String orderCategory, String currentStatus) {
+        if (isDrawingBudgetOrder(orderCategory)) {
+            return OrderStatusEnum.BUDGETING.getCode().equals(currentStatus)
+                    ? OrderStatusEnum.BUDGET_COMPLETED.getCode()
+                    : "";
+        }
+        int index = STANDARD_SALES_FLOW_STATUS_CODES.indexOf(currentStatus);
+        if (index < 0 || index >= STANDARD_SALES_FLOW_STATUS_CODES.size() - 1) {
             return "";
         }
-        int index = SALES_STATUS_CODES.indexOf(currentStatus);
-        if (index < 0 || index >= SALES_STATUS_CODES.size() - 1) {
-            return "";
-        }
-        return SALES_STATUS_CODES.get(index + 1);
+        return STANDARD_SALES_FLOW_STATUS_CODES.get(index + 1);
     }
 }

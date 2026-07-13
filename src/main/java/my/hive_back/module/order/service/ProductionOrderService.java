@@ -22,7 +22,9 @@ import my.hive_back.module.order.ProcessEnum;
 import my.hive_back.module.order.model.dto.ProductionOrderAddRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderListRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderUpdateRequest;
+import my.hive_back.module.order.model.dto.UnifiedOrderUpdateRequest;
 import my.hive_back.module.order.model.entity.ProductionOrder;
+import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.order.model.entity.ProductionOrderStatusLog;
 import my.hive_back.module.order.mapper.ProductionOrderMapper;
 import my.hive_back.module.order.mapper.ProductionOrderStatusLogMapper;
@@ -600,6 +602,46 @@ public class ProductionOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    public void syncLinkedEditableContent(SalesOrder source,
+                                          List<UnifiedOrderUpdateRequest.OrderItemDTO> items) {
+        if (source == null || StringUtils.isBlank(source.getOrderId())) {
+            return;
+        }
+        List<ProductionOrder> linkedOrders = listBySalesOrderIds(List.of(source.getOrderId()));
+        if (linkedOrders.isEmpty()) {
+            return;
+        }
+        if (items != null && items.size() != linkedOrders.size()) {
+            throw new BusinessException(400, "生产单已生成，销售明细数量不能改变");
+        }
+        for (int index = 0; index < linkedOrders.size(); index++) {
+            ProductionOrder linked = linkedOrders.get(index);
+            LambdaUpdateWrapper<ProductionOrder> wrapper = new LambdaUpdateWrapper<ProductionOrder>()
+                    .eq(ProductionOrder::getOrderId, linked.getOrderId())
+                    .set(ProductionOrder::getCustomerName, source.getCustomerName())
+                    .set(ProductionOrder::getProjectName, source.getProjectName())
+                    .set(ProductionOrder::getBrandName, source.getBrandName())
+                    .set(ProductionOrder::getOrderCategory, source.getOrderCategory())
+                    .set(ProductionOrder::getInformationChannel, source.getInformationChannel())
+                    .set(ProductionOrder::getUpdater, resolveCurrentUserIdText())
+                    .set(ProductionOrder::getUpdateTime, LocalDateTime.now());
+            if (items != null) {
+                UnifiedOrderUpdateRequest.OrderItemDTO item = items.get(index);
+                wrapper.set(ProductionOrder::getModelCode, trimToNull(item.getModelCode()))
+                        .set(ProductionOrder::getQuantity,
+                                item.getQuantity() == null ? null : item.getQuantity().intValueExact());
+                Float productionSpec = parseProductionSpec(item.getSpec());
+                if (productionSpec != null || StringUtils.isBlank(item.getSpec())) {
+                    wrapper.set(ProductionOrder::getSpec, productionSpec);
+                }
+            }
+            if (productionOrderMapper.update(null, wrapper) == 0) {
+                throw new BusinessException(409, "关联生产单已被其他人修改，请刷新后重试");
+            }
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     public void updateLinkedStatusAndProcess(String salesOrderId, ProductionOrderUpdateRequest request) {
         List<ProductionOrder> linkedOrders = listBySalesOrderIds(List.of(salesOrderId));
         if (linkedOrders.isEmpty()) {
@@ -811,6 +853,17 @@ public class ProductionOrderService {
 
     private String trimToNull(String value) {
         return StringUtils.isBlank(value) ? null : value.trim();
+    }
+
+    private Float parseProductionSpec(String value) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        try {
+            return Float.valueOf(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private String resolveOperateType(String oldStatus,

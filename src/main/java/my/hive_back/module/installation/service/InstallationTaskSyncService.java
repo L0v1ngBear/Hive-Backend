@@ -34,7 +34,7 @@ public class InstallationTaskSyncService {
         task.setOrderCategory(order.getOrderCategory());
         task.setGoodsDesc(order.getGoodsDesc());
         task.setTotalQuantity(order.getTotalQuantity());
-        task.setDeliveryDate(order.getDeliveryDate());
+        task.setInformationChannel(order.getInformationChannel());
         task.setExpressCompany(order.getExpressCompany());
         task.setExpressNo(order.getExpressNo());
         task.setIsInvoice(order.getIsInvoice());

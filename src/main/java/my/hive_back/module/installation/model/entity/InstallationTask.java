@@ -48,8 +48,8 @@ public class InstallationTask {
     @TableField("total_quantity")
     private Integer totalQuantity;
 
-    @TableField("delivery_date")
-    private String deliveryDate;
+    @TableField("information_channel")
+    private String informationChannel;
 
     @TableField("express_company")
     private String expressCompany;
