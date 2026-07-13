@@ -71,8 +71,15 @@ class OrderServiceTest {
         Map<String, Object> detail = orderService.detail("SO-DETAIL-001");
 
         String flowCode = (String) detail.get("flowCode");
+        String flowScanCode = (String) detail.get("flowScanCode");
+        OrderFlowCodeUtil.Parsed parsed = OrderFlowCodeUtil.parse(flowScanCode);
+        assertEquals(43, flowCode.length());
+        assertFalse(flowCode.contains(":"));
+        assertEquals(flowCode, parsed.flowCode());
+        assertEquals("sales", parsed.orderType());
+        assertEquals("SO-DETAIL-001", parsed.orderId());
         assertTrue(OrderFlowCodeUtil.matches(
-                "detail-flow-secret", "TENANT-DETAIL", OrderFlowCodeUtil.parse(flowCode)));
+                "detail-flow-secret", "TENANT-DETAIL", parsed));
         assertFalse(flowCode.startsWith("{"));
         verify(salesOrderService).getByIdandTenantId("SO-DETAIL-001");
     }

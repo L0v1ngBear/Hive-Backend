@@ -28,4 +28,15 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
             LIMIT 1
             """)
     SalesOrder selectByOrderId(String orderId);
+
+    @Select("""
+            SELECT order_id, tenant_code, status, order_category, customer_name, project_name, brand_name, goods_desc,
+                   total_quantity, information_channel, express_company, express_no,
+                   is_invoice, creator, updater, create_time, update_time
+            FROM sales_order
+            WHERE order_id = #{orderId}
+            LIMIT 1
+            FOR UPDATE
+            """)
+    SalesOrder selectByOrderIdForUpdate(String orderId);
 }

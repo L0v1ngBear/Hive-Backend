@@ -28,6 +28,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -107,7 +108,7 @@ class SalesOrderShipmentApprovalTest {
     @Test
     void sameStatusEditPersistsFieldsAndItemsWithoutStatusSideEffects() {
         SalesOrder order = pendingShipOrder();
-        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
         when(salesOrderMapper.update(any(), any())).thenReturn(1);
         UnifiedOrderUpdateRequest request = new UnifiedOrderUpdateRequest();
         request.setCustomerName("Acme");
@@ -124,7 +125,7 @@ class SalesOrderShipmentApprovalTest {
         item.setModelCode("M-1");
         item.setQuantity(java.math.BigDecimal.valueOf(2));
         item.setWeight("12kg");
-        item.setSpec(3.5F);
+        item.setSpec("3.5");
         request.setItems(List.of(item));
 
         SalesOrder result = service.updateEditableContent(ORDER_ID, request);
@@ -146,7 +147,7 @@ class SalesOrderShipmentApprovalTest {
     @Test
     void submittingShipmentApprovalPersistsFulfillmentAndKeepsPendingShip() {
         SalesOrder order = pendingShipOrder();
-        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
         when(salesOrderMapper.update(any(), any())).thenReturn(1);
         when(approvalAuditorCandidateService.findPendingAuditorIds(TENANT_CODE, "ORDER", "sales:" + ORDER_ID))
                 .thenReturn(List.of());
@@ -162,7 +163,7 @@ class SalesOrderShipmentApprovalTest {
         assertEquals("SF-001", result.getExpressNo());
         assertEquals("wechat", result.getInformationChannel());
         assertEquals("Ready for shipment approval", result.getRemark());
-        verify(approvalAuditorCandidateService).replaceActiveCandidates(
+        verify(approvalAuditorCandidateService).createActiveCandidates(
                 eq(TENANT_CODE), eq("ORDER"), eq("sales:" + ORDER_ID), eq(List.of(2L)));
         verify(salesOrderStatusLogMapper).insert(any());
         verify(productionOrderService, never()).syncLinkedOrderStatus(any(), any(), any());
@@ -171,7 +172,7 @@ class SalesOrderShipmentApprovalTest {
     @Test
     void missingLogisticsDoesNotPersistOrCreateShipmentApproval() {
         SalesOrder order = pendingShipOrder();
-        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
         SalesOrderUpdateRequest request = shipmentRequest();
         request.setExpressInfo(null);
 
@@ -188,7 +189,7 @@ class SalesOrderShipmentApprovalTest {
     @Test
     void existingShipmentApprovalCannotBeSubmittedTwice() {
         SalesOrder order = pendingShipOrder();
-        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
         when(approvalAuditorCandidateService.findPendingAuditorIds(TENANT_CODE, "ORDER", "sales:" + ORDER_ID))
                 .thenReturn(List.of(2L));
 
@@ -202,11 +203,37 @@ class SalesOrderShipmentApprovalTest {
     }
 
     @Test
+    void duplicateShipmentSubmissionNeverReplacesCandidatesOrDuplicatesLog() {
+        SalesOrder order = pendingShipOrder();
+        AtomicBoolean activeApproval = new AtomicBoolean(false);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
+        when(salesOrderMapper.update(any(), any())).thenAnswer(invocation -> {
+            activeApproval.set(true);
+            return 1;
+        });
+        when(approvalAuditorCandidateService.findPendingAuditorIds(
+                TENANT_CODE, "ORDER", "sales:" + ORDER_ID))
+                .thenAnswer(invocation -> activeApproval.get() ? List.of(2L) : List.of());
+        when(approvalDefaultAuditorService.resolveAuditorIds(
+                eq(TENANT_CODE), eq("ORDER"), eq(1L), eq(null), eq(null), any(), eq(false)))
+                .thenReturn(List.of(2L));
+        when(userMapper.selectActiveApproverIdsByPermission(any(), any())).thenReturn(List.of(2L));
+
+        service.updateStatusAndProcess(ORDER_ID, shipmentRequest());
+        assertThrows(BusinessException.class,
+                () -> service.updateStatusAndProcess(ORDER_ID, shipmentRequest()));
+
+        verify(salesOrderMapper).update(any(), any());
+        verify(salesOrderStatusLogMapper).insert(any());
+        verify(approvalAuditorCandidateService, never()).replaceActiveCandidates(any(), any(), any(), any());
+    }
+
+    @Test
     void approvingShipmentAfterAllAuditorsPassChangesStatusToShipped() {
         SalesOrder order = pendingShipOrder();
         order.setExpressCompany("SF");
         order.setExpressNo("SF-001");
-        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
         when(salesOrderStatusLogMapper.selectOne(any())).thenReturn(shipmentApprovalLog());
         when(salesOrderMapper.update(any(), any())).thenReturn(1);
 

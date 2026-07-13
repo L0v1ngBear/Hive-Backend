@@ -102,7 +102,8 @@ public class OrderService {
         Map<String, Object> row = beanToMap(salesOrderService.getByIdandTenantId(canonicalOrderId));
         String signedCode = OrderFlowCodeUtil.generateFlowCode(
                 orderFlowCodeSecret, TenantPermissionContext.getTenantCode(), "sales", canonicalOrderId);
-        row.put("flowCode", OrderFlowCodeUtil.buildScanCode("sales", signedCode, canonicalOrderId));
+        row.put("flowCode", signedCode);
+        row.put("flowScanCode", OrderFlowCodeUtil.buildScanCode("sales", signedCode, canonicalOrderId));
         List<Map<String, Object>> rows = new ArrayList<>();
         rows.add(row);
         enrichFulfillment(rows);

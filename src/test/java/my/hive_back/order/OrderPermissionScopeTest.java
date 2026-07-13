@@ -108,7 +108,7 @@ class OrderPermissionScopeTest {
         order.setOrderId("SO-001");
         order.setOrderCategory(OrderCategoryEnum.BULK.getCode());
         order.setStatus(OrderStatusEnum.PRODUCING.getCode());
-        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(order.getOrderId())).thenReturn(order);
         SalesOrderService service = new SalesOrderService();
         ReflectionTestUtils.setField(service, "salesOrderMapper", salesOrderMapper);
         SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();

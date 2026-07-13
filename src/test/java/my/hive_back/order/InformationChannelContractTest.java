@@ -9,8 +9,10 @@ import my.hive_back.module.installation.model.entity.InstallationTask;
 import my.hive_back.module.order.OrderCategoryEnum;
 import my.hive_back.module.order.model.dto.ProductionOrderAddRequest;
 import my.hive_back.module.order.model.dto.SalesOrderAddRequest;
+import my.hive_back.module.order.model.dto.UnifiedOrderUpdateRequest;
 import my.hive_back.module.order.model.entity.ProductionOrder;
 import my.hive_back.module.order.model.entity.SalesOrder;
+import my.hive_back.module.order.model.entity.SalesOrderDetail;
 import my.hive_back.module.order.model.vo.ProductionOrderVO;
 import my.hive_back.module.order.model.vo.SalesOrderVO;
 import org.junit.jupiter.api.Test;
@@ -106,9 +108,44 @@ class InformationChannelContractTest {
             assertFalse(hasViolation(validator.validate(drawingBudgetOrder), "informationChannel"),
                     "drawing_budget sales orders may omit informationChannel");
 
+            UnifiedOrderUpdateRequest regularEdit = new UnifiedOrderUpdateRequest();
+            regularEdit.setOrderCategory(OrderCategoryEnum.BULK.getCode());
+            regularEdit.setInformationChannel("   ");
+            assertTrue(hasViolation(validator.validate(regularEdit), "informationChannel"),
+                    "Ordinary category edits must reject blank informationChannel at DTO validation");
+
+            UnifiedOrderUpdateRequest drawingEdit = new UnifiedOrderUpdateRequest();
+            drawingEdit.setOrderCategory(OrderCategoryEnum.DRAWING_BUDGET.getCode());
+            drawingEdit.setInformationChannel("   ");
+            assertFalse(hasViolation(validator.validate(drawingEdit), "informationChannel"),
+                    "drawing_budget edits may keep informationChannel blank");
+
             ProductionOrderAddRequest productionOrder = productionOrderRequest();
             assertTrue(hasViolation(validator.validate(productionOrder), "informationChannel"),
                     "Production orders must require informationChannel");
+        }
+    }
+
+    @Test
+    void salesItemSpecIsTextAndRejectsValuesLongerThanFiftyCharacters() {
+        assertEquals(String.class, findField(SalesOrderAddRequest.OrderItemDTO.class, "spec").getType());
+        assertEquals(String.class, findField(UnifiedOrderUpdateRequest.OrderItemDTO.class, "spec").getType());
+        assertEquals(String.class, findField(SalesOrderVO.OrderItemVO.class, "spec").getType());
+        assertEquals(String.class, findField(SalesOrderDetail.class, "spec").getType());
+
+        try (ValidatorFactory validatorFactory = Validation.buildDefaultValidatorFactory()) {
+            Validator validator = validatorFactory.getValidator();
+            SalesOrderAddRequest addRequest = salesOrderRequest(OrderCategoryEnum.DRAWING_BUDGET.getCode());
+            SalesOrderAddRequest.OrderItemDTO addItem = addRequest.new OrderItemDTO();
+            addItem.setSpec("x".repeat(51));
+            addRequest.setItems(List.of(addItem));
+            assertTrue(hasViolation(validator.validate(addRequest), "items[0].spec"));
+
+            UnifiedOrderUpdateRequest updateRequest = new UnifiedOrderUpdateRequest();
+            UnifiedOrderUpdateRequest.OrderItemDTO updateItem = new UnifiedOrderUpdateRequest.OrderItemDTO();
+            updateItem.setSpec("x".repeat(51));
+            updateRequest.setItems(List.of(updateItem));
+            assertTrue(hasViolation(validator.validate(updateRequest), "items[0].spec"));
         }
     }
 

@@ -98,6 +98,7 @@ class SalesOrderFlowAdvanceTest {
         ));
         SalesOrder order = drawingBudgetOrder();
         when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
         when(salesOrderMapper.update(any(), any())).thenReturn(1);
 
         SalesOrder advanced = service.advanceByFlowCode(flowScanCode());
@@ -129,7 +130,9 @@ class SalesOrderFlowAdvanceTest {
                 "order:status:budgeting",
                 "!order:status:budget-completed"
         ));
-        when(salesOrderMapper.selectOne(any())).thenReturn(drawingBudgetOrder());
+        SalesOrder order = drawingBudgetOrder();
+        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
 
         BusinessException forbidden = assertThrows(
                 BusinessException.class,
@@ -182,7 +185,7 @@ class SalesOrderFlowAdvanceTest {
         ));
         SalesOrder order = drawingBudgetOrder();
         order.setStatus(OrderStatusEnum.BUDGET_COMPLETED.getCode());
-        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
         SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
         request.setStatus(OrderStatusEnum.CANCELLED.getCode());
 
@@ -196,10 +199,30 @@ class SalesOrderFlowAdvanceTest {
     }
 
     @Test
+    void completedOrderCannotSubmitCancellation() {
+        TenantPermissionContext.init(TENANT_CODE, 1L, Set.of(
+                "order:status:completed",
+                "order:status:pending-cancel"
+        ));
+        SalesOrder order = drawingBudgetOrder();
+        order.setOrderCategory(OrderCategoryEnum.BULK.getCode());
+        order.setStatus(OrderStatusEnum.COMPLETED.getCode());
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
+        SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
+        request.setStatus(OrderStatusEnum.CANCELLED.getCode());
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> service.updateStatusAndProcess(ORDER_ID, request));
+
+        assertEquals(400, error.getCode());
+        verify(salesOrderMapper, never()).update(any(), any());
+    }
+
+    @Test
     void drawingBudgetCancelApprovalCannotMoveLegacyPendingCancelToCancelled() {
         SalesOrder order = drawingBudgetOrder();
         order.setStatus(OrderStatusEnum.PENDING_CANCEL.getCode());
-        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
 
         BusinessException error = assertThrows(
                 BusinessException.class,
@@ -242,6 +265,7 @@ class SalesOrderFlowAdvanceTest {
         order.setExpressCompany("SF");
         order.setExpressNo("SF123");
         when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.selectByOrderIdForUpdate(ORDER_ID)).thenReturn(order);
         when(salesOrderMapper.update(any(), any())).thenReturn(1);
         when(approvalAuditorCandidateService.findPendingAuditorIds(any(), any(), any())).thenReturn(List.of());
         when(approvalDefaultAuditorService.resolveAuditorIds(any(), any(), any(), any(), any(), any(), anyBoolean()))
@@ -251,7 +275,7 @@ class SalesOrderFlowAdvanceTest {
         SalesOrder advanced = service.advanceByFlowCode(flowScanCode());
 
         assertEquals(OrderStatusEnum.PENDING_SHIP.getCode(), advanced.getStatus());
-        verify(approvalAuditorCandidateService).replaceActiveCandidates(
+        verify(approvalAuditorCandidateService).createActiveCandidates(
                 TENANT_CODE, "ORDER", "sales:" + ORDER_ID, List.of(2L));
         ArgumentCaptor<SalesOrderStatusLog> logCaptor = ArgumentCaptor.forClass(SalesOrderStatusLog.class);
         verify(salesOrderStatusLogMapper).insert(logCaptor.capture());

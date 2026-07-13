@@ -52,7 +52,8 @@ public class SalesOrderAddRequest {
         @Schema(description = "商品类别")
         private String weight;
 
-        private Float spec;
+        @Size(max = 50, message = "规格长度不能超过50个字符")
+        private String spec;
 
     }
 }

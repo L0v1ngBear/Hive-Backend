@@ -3,6 +3,7 @@ package my.hive_back.module.approval.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import jakarta.annotation.Resource;
+import my.hive.common.exception.BusinessException;
 import my.hive_back.module.approval.mapper.ApprovalAuditorCandidateMapper;
 import my.hive_back.module.approval.model.entity.ApprovalAuditorCandidate;
 import org.springframework.stereotype.Service;
@@ -88,6 +89,19 @@ public class ApprovalAuditorCandidateService {
         return !findPendingAuditorIds(tenantCode, approvalType, approvalCode).isEmpty();
     }
 
+    public boolean hasRejectedAuditors(String tenantCode, String approvalType, String approvalCode) {
+        if (!StringUtils.hasText(tenantCode) || !StringUtils.hasText(approvalType)
+                || !StringUtils.hasText(approvalCode)) {
+            return false;
+        }
+        Long count = approvalAuditorCandidateMapper.selectCount(new LambdaQueryWrapper<ApprovalAuditorCandidate>()
+                .eq(ApprovalAuditorCandidate::getApprovalType, approvalType)
+                .eq(ApprovalAuditorCandidate::getApprovalCode, approvalCode)
+                .eq(ApprovalAuditorCandidate::getStatus, STATUS_ACTIVE)
+                .eq(ApprovalAuditorCandidate::getAuditStatus, AUDIT_STATUS_REJECTED));
+        return count != null && count > 0;
+    }
+
     public List<String> findPendingApprovalCodes(String tenantCode, String approvalType, Long auditorId) {
         if (!StringUtils.hasText(tenantCode) || !StringUtils.hasText(approvalType) || auditorId == null || auditorId <= 0) {
             return List.of();
@@ -131,11 +145,31 @@ public class ApprovalAuditorCandidateService {
                 .set(ApprovalAuditorCandidate::getAuditComment, comment)
                 .set(ApprovalAuditorCandidate::getAuditTime, LocalDateTime.now())
                 .set(ApprovalAuditorCandidate::getUpdateTime, LocalDateTime.now()));
-        return rows > 0;
+        if (rows != 1) {
+            throw new BusinessException(409, "审批决定已被其他操作处理，请刷新后重试");
+        }
+        return true;
+    }
+
+    public void createActiveCandidates(String tenantCode,
+                                       String approvalType,
+                                       String approvalCode,
+                                       List<Long> auditorIds) {
+        if (!findActiveAuditorIds(tenantCode, approvalType, approvalCode).isEmpty()) {
+            throw new BusinessException(409, "该审批已有活动候选人，不能重复提交");
+        }
+        insertActiveCandidates(tenantCode, approvalType, approvalCode, auditorIds);
     }
 
     public void replaceActiveCandidates(String tenantCode, String approvalType, String approvalCode, List<Long> auditorIds) {
         closeActiveCandidates(tenantCode, approvalType, approvalCode);
+        insertActiveCandidates(tenantCode, approvalType, approvalCode, auditorIds);
+    }
+
+    private void insertActiveCandidates(String tenantCode,
+                                        String approvalType,
+                                        String approvalCode,
+                                        List<Long> auditorIds) {
         if (!StringUtils.hasText(tenantCode) || !StringUtils.hasText(approvalType)
                 || !StringUtils.hasText(approvalCode) || auditorIds == null || auditorIds.isEmpty()) {
             return;

@@ -13,6 +13,7 @@ import java.util.List;
  * Unified order status and fulfillment update request.
  */
 @Data
+@ValidSalesOrderInformationChannel
 public class UnifiedOrderUpdateRequest {
 
     @Pattern(
@@ -70,6 +71,7 @@ public class UnifiedOrderUpdateRequest {
 
         private String weight;
 
-        private Float spec;
+        @Size(max = 50, message = "规格长度不能超过50个字符")
+        private String spec;
     }
 }

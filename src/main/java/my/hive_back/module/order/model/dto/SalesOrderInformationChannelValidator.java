@@ -6,13 +6,29 @@ import my.hive_back.module.order.OrderCategoryEnum;
 import org.springframework.util.StringUtils;
 
 public class SalesOrderInformationChannelValidator
-        implements ConstraintValidator<ValidSalesOrderInformationChannel, SalesOrderAddRequest> {
+        implements ConstraintValidator<ValidSalesOrderInformationChannel, Object> {
 
     @Override
-    public boolean isValid(SalesOrderAddRequest request, ConstraintValidatorContext context) {
-        if (request == null || OrderCategoryEnum.DRAWING_BUDGET.getCode().equals(
-                OrderCategoryEnum.normalize(request.getOrderCategory()))
-                || StringUtils.hasText(request.getInformationChannel())) {
+    public boolean isValid(Object value, ConstraintValidatorContext context) {
+        if (value == null) {
+            return true;
+        }
+        String orderCategory;
+        String informationChannel;
+        if (value instanceof SalesOrderAddRequest request) {
+            orderCategory = request.getOrderCategory();
+            informationChannel = request.getInformationChannel();
+        } else if (value instanceof UnifiedOrderUpdateRequest request) {
+            if (request.getOrderCategory() == null) {
+                return true;
+            }
+            orderCategory = request.getOrderCategory();
+            informationChannel = request.getInformationChannel();
+        } else {
+            return true;
+        }
+        if (OrderCategoryEnum.DRAWING_BUDGET.getCode().equals(OrderCategoryEnum.normalize(orderCategory))
+                || StringUtils.hasText(informationChannel)) {
             return true;
         }
         context.disableDefaultConstraintViolation();

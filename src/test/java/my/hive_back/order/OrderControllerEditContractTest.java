@@ -17,6 +17,19 @@ import static org.mockito.Mockito.when;
 class OrderControllerEditContractTest {
 
     @Test
+    void flowAdvanceForwardsOnlyTheRawFlowCodePathValue() {
+        String rawFlowCode = "a".repeat(43);
+        OrderService orderService = mock(OrderService.class);
+        when(orderService.advanceByFlowCode(rawFlowCode)).thenReturn(Map.of("orderId", "SO-CONTROLLER-001"));
+        OrderController controller = new OrderController();
+        ReflectionTestUtils.setField(controller, "orderService", orderService);
+
+        controller.advanceByFlowCode(rawFlowCode);
+
+        verify(orderService).advanceByFlowCode(rawFlowCode);
+    }
+
+    @Test
     void updateAcceptsEverySharedEditFieldAndForwardsTheParsedRequest() throws Exception {
         UnifiedOrderUpdateRequest request = new ObjectMapper().readValue("""
                 {
@@ -28,7 +41,7 @@ class OrderControllerEditContractTest {
                   "brandName":"Hive",
                   "orderCategory":"bulk",
                   "expressInfo":{"expressCompany":"SF","expressNo":"SF123"},
-                  "items":[{"modelCode":"M-1","quantity":2,"weight":"12kg","spec":3.5}]
+                  "items":[{"modelCode":"M-1","quantity":2,"weight":"12kg","spec":"2x3"}]
                 }
                 """, UnifiedOrderUpdateRequest.class);
         assertEquals("Acme", request.getCustomerName());
@@ -36,6 +49,7 @@ class OrderControllerEditContractTest {
         assertEquals("Hive", request.getBrandName());
         assertEquals("bulk", request.getOrderCategory());
         assertEquals("M-1", request.getItems().get(0).getModelCode());
+        assertEquals("2x3", request.getItems().get(0).getSpec());
 
         OrderService orderService = mock(OrderService.class);
         when(orderService.update("SO-CONTROLLER-001", request)).thenReturn(Map.of("orderId", "SO-CONTROLLER-001"));

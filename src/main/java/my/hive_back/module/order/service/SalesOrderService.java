@@ -424,7 +424,10 @@ public class SalesOrderService {
             SalesOrderDetail detail = new SalesOrderDetail();
             detail.setOrderId(order.getOrderId());
             detail.setTenantCode(TenantPermissionContext.getTenantCode());
-            BeanUtils.copyProperties(item, detail);
+            detail.setModelCode(trimToNull(item.getModelCode()));
+            detail.setQuantity(item.getQuantity());
+            detail.setWeight(trimToNull(item.getWeight()));
+            detail.setSpec(trimToNull(item.getSpec()));
             salesOrderDetailMapper.insert(detail);
         });
 
@@ -434,7 +437,7 @@ public class SalesOrderService {
                 ProductionOrderAddRequest productionOrderRequest = new ProductionOrderAddRequest();
                 BeanUtils.copyProperties(request, productionOrderRequest);
                 productionOrderRequest.setModelCode(item.getModelCode());
-                productionOrderRequest.setSpec(item.getSpec());
+                productionOrderRequest.setSpec(parseProductionSpec(item.getSpec()));
                 productionOrderRequest.setQuantity(item.getQuantity() == null ? null : item.getQuantity().intValue());
                 productionOrderRequest.setWeight(null);
                 productionOrderService.addProductionOrder(productionOrderRequest, order.getOrderId());
@@ -452,7 +455,7 @@ public class SalesOrderService {
         return normalizedItems.stream()
                 .map(item -> {
                     String category = safeText(item.getWeight(), "");
-                    String spec = numberText(item.getSpec());
+                    String spec = safeText(item.getSpec(), "");
                     return safeText(item.getModelCode(), "未填写型号")
                             + " / " + (StringUtils.isNotBlank(category) ? category : "未填写类别")
                             + " / " + (StringUtils.isNotBlank(spec) ? spec + "规格" : "未填写规格")
@@ -483,7 +486,7 @@ public class SalesOrderService {
         return StringUtils.isNotBlank(item.getModelCode())
                 || item.getQuantity() != null
                 || StringUtils.isNotBlank(item.getWeight())
-                || item.getSpec() != null;
+                || StringUtils.isNotBlank(item.getSpec());
     }
 
     private String safeText(String value, String fallback) {
@@ -497,6 +500,17 @@ public class SalesOrderService {
         return BigDecimal.valueOf(value.doubleValue()).stripTrailingZeros().toPlainString();
     }
 
+    private Float parseProductionSpec(String value) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        try {
+            return Float.valueOf(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
     @Transactional(rollbackFor = Exception.class)
     @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限更新订单状态")
     public SalesOrder updateStatusAndProcess(@NotBlank String orderId, @Valid SalesOrderUpdateRequest request) {
@@ -506,13 +520,12 @@ public class SalesOrderService {
     @Transactional(rollbackFor = Exception.class)
     @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限更新订单")
     public SalesOrder updateEditableContent(@NotBlank String orderId, @Valid UnifiedOrderUpdateRequest request) {
-        SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getOrderId, orderId)
-                .last("LIMIT 1"));
+        SalesOrder order = salesOrderMapper.selectByOrderIdForUpdate(orderId);
         if (order == null) {
             throw new BusinessException(400, "销售订单不存在");
         }
         assertOrderStatusPermission(order.getStatus());
+        validateEditableOrder(order, request);
 
         if (request.getCustomerName() != null) {
             order.setCustomerName(trimToNull(request.getCustomerName()));
@@ -564,10 +577,12 @@ public class SalesOrderService {
                 detail.setModelCode(trimToNull(item.getModelCode()));
                 detail.setQuantity(item.getQuantity());
                 detail.setWeight(trimToNull(item.getWeight()));
-                detail.setSpec(item.getSpec() == null ? null : numberText(item.getSpec()));
+                detail.setSpec(trimToNull(item.getSpec()));
                 salesOrderDetailMapper.insert(detail);
             }
         }
+        productionOrderService.syncLinkedEditableContent(
+                order, request.getItems() == null ? null : items);
         return order;
     }
 
@@ -717,9 +732,7 @@ public class SalesOrderService {
 
     @Transactional(rollbackFor = Exception.class)
     public SalesOrder approveShipment(@NotBlank String orderId, String remark) {
-        SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getOrderId, orderId)
-                .last("LIMIT 1"));
+        SalesOrder order = salesOrderMapper.selectByOrderIdForUpdate(orderId);
         if (order == null) {
             throw new BusinessException(400, "销售订单不存在");
         }
@@ -738,8 +751,7 @@ public class SalesOrderService {
                                                       boolean approvalBypass,
                                                       String logRemark) {
         // 1. 查询当前销售订单
-        SalesOrder order = salesOrderMapper.selectOne(new LambdaQueryWrapper<SalesOrder>()
-                .eq(SalesOrder::getOrderId, orderId));
+        SalesOrder order = salesOrderMapper.selectByOrderIdForUpdate(orderId);
 
         if (order == null) {
             throw new BusinessException(400, "销售订单不存在");
@@ -907,7 +919,7 @@ public class SalesOrderService {
         insertSalesStatusLog(order, currentStatus, OrderStatusEnum.SHIPPED.getCode(),
                 OPERATE_TYPE_SHIPMENT_APPROVAL_PENDING,
                 StringUtils.isNotBlank(order.getRemark()) ? order.getRemark() : "提交发货审批");
-        approvalAuditorCandidateService.replaceActiveCandidates(
+        approvalAuditorCandidateService.createActiveCandidates(
                 order.getTenantCode(), APPROVAL_TYPE_ORDER, approvalCode, auditorIds);
         return order;
     }
@@ -922,7 +934,7 @@ public class SalesOrderService {
                 .filter(item -> StringUtils.isNotBlank(item.getModelCode())
                         || item.getQuantity() != null
                         || StringUtils.isNotBlank(item.getWeight())
-                        || item.getSpec() != null)
+                        || StringUtils.isNotBlank(item.getSpec()))
                 .toList();
     }
 
@@ -933,7 +945,7 @@ public class SalesOrderService {
         return items.stream()
                 .map(item -> safeText(item.getModelCode(), "未填写型号")
                         + " / " + safeText(item.getWeight(), "未填写类别")
-                        + " / " + (item.getSpec() == null ? "未填写规格" : numberText(item.getSpec()) + "规格")
+                        + " / " + (StringUtils.isBlank(item.getSpec()) ? "未填写规格" : item.getSpec().trim() + "规格")
                         + " × " + (item.getQuantity() == null ? "未填写数量" : item.getQuantity().stripTrailingZeros().toPlainString()))
                 .collect(Collectors.joining("；"));
     }
@@ -1199,6 +1211,9 @@ public class SalesOrderService {
         if (oldStatusEnum == null || targetStatusEnum == null) {
             throw new BusinessException(400, "订单状态不合法");
         }
+        if (OrderStatusEnum.COMPLETED == oldStatusEnum || OrderStatusEnum.CANCELLED == oldStatusEnum) {
+            throw new BusinessException(400, "终态订单不能取消、回退或继续流转");
+        }
         boolean drawingBudget = isDrawingBudgetOrder(orderCategory);
         if (drawingBudget) {
             if (OrderStatusEnum.BUDGETING == oldStatusEnum
@@ -1236,6 +1251,52 @@ public class SalesOrderService {
     private boolean canAutoCreateProductionOrder(String orderCategory) {
         String normalized = OrderCategoryEnum.normalize(orderCategory);
         return !CATEGORY_DRAWING_BUDGET.equals(normalized) && !CATEGORY_SPECIAL_ORDER.equals(normalized);
+    }
+
+    private void validateEditableOrder(SalesOrder order, UnifiedOrderUpdateRequest request) {
+        String currentStatus = normalizeStatus(order.getStatus());
+        if (OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(currentStatus)
+                || OrderStatusEnum.COMPLETED.getCode().equals(currentStatus)
+                || OrderStatusEnum.PENDING_CANCEL.getCode().equals(currentStatus)
+                || OrderStatusEnum.CANCELLED.getCode().equals(currentStatus)) {
+            throw new BusinessException(400, "当前订单状态禁止编辑");
+        }
+
+        String currentCategory = OrderCategoryEnum.normalize(order.getOrderCategory());
+        String targetCategory = request.getOrderCategory() == null
+                ? currentCategory
+                : requireKnownOrderCategory(request.getOrderCategory());
+        if (!Objects.equals(currentCategory, targetCategory)) {
+            if (CATEGORY_SPECIAL_ORDER.equals(currentCategory)
+                    || CATEGORY_DRAWING_BUDGET.equals(currentCategory)
+                    || CATEGORY_SPECIAL_ORDER.equals(targetCategory)
+                    || CATEGORY_DRAWING_BUDGET.equals(targetCategory)) {
+                throw new BusinessException(400, "特殊订单和图纸预算订单创建后不能变更类别");
+            }
+            if (!OrderStatusEnum.PENDING_CONFIRM.getCode().equals(currentStatus)) {
+                throw new BusinessException(400, "订单类别只能在待确认阶段的普通类别之间变更");
+            }
+        }
+
+        String resultingChannel = request.getInformationChannel() == null
+                ? order.getInformationChannel()
+                : trimToNull(request.getInformationChannel());
+        if (!CATEGORY_DRAWING_BUDGET.equals(targetCategory) && StringUtils.isBlank(resultingChannel)) {
+            throw new BusinessException(400, "普通销售订单的信息渠道不能为空");
+        }
+    }
+
+    private String requireKnownOrderCategory(String value) {
+        if (StringUtils.isBlank(value)) {
+            throw new BusinessException(400, "订单类别不能为空");
+        }
+        String normalized = value.trim();
+        for (OrderCategoryEnum category : OrderCategoryEnum.values()) {
+            if (category.getCode().equalsIgnoreCase(normalized)) {
+                return category.getCode();
+            }
+        }
+        throw new BusinessException(400, "订单类别不合法");
     }
 
     private boolean isDrawingBudgetOrder(String orderCategory) {

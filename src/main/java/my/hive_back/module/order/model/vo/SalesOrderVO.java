@@ -98,6 +98,6 @@ public class SalesOrderVO {
         /**
          * 规格/幅宽
          */
-        private Float spec;
+        private String spec;
     }
 }
