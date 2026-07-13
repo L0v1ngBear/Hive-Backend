@@ -164,6 +164,7 @@ public class ApprovalCenterService {
                         .in(SalesOrder::getStatus,
                                 OrderStatusEnum.PENDING_CONFIRM.getCode(),
                                 OrderStatusEnum.PENDING_PAY.getCode(),
+                                OrderStatusEnum.PENDING_SHIP.getCode(),
                                 OrderStatusEnum.PENDING_CANCEL.getCode())
                         .orderByDesc(SalesOrder::getCreateTime))
                 .stream()
@@ -225,11 +226,17 @@ public class ApprovalCenterService {
             SalesOrder salesOrder = findSalesOrderForApproval(request.getOrderId());
             validateCurrentOrderAuditor(ORDER_TYPE_SALES, salesOrder.getOrderId(), salesOrder.getTenantCode());
             String approvalCode = orderApprovalCode(ORDER_TYPE_SALES, salesOrder.getOrderId());
+            boolean shipmentApproval = salesOrderService.hasPendingSalesShipmentApproval(salesOrder.getOrderId());
             boolean approve = request.getAction() != null && request.getAction() == ApprovalActionEnum.APPROVE.getCode();
             boolean candidateFlow = markCandidateDecisionIfPresent(
                     salesOrder.getTenantCode(), APPROVAL_TYPE_ORDER, approvalCode, TenantPermissionContext.getUserId(), approve, remark);
             if (!approve) {
                 if (salesOrderService.hasPendingSalesRollbackApproval(salesOrder.getOrderId())) {
+                    approvalAuditorCandidateService.closeActiveCandidates(
+                            salesOrder.getTenantCode(), APPROVAL_TYPE_ORDER, approvalCode);
+                    return;
+                }
+                if (shipmentApproval) {
                     approvalAuditorCandidateService.closeActiveCandidates(
                             salesOrder.getTenantCode(), APPROVAL_TYPE_ORDER, approvalCode);
                     return;
@@ -248,6 +255,8 @@ public class ApprovalCenterService {
             }
             if (salesOrderService.hasPendingSalesRollbackApproval(salesOrder.getOrderId())) {
                 salesOrderService.approveRollback(request.getOrderId(), remark);
+            } else if (shipmentApproval) {
+                salesOrderService.approveShipment(request.getOrderId(), remark);
             } else if (OrderStatusEnum.PENDING_CANCEL.getCode().equals(salesOrder.getStatus())) {
                 salesOrderService.approvePendingCancelToCancelled(request.getOrderId(), remark);
             } else if (OrderStatusEnum.PENDING_PAY.getCode().equals(salesOrder.getStatus())) {
@@ -383,6 +392,8 @@ public class ApprovalCenterService {
         boolean cancelApproval = OrderStatusEnum.PENDING_CANCEL.getCode().equals(order.getStatus());
         boolean rollbackApproval = salesOrderService.hasPendingSalesRollbackApproval(order.getOrderId());
         SalesOrderStatusLog rollbackLog = rollbackApproval ? salesOrderService.findPendingSalesRollbackLog(order.getOrderId()) : null;
+        boolean shipmentApproval = salesOrderService.hasPendingSalesShipmentApproval(order.getOrderId());
+        SalesOrderStatusLog shipmentLog = shipmentApproval ? salesOrderService.findPendingSalesShipmentLog(order.getOrderId()) : null;
         boolean payToProductionApproval = OrderStatusEnum.PENDING_PAY.getCode().equals(order.getStatus());
         boolean specialCreateApproval = OrderStatusEnum.PENDING_CONFIRM.getCode().equals(order.getStatus())
                 && OrderCategoryEnum.SPECIAL_ORDER.getCode().equals(OrderCategoryEnum.normalize(order.getOrderCategory()));
@@ -401,6 +412,9 @@ public class ApprovalCenterService {
         if (rollbackApproval && rollbackLog != null) {
             fallbackSummary = "订单回退审核：" + statusLabel(rollbackLog.getOldStatus()) + " → " + statusLabel(rollbackLog.getNewStatus());
         }
+        if (shipmentApproval && shipmentLog != null) {
+            fallbackSummary = "发货审核：" + statusLabel(shipmentLog.getOldStatus()) + " → " + statusLabel(shipmentLog.getNewStatus());
+        }
         vo.setSummary(StringUtils.hasText(order.getGoodsDesc()) ? order.getGoodsDesc() : fallbackSummary);
         vo.setStatus(order.getStatus());
         vo.setStatusText(specialCreateApproval ? "待审核创建" : (payToProductionApproval ? "待审批转备料中" : "待确认"));
@@ -409,6 +423,9 @@ public class ApprovalCenterService {
         }
         if (rollbackApproval && rollbackLog != null) {
             vo.setStatusText("待审核回退至" + statusLabel(rollbackLog.getNewStatus()));
+        }
+        if (shipmentApproval && shipmentLog != null) {
+            vo.setStatusText("待审核发货");
         }
         vo.setCreateTime(order.getCreateTime());
         applyOrderAuditor(vo, order.getTenantCode(), ORDER_TYPE_SALES, order.getOrderId());
@@ -469,7 +486,8 @@ public class ApprovalCenterService {
         if (OrderStatusEnum.PENDING_CONFIRM.getCode().equals(order.getStatus())
                 || OrderStatusEnum.PENDING_PAY.getCode().equals(order.getStatus())
                 || OrderStatusEnum.PENDING_CANCEL.getCode().equals(order.getStatus())
-                || salesOrderService.hasPendingSalesRollbackApproval(order.getOrderId())) {
+                || salesOrderService.hasPendingSalesRollbackApproval(order.getOrderId())
+                || salesOrderService.hasPendingSalesShipmentApproval(order.getOrderId())) {
             return order;
         }
         throw new BusinessException("待审批订单不存在或已处理");

@@ -64,9 +64,10 @@ public class SalesOrder {
     private Integer totalQuantity;
 
     /**
-     * 预计发货日期
+     * 信息渠道
      */
-    private String deliveryDate;
+    @TableField("information_channel")
+    private String informationChannel;
 
     /**
      * 物流公司

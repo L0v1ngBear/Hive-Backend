@@ -13,6 +13,7 @@ import java.util.List;
  * SalesOrderAddRequest 属于小程序后端订单模块，定义入参结构。
  */
 @Data
+@ValidSalesOrderInformationChannel
 public class SalesOrderAddRequest {
 
     /**
@@ -33,9 +34,9 @@ public class SalesOrderAddRequest {
     private List<OrderItemDTO> items;
 
     /**
-     * 预计发货日期
+     * 信息渠道
      */
-    private String deliveryDate;
+    private String informationChannel;
 
     /**
      * 是否同步创建生产订单 0-否 1-是

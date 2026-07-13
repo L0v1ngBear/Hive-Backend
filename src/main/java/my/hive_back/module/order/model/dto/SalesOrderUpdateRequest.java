@@ -23,6 +23,8 @@ public class SalesOrderUpdateRequest {
 
     private String remark;
 
+    private String informationChannel;
+
     private List<Long> auditorIds;
 
     @Valid

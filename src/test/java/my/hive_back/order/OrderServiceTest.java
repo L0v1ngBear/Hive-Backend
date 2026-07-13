@@ -1,9 +1,12 @@
 package my.hive_back.order;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.dto.PageResult;
+import my.hive.common.order.OrderFlowCodeUtil;
 import my.hive_back.module.order.model.dto.BaseOrderListRequest;
 import my.hive_back.module.order.model.dto.SalesOrderListRequest;
+import my.hive_back.module.order.model.dto.UnifiedOrderUpdateRequest;
 import my.hive_back.module.order.model.entity.ProductionOrder;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.order.model.vo.ProductionOrderVO;
@@ -23,12 +26,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -48,6 +53,50 @@ class OrderServiceTest {
         orderService = new OrderService();
         ReflectionTestUtils.setField(orderService, "salesOrderService", salesOrderService);
         ReflectionTestUtils.setField(orderService, "productionOrderService", productionOrderService);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void clearTenantContext() {
+        TenantPermissionContext.clear();
+    }
+
+    @Test
+    void detailReturnsRawTenantSignedFlowCodeWithoutPrintingTask() {
+        TenantPermissionContext.init("TENANT-DETAIL", 7L, Set.of("order:status:pending-ship"));
+        ReflectionTestUtils.setField(orderService, "orderFlowCodeSecret", "detail-flow-secret");
+        SalesOrderVO order = salesOrder("SO-DETAIL-001", "pending_ship");
+        when(salesOrderService.getByIdandTenantId("SO-DETAIL-001")).thenReturn(order);
+        when(productionOrderService.listBySalesOrderIds(List.of("SO-DETAIL-001"))).thenReturn(List.of());
+
+        Map<String, Object> detail = orderService.detail("SO-DETAIL-001");
+
+        String flowCode = (String) detail.get("flowCode");
+        assertTrue(OrderFlowCodeUtil.matches(
+                "detail-flow-secret", "TENANT-DETAIL", OrderFlowCodeUtil.parse(flowCode)));
+        assertFalse(flowCode.startsWith("{"));
+        verify(salesOrderService).getByIdandTenantId("SO-DETAIL-001");
+    }
+
+    @Test
+    void sameStatusUpdatePersistsEditableContentWithoutTransition() {
+        TenantPermissionContext.init("TENANT-EDIT", 7L, Set.of("order:status:pending-ship"));
+        SalesOrderVO order = salesOrder("SO-EDIT-001", "pending_ship");
+        when(salesOrderService.getByIdandTenantId("SO-EDIT-001")).thenReturn(order);
+        when(productionOrderService.listBySalesOrderIds(List.of("SO-EDIT-001"))).thenReturn(List.of());
+        UnifiedOrderUpdateRequest request = new UnifiedOrderUpdateRequest();
+        request.setStatus("pending_ship");
+        request.setInformationChannel("WeChat referral");
+        request.setRemark("saved before shipment approval");
+        UnifiedOrderUpdateRequest.ExpressInfo expressInfo = new UnifiedOrderUpdateRequest.ExpressInfo();
+        expressInfo.setExpressCompany("SF");
+        expressInfo.setExpressNo("SF123");
+        request.setExpressInfo(expressInfo);
+
+        Map<String, Object> result = orderService.update("SO-EDIT-001", request);
+
+        assertEquals("SO-EDIT-001", result.get("orderId"));
+        verify(salesOrderService).updateEditableContent("SO-EDIT-001", request);
+        verify(salesOrderService, never()).updateStatusAndProcess(any(), any());
     }
 
     @Test

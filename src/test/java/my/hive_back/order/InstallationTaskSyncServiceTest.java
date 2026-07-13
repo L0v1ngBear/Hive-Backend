@@ -42,6 +42,7 @@ class InstallationTaskSyncServiceTest {
         order.setCustomerPhone("13800000000");
         order.setExpressCompany("顺丰");
         order.setExpressNo("SF001");
+        order.setInformationChannel("wechat");
         order.setAttachmentName("contract.pdf");
 
         service.createOrSyncFromCompletedOrder(order);
@@ -54,6 +55,7 @@ class InstallationTaskSyncServiceTest {
         assertEquals("production_completed", task.getInstallationStatus());
         assertEquals("13800000000", task.getCustomerPhone());
         assertEquals("SF001", task.getExpressNo());
+        assertEquals("wechat", task.getInformationChannel());
         assertEquals("contract.pdf", task.getOrderAttachmentName());
         assertNotNull(task.getOrderCompletedTime());
     }

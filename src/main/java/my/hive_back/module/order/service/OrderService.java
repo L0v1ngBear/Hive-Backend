@@ -5,8 +5,10 @@ import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import my.hive.common.annotation.RequirePermission;
+import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.dto.PageResult;
 import my.hive.common.exception.BusinessException;
+import my.hive.common.order.OrderFlowCodeUtil;
 import my.hive_back.module.order.model.dto.BaseOrderListRequest;
 import my.hive_back.module.order.model.dto.OrderFlowPrintTaskRequest;
 import my.hive_back.module.order.model.dto.ProductionOrderUpdateRequest;
@@ -22,6 +24,7 @@ import my.hive_back.module.order.model.vo.SalesOrderVO;
 import my.hive_back.module.sys.model.enums.PermissionCodeEnum;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.BeanWrapperImpl;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -62,6 +65,9 @@ public class OrderService {
     @Resource
     private OrderFlowPrintService orderFlowPrintService;
 
+    @Value("${ORDER_FLOW_CODE_SECRET:${AUTH_TOKEN_SECRET:hive-local-order-flow-secret}}")
+    private String orderFlowCodeSecret;
+
     @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_LIST, message = "您没有权限查询订单列表")
     public PageResult<Map<String, Object>> page(BaseOrderListRequest request) {
         BaseOrderListRequest safeRequest = request == null ? new BaseOrderListRequest() : request;
@@ -92,7 +98,11 @@ public class OrderService {
 
     @RequirePermission(value = PermissionCodeEnum.CODE_ORDER_DETAIL, message = "您没有权限查询订单详情")
     public Map<String, Object> detail(@NotBlank String orderId) {
-        Map<String, Object> row = beanToMap(salesOrderService.getByIdandTenantId(normalizeOrderId(orderId)));
+        String canonicalOrderId = normalizeOrderId(orderId);
+        Map<String, Object> row = beanToMap(salesOrderService.getByIdandTenantId(canonicalOrderId));
+        String signedCode = OrderFlowCodeUtil.generateFlowCode(
+                orderFlowCodeSecret, TenantPermissionContext.getTenantCode(), "sales", canonicalOrderId);
+        row.put("flowCode", OrderFlowCodeUtil.buildScanCode("sales", signedCode, canonicalOrderId));
         List<Map<String, Object>> rows = new ArrayList<>();
         rows.add(row);
         enrichFulfillment(rows);
@@ -115,18 +125,23 @@ public class OrderService {
         }
         SalesOrderVO current = salesOrderService.getByIdandTenantId(canonicalOrderId);
         boolean processUpdate = request.getProcess() != null;
-        if (!StringUtils.hasText(request.getStatus()) && !processUpdate) {
-            throw new BusinessException(400, "目标状态或履约工序不能为空");
+        boolean statusChanged = StringUtils.hasText(request.getStatus())
+                && !request.getStatus().trim().equals(current.getStatus());
+        boolean contentUpdate = hasEditableContent(request);
+        if (!statusChanged && !processUpdate && !contentUpdate) {
+            throw new BusinessException(400, "订单更新内容不能为空");
+        }
+
+        if (contentUpdate) {
+            salesOrderService.updateEditableContent(canonicalOrderId, request);
         }
 
         if (processUpdate) {
             productionOrderService.updateLinkedStatusAndProcess(canonicalOrderId, productionUpdateRequest(request));
         }
 
-        if (StringUtils.hasText(request.getStatus()) && !request.getStatus().trim().equals(current.getStatus())) {
-            salesOrderService.updateStatusAndProcess(canonicalOrderId, salesUpdateRequest(request));
-        } else if (!processUpdate && (request.getExpressInfo() != null || request.getIsInvoice() != null)) {
-            throw new BusinessException(400, "物流或开票信息必须随下一阶段状态一起提交");
+        if (statusChanged) {
+            salesOrderService.updateStatusAndProcess(canonicalOrderId, salesTransitionRequest(request));
         }
         return detail(canonicalOrderId);
     }
@@ -210,6 +225,7 @@ public class OrderService {
         SalesOrderUpdateRequest target = new SalesOrderUpdateRequest();
         target.setStatus(source.getStatus());
         target.setRemark(source.getRemark());
+        target.setInformationChannel(source.getInformationChannel());
         target.setAuditorIds(source.getAuditorIds());
         target.setIsInvoice(source.getIsInvoice());
         if (source.getExpressInfo() != null) {
@@ -219,6 +235,25 @@ public class OrderService {
             target.setExpressInfo(expressInfo);
         }
         return target;
+    }
+
+    private SalesOrderUpdateRequest salesTransitionRequest(UnifiedOrderUpdateRequest source) {
+        SalesOrderUpdateRequest target = new SalesOrderUpdateRequest();
+        target.setStatus(source.getStatus());
+        target.setAuditorIds(source.getAuditorIds());
+        return target;
+    }
+
+    private boolean hasEditableContent(UnifiedOrderUpdateRequest request) {
+        return request.getRemark() != null
+                || request.getInformationChannel() != null
+                || request.getExpressInfo() != null
+                || request.getIsInvoice() != null
+                || request.getCustomerName() != null
+                || request.getProjectName() != null
+                || request.getBrandName() != null
+                || request.getOrderCategory() != null
+                || request.getItems() != null;
     }
 
     private ProductionOrderUpdateRequest productionUpdateRequest(UnifiedOrderUpdateRequest source) {

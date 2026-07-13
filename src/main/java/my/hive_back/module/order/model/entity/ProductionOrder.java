@@ -81,10 +81,10 @@ public class ProductionOrder {
     private String brandName;
 
     /**
-     * 预计交付日期
+     * 信息渠道
      */
-    @TableField("delivery_date")
-    private LocalDateTime deliveryDate;
+    @TableField("information_channel")
+    private String informationChannel;
 
     /**
      * 创建时间

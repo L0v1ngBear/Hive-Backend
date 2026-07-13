@@ -3,11 +3,14 @@ package my.hive_back.order;
 import my.hive.common.context.TenantPermissionContext;
 import my.hive.common.exception.BusinessException;
 import my.hive.common.order.OrderFlowCodeUtil;
+import my.hive_back.module.approval.service.ApprovalAuditorCandidateService;
+import my.hive_back.module.approval.service.ApprovalDefaultAuditorService;
 import my.hive_back.module.installation.service.InstallationTaskSyncService;
 import my.hive_back.module.order.OrderCategoryEnum;
 import my.hive_back.module.order.OrderStatusEnum;
 import my.hive_back.module.order.mapper.SalesOrderMapper;
 import my.hive_back.module.order.mapper.SalesOrderStatusLogMapper;
+import my.hive_back.module.order.model.dto.SalesOrderUpdateRequest;
 import my.hive_back.module.order.model.entity.SalesOrder;
 import my.hive_back.module.order.model.entity.SalesOrderStatusLog;
 import my.hive_back.module.order.service.ProductionOrderService;
@@ -23,11 +26,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,6 +62,12 @@ class SalesOrderFlowAdvanceTest {
     @Mock
     private InstallationTaskSyncService installationTaskSyncService;
 
+    @Mock
+    private ApprovalAuditorCandidateService approvalAuditorCandidateService;
+
+    @Mock
+    private ApprovalDefaultAuditorService approvalDefaultAuditorService;
+
     private SalesOrderService service;
 
     @BeforeEach
@@ -68,6 +79,8 @@ class SalesOrderFlowAdvanceTest {
         ReflectionTestUtils.setField(service, "userMapper", userMapper);
         ReflectionTestUtils.setField(service, "wechatSubscribeNotificationService", wechatSubscribeNotificationService);
         ReflectionTestUtils.setField(service, "installationTaskSyncService", installationTaskSyncService);
+        ReflectionTestUtils.setField(service, "approvalAuditorCandidateService", approvalAuditorCandidateService);
+        ReflectionTestUtils.setField(service, "approvalDefaultAuditorService", approvalDefaultAuditorService);
         ReflectionTestUtils.setField(service, "orderFlowCodeSecret", FLOW_SECRET);
     }
 
@@ -158,6 +171,92 @@ class SalesOrderFlowAdvanceTest {
 
         assertEquals(OrderStatusEnum.PENDING_PAY.getCode(), standardNext);
         assertEquals(OrderStatusEnum.PENDING_PAY.getCode(), specialNext);
+    }
+
+    @Test
+    void budgetCompletedDrawingOrderCannotBeCancelled() {
+        TenantPermissionContext.init(TENANT_CODE, 1L, Set.of(
+                "order:status:budget-completed",
+                "order:status:pending-cancel",
+                "order:status:cancelled"
+        ));
+        SalesOrder order = drawingBudgetOrder();
+        order.setStatus(OrderStatusEnum.BUDGET_COMPLETED.getCode());
+        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
+        request.setStatus(OrderStatusEnum.CANCELLED.getCode());
+
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> service.updateStatusAndProcess(ORDER_ID, request));
+
+        assertEquals(400, error.getCode());
+        assertEquals("图纸预算已完成，不能取消、回退或继续流转", error.getMsg());
+        verify(salesOrderMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void drawingBudgetCancelApprovalCannotMoveLegacyPendingCancelToCancelled() {
+        SalesOrder order = drawingBudgetOrder();
+        order.setStatus(OrderStatusEnum.PENDING_CANCEL.getCode());
+        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> service.approvePendingCancelToCancelled(ORDER_ID, "approved"));
+
+        assertEquals(400, error.getCode());
+        assertEquals("图纸预算订单只能从预算中流转到预算完成", error.getMsg());
+        verify(salesOrderMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void budgetCompletedDrawingOrderCannotSubmitRollback() {
+        TenantPermissionContext.init(TENANT_CODE, 1L, Set.of("order:status:budget-completed"));
+        SalesOrder order = drawingBudgetOrder();
+        order.setStatus(OrderStatusEnum.BUDGET_COMPLETED.getCode());
+        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        SalesOrderUpdateRequest request = new SalesOrderUpdateRequest();
+        request.setStatus(OrderStatusEnum.BUDGETING.getCode());
+        request.setAuditorIds(List.of(2L));
+
+        BusinessException error = assertThrows(
+                BusinessException.class,
+                () -> service.submitRollbackApproval(ORDER_ID, request));
+
+        assertEquals(400, error.getCode());
+        assertEquals("图纸预算已完成，不能提交回退审批", error.getMsg());
+        verify(salesOrderStatusLogMapper, never()).insert(any());
+        verify(approvalAuditorCandidateService, never()).replaceActiveCandidates(any(), any(), any(), any());
+    }
+
+    @Test
+    void pendingShipScanSubmitsShipmentApprovalUsingSavedLogistics() {
+        TenantPermissionContext.init(TENANT_CODE, 1L, Set.of(
+                "order:status:pending-ship",
+                "order:status:shipped"
+        ));
+        SalesOrder order = drawingBudgetOrder();
+        order.setOrderCategory(OrderCategoryEnum.BULK.getCode());
+        order.setStatus(OrderStatusEnum.PENDING_SHIP.getCode());
+        order.setExpressCompany("SF");
+        order.setExpressNo("SF123");
+        when(salesOrderMapper.selectOne(any())).thenReturn(order);
+        when(salesOrderMapper.update(any(), any())).thenReturn(1);
+        when(approvalAuditorCandidateService.findPendingAuditorIds(any(), any(), any())).thenReturn(List.of());
+        when(approvalDefaultAuditorService.resolveAuditorIds(any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenReturn(List.of(2L));
+        when(userMapper.selectActiveApproverIdsByPermission(any(), any())).thenReturn(List.of(2L));
+
+        SalesOrder advanced = service.advanceByFlowCode(flowScanCode());
+
+        assertEquals(OrderStatusEnum.PENDING_SHIP.getCode(), advanced.getStatus());
+        verify(approvalAuditorCandidateService).replaceActiveCandidates(
+                TENANT_CODE, "ORDER", "sales:" + ORDER_ID, List.of(2L));
+        ArgumentCaptor<SalesOrderStatusLog> logCaptor = ArgumentCaptor.forClass(SalesOrderStatusLog.class);
+        verify(salesOrderStatusLogMapper).insert(logCaptor.capture());
+        assertEquals("shipment_approval_pending", logCaptor.getValue().getOperateType());
+        assertEquals(OrderStatusEnum.SHIPPED.getCode(), logCaptor.getValue().getNewStatus());
     }
 
     private SalesOrder drawingBudgetOrder() {

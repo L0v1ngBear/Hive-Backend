@@ -5,7 +5,6 @@ import jakarta.validation.constraints.*;
 import lombok.Data;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 /**
  * ProductionOrderAddRequest 属于小程序后端订单模块，定义入参结构。
@@ -45,9 +44,8 @@ public class ProductionOrderAddRequest {
     @Schema(description = "订单小项类型：sample_room-样板间，bulk-大货，replenishment-补单")
     private String orderCategory;
 
-    @NotNull(message = "预计交付日期不能为空")
-    @Future(message = "交付日期必须是将来某个时间")
-    @Schema(description = "预计交付日期")
-    private LocalDateTime deliveryDate;
+    @NotBlank(message = "信息渠道不能为空")
+    @Schema(description = "信息渠道")
+    private String informationChannel;
 
 }

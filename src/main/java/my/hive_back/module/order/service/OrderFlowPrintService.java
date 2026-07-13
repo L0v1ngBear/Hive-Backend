@@ -92,7 +92,7 @@ public class OrderFlowPrintService {
                 order.getProjectName(),
                 order.getBrandName(),
                 firstItem == null ? order.getGoodsDesc() : firstItem.getModelCode());
-        payload.put("deliveryDate", safeText(order.getDeliveryDate(), ""));
+        payload.put("informationChannel", safeText(order.getInformationChannel(), ""));
         payload.put("printReason", "订单流转码待打印");
         payload.put("flowQrPayload", buildQrPayload(payload));
         return payload;
