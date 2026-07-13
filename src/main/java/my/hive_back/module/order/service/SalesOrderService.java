@@ -73,6 +73,15 @@ public class SalesOrderService {
             OrderStatusEnum.PENDING_CANCEL.getCode(),
             OrderStatusEnum.CANCELLED.getCode()
     );
+    private static final List<String> STANDARD_SALES_FLOW_STATUS_CODES = List.of(
+            OrderStatusEnum.PENDING_CONFIRM.getCode(),
+            OrderStatusEnum.PENDING_PAY.getCode(),
+            OrderStatusEnum.PENDING_MATERIAL.getCode(),
+            OrderStatusEnum.PRODUCING.getCode(),
+            OrderStatusEnum.PENDING_SHIP.getCode(),
+            OrderStatusEnum.SHIPPED.getCode(),
+            OrderStatusEnum.COMPLETED.getCode()
+    );
     private static final String CATEGORY_DRAWING_BUDGET = OrderCategoryEnum.DRAWING_BUDGET.getCode();
     private static final String CATEGORY_SPECIAL_ORDER = OrderCategoryEnum.SPECIAL_ORDER.getCode();
     private static final String APPROVAL_TYPE_ORDER = "ORDER";
@@ -357,8 +366,12 @@ public class SalesOrderService {
         if (OrderStatusEnum.PENDING_PAY.getCode().equals(currentStatus)) {
             throw new BusinessException(400, "待收款订单转备料中需要先通过订单审批");
         }
-        String nextStatus = resolveNextSalesStatus(currentStatus);
+        String nextStatus = resolveNextSalesStatus(order.getOrderCategory(), currentStatus);
         if (StringUtils.isBlank(nextStatus)) {
+            if (isDrawingBudgetOrder(order.getOrderCategory())
+                    && OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(currentStatus)) {
+                throw new BusinessException(400, "图纸预算已完成，当前状态无法继续流转");
+            }
             throw new BusinessException(400, "当前状态无法继续流转");
         }
         if (OrderStatusEnum.SHIPPED.getCode().equals(nextStatus)) {
@@ -1023,16 +1036,16 @@ public class SalesOrderService {
                 || OrderStatusEnum.BUDGET_COMPLETED.getCode().equals(status);
     }
 
-    private String resolveNextSalesStatus(String currentStatus) {
-        if (OrderStatusEnum.COMPLETED.getCode().equals(currentStatus)
-                || OrderStatusEnum.PENDING_CANCEL.getCode().equals(currentStatus)
-                || OrderStatusEnum.CANCELLED.getCode().equals(currentStatus)) {
+    private String resolveNextSalesStatus(String orderCategory, String currentStatus) {
+        if (isDrawingBudgetOrder(orderCategory)) {
+            return OrderStatusEnum.BUDGETING.getCode().equals(currentStatus)
+                    ? OrderStatusEnum.BUDGET_COMPLETED.getCode()
+                    : "";
+        }
+        int index = STANDARD_SALES_FLOW_STATUS_CODES.indexOf(currentStatus);
+        if (index < 0 || index >= STANDARD_SALES_FLOW_STATUS_CODES.size() - 1) {
             return "";
         }
-        int index = SALES_STATUS_CODES.indexOf(currentStatus);
-        if (index < 0 || index >= SALES_STATUS_CODES.size() - 1) {
-            return "";
-        }
-        return SALES_STATUS_CODES.get(index + 1);
+        return STANDARD_SALES_FLOW_STATUS_CODES.get(index + 1);
     }
 }
